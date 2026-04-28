@@ -82,7 +82,7 @@ osg::ref_ptr<osg::Texture2D> Atlas::_makeTexture(const slughorn::Atlas::TextureD
 
 osg::StateSet* Atlas::createDefaultStateSet() const {
 	auto* ss = new osg::StateSet();
-	auto program = new osg::Program();
+	auto* program = new osg::Program();
 
 	// TODO: IMPROVE THIS SUBSTANTIALLY!
 	program->addShader(osg::Shader::readShaderFile(osg::Shader::VERTEX, "../src/osgSlug-vert.glsl"));
