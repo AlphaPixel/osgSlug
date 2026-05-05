@@ -145,14 +145,14 @@ int slug_FindBandX(ivec2 glyphLoc, int bandMaxY, int bandMaxX, vec4 bandTransfor
 }
 
 // ------------------------------------------------------------------------------------------------
-// slug_AdaptiveBandEdge
+// slug_SplitBandEdge
 //
-// Returns a [0..1] edge weight for debug band-grid overlay when adaptive splits are active.
+// Returns a [0..1] edge weight for debug band-grid overlay when explicit splits are active.
 // For each axis, fetches the B-channel boundary fractions of the current band and its predecessor,
 // then uses fwidth-based smoothstep to produce a 1px anti-aliased line at each real boundary.
-// Only called when the adaptive sentinel (B != 0) has already been confirmed.
+// Only called when the split sentinel (B != 0) has already been confirmed.
 // ------------------------------------------------------------------------------------------------
-float slug_AdaptiveBandEdge(ivec2 glyphLoc, int bandMaxY, int bandMaxX, vec4 bandTransform, vec2 renderCoord) {
+float slug_SplitBandEdge(ivec2 glyphLoc, int bandMaxY, int bandMaxX, vec4 bandTransform, vec2 renderCoord) {
 	// Y axis
 	int bY	 = slug_FindBandY(glyphLoc, bandMaxY, bandTransform, renderCoord);
 	float normY = (renderCoord.y * bandTransform.y + bandTransform.w) / float(bandMaxY + 1);
@@ -480,11 +480,11 @@ vec4 slug_ApplyDebug(
 ) {
 	vec2 bandCoord = emCoord * bandXform.xy + bandXform.zw;
 
-	// Detect adaptive mode: if the first hband header's B channel is non-zero, splits are active.
-	bool adaptive = texelFetch(osgSlug_bandTexture, ivec2(glyphLoc.x, glyphLoc.y), 0).b != 0u;
+	// Detect split mode: if the first hband header's B channel is non-zero, explicit splits are active.
+	bool hasSplits = texelFetch(osgSlug_bandTexture, ivec2(glyphLoc.x, glyphLoc.y), 0).b != 0u;
 
-	// Band indices: adaptive uses the scan helpers; uniform uses the direct linear formula.
-	ivec2 bandIdx = adaptive
+	// Band indices: split path uses the scan helpers; uniform uses the direct linear formula.
+	ivec2 bandIdx = hasSplits
 		? ivec2(slug_FindBandX(glyphLoc, bandMax.y, bandMax.x, bandXform, emCoord),
 				slug_FindBandY(glyphLoc, bandMax.y, bandXform, emCoord))
 		: clamp(ivec2(bandCoord), ivec2(0), ivec2(bandMax.x, bandMax.y));
@@ -500,11 +500,11 @@ vec4 slug_ApplyDebug(
 		return vec4(checker ? layerColor.rgb : altColor, fill * layerColor.a);
 	}
 
-	// Edge detection: adaptive reads real boundary fractions from B channel;
+	// Edge detection: split path reads real boundary fractions from B channel;
 	// uniform uses fract(bandCoord) at integer boundaries.
 	float atEdge;
-	if(adaptive) {
-		atEdge = slug_AdaptiveBandEdge(glyphLoc, bandMax.y, bandMax.x, bandXform, emCoord);
+	if(hasSplits) {
+		atEdge = slug_SplitBandEdge(glyphLoc, bandMax.y, bandMax.x, bandXform, emCoord);
 	} else {
 		vec2 bandFrac  = fract(bandCoord);
 		vec2 edgeWidth = fwidth(bandCoord);
