@@ -19,6 +19,9 @@ out vec4 color;
 // TODO: This needs to match slughorn::Atlas::TEX_WIDTH, and for NOW is hardcoded to 512 (1 << 9).
 #define TEX_WIDTH 9
 
+// Must match slughorn::Atlas::INDIRECTION_SIZE.
+#define SLUG_INDIRECTION_SIZE 32
+
 // ================================================================================================
 // Slug core
 // ================================================================================================
@@ -89,96 +92,29 @@ float slug_CalcCoverage(float xcov, float ycov, float xwgt, float ywgt) {
 }
 
 // ------------------------------------------------------------------------------------------------
-// slug_FindBandY
+// slug_BandY / slug_BandX
 //
-// Returns the horizontal band index (Y-axis slice) for the current fragment.
+// O(1) band index lookup via the per-shape indirection tables written by packTextures().
 //
-// If the first hband header's B channel is zero (sentinel: CPU has not written split boundaries),
-// falls back to the original direct linear formula - identical to the old behavior.
+// bandTransform.xy maps em-coords to [0, SLUG_INDIRECTION_SIZE) space. The quantized slot
+// indexes directly into the Y (or X) indirection table; each table entry's R channel holds the
+// band index for that slot. Two texelFetches total per axis, regardless of band count.
 //
-// If B is non-zero, the B channel of each hband header stores the upper boundary of that band,
-// encoded as a uint16 normalized over the shape's Y range [0, 65535]. The loop scans headers
-// in order and returns the first band whose upper boundary exceeds the fragment's normalized Y.
+// Band texture layout per shape (from glyphLoc):
+//   [0 .. INDIRECTION_SIZE-1]		   Y indirection table
+//   [INDIRECTION_SIZE .. 2*IS-1]		X indirection table
+//   [2*IS .. 2*IS + numHBands - 1]	  hband headers
+//   [2*IS + numHBands .. ...]		   vband headers
+//   (followed by curve index lists, row-wrapped via slug_CalcBandLoc)
 // ------------------------------------------------------------------------------------------------
-int slug_FindBandY(ivec2 glyphLoc, int bandMaxY, vec4 bandTransform, vec2 renderCoord) {
-	uvec4 hh0 = texelFetch(osgSlug_bandTexture, ivec2(glyphLoc.x, glyphLoc.y), 0);
-
-	if(hh0.b == 0u)
-		return clamp(int(renderCoord.y * bandTransform.y + bandTransform.w), 0, bandMaxY);
-
-	float normY = (renderCoord.y * bandTransform.y + bandTransform.w) / float(bandMaxY + 1);
-
-	if(normY < float(hh0.b) / 65535.0) return 0;
-
-	for(int b = 1; b < bandMaxY; b++) {
-		if(normY < float(texelFetch(osgSlug_bandTexture, ivec2(glyphLoc.x + b, glyphLoc.y), 0).b) / 65535.0)
-			return b;
-	}
-
-	return bandMaxY;
+int slug_BandY(ivec2 glyphLoc, vec4 bandTransform, vec2 renderCoord) {
+	int q = clamp(int(renderCoord.y * bandTransform.y + bandTransform.w), 0, SLUG_INDIRECTION_SIZE - 1);
+	return int(texelFetch(osgSlug_bandTexture, ivec2(glyphLoc.x + q, glyphLoc.y), 0).r);
 }
 
-// ------------------------------------------------------------------------------------------------
-// slug_FindBandX
-//
-// Same as slug_FindBandY but for the vertical band index (X-axis slice). Vband headers begin at
-// glyphLoc.x + bandMaxY + 1 in the band texture.
-// ------------------------------------------------------------------------------------------------
-int slug_FindBandX(ivec2 glyphLoc, int bandMaxY, int bandMaxX, vec4 bandTransform, vec2 renderCoord) {
-	int vbase = bandMaxY + 1;
-
-	uvec4 vh0 = texelFetch(osgSlug_bandTexture, ivec2(glyphLoc.x + vbase, glyphLoc.y), 0);
-
-	if(vh0.b == 0u)
-		return clamp(int(renderCoord.x * bandTransform.x + bandTransform.z), 0, bandMaxX);
-
-	float normX = (renderCoord.x * bandTransform.x + bandTransform.z) / float(bandMaxX + 1);
-
-	if(normX < float(vh0.b) / 65535.0) return 0;
-
-	for(int b = 1; b < bandMaxX; b++) {
-		if(normX < float(texelFetch(osgSlug_bandTexture, ivec2(glyphLoc.x + vbase + b, glyphLoc.y), 0).b) / 65535.0)
-			return b;
-	}
-
-	return bandMaxX;
-}
-
-// ------------------------------------------------------------------------------------------------
-// slug_SplitBandEdge
-//
-// Returns a [0..1] edge weight for debug band-grid overlay when explicit splits are active.
-// For each axis, fetches the B-channel boundary fractions of the current band and its predecessor,
-// then uses fwidth-based smoothstep to produce a 1px anti-aliased line at each real boundary.
-// Only called when the split sentinel (B != 0) has already been confirmed.
-// ------------------------------------------------------------------------------------------------
-float slug_SplitBandEdge(ivec2 glyphLoc, int bandMaxY, int bandMaxX, vec4 bandTransform, vec2 renderCoord) {
-	// Y axis
-	int bY	 = slug_FindBandY(glyphLoc, bandMaxY, bandTransform, renderCoord);
-	float normY = (renderCoord.y * bandTransform.y + bandTransform.w) / float(bandMaxY + 1);
-
-	float upperY = float(texelFetch(osgSlug_bandTexture, ivec2(glyphLoc.x + bY, glyphLoc.y), 0).b) / 65535.0;
-	float lowerY = bY > 0
-		? float(texelFetch(osgSlug_bandTexture, ivec2(glyphLoc.x + bY - 1, glyphLoc.y), 0).b) / 65535.0
-		: 0.0;
-
-	float dY	= fwidth(normY);
-	float edgeY = 1.0 - smoothstep(0.0, dY * 2.0, min(abs(normY - upperY), abs(normY - lowerY)));
-
-	// X axis
-	int vbase  = bandMaxY + 1;
-	int bX	 = slug_FindBandX(glyphLoc, bandMaxY, bandMaxX, bandTransform, renderCoord);
-	float normX = (renderCoord.x * bandTransform.x + bandTransform.z) / float(bandMaxX + 1);
-
-	float upperX = float(texelFetch(osgSlug_bandTexture, ivec2(glyphLoc.x + vbase + bX, glyphLoc.y), 0).b) / 65535.0;
-	float lowerX = bX > 0
-		? float(texelFetch(osgSlug_bandTexture, ivec2(glyphLoc.x + vbase + bX - 1, glyphLoc.y), 0).b) / 65535.0
-		: 0.0;
-
-	float dX	= fwidth(normX);
-	float edgeX = 1.0 - smoothstep(0.0, dX * 2.0, min(abs(normX - upperX), abs(normX - lowerX)));
-
-	return max(edgeY, edgeX);
+int slug_BandX(ivec2 glyphLoc, vec4 bandTransform, vec2 renderCoord) {
+	int q = clamp(int(renderCoord.x * bandTransform.x + bandTransform.z), 0, SLUG_INDIRECTION_SIZE - 1);
+	return int(texelFetch(osgSlug_bandTexture, ivec2(glyphLoc.x + SLUG_INDIRECTION_SIZE + q, glyphLoc.y), 0).r);
 }
 
 // ------------------------------------------------------------------------------------------------
@@ -206,17 +142,17 @@ float slug_Render(
 	// always small (numBands - 1).
 	//
 	// TODO: Investigate WHY the HLSL reference shaders did this! Am I missing something?
-	int bandMaxY = bandMax.y;
-	int bandMaxX = bandMax.x;
 
-	int bandY = slug_FindBandY(glyphLoc, bandMaxY, bandTransform, renderCoord);
-	int bandX = slug_FindBandX(glyphLoc, bandMaxY, bandMaxX, bandTransform, renderCoord);
+	int bandY = slug_BandY(glyphLoc, bandTransform, renderCoord);
+	int bandX = slug_BandX(glyphLoc, bandTransform, renderCoord);
 
 	float xcov = 0.0;
 	float xwgt = 0.0;
 	int iters = 0;
 
-	uvec2 hbandData = texelFetch(osgSlug_bandTexture, ivec2(glyphLoc.x + bandY, glyphLoc.y), 0).xy;
+	// hband header at glyphLoc + 2*IS + bandY; vband header at glyphLoc + 2*IS + numHBands + bandX.
+	// numHBands = bandMax.y + 1 (bandMaxY = numBandsY - 1, stored in v_shapeData.w).
+	uvec2 hbandData = texelFetch(osgSlug_bandTexture, ivec2(glyphLoc.x + 2 * SLUG_INDIRECTION_SIZE + bandY, glyphLoc.y), 0).xy;
 	ivec2 hbandLoc = slug_CalcBandLoc(glyphLoc, hbandData.y);
 
 	for(curveIndex = 0; curveIndex < int(hbandData.x); curveIndex++) {
@@ -249,7 +185,7 @@ float slug_Render(
 	float ycov = 0.0;
 	float ywgt = 0.0;
 
-	uvec2 vbandData = texelFetch(osgSlug_bandTexture, ivec2(glyphLoc.x + bandMaxY + 1 + bandX, glyphLoc.y), 0).xy;
+	uvec2 vbandData = texelFetch(osgSlug_bandTexture, ivec2(glyphLoc.x + 2 * SLUG_INDIRECTION_SIZE + bandMax.y + 1 + bandX, glyphLoc.y), 0).xy;
 	ivec2 vbandLoc = slug_CalcBandLoc(glyphLoc, vbandData.y);
 
 	for(curveIndex = 0; curveIndex < int(vbandData.x); curveIndex++) {
@@ -308,16 +244,11 @@ vec3 slug_Heatmap(float t) {
 // Converts a raw em-space coordinate (as interpolated in v_emCoord) into a normalized [0..1] UV
 // within the shape's tight bounding box.
 //
-// This "undoes" the localization optimization for effect purposes; the Slug coverage math is
-// completely unaffected, but effects can treat the shape as a traditional textured quad with UVs
-// running 0..1 across its face (roughly).
-//
-// Derivation: the band transform encodes `bandCoord = emPos * bandScale + bandOffset` Inverting at
-// bandCoord=0 gives emOrigin; numBands/bandScale gives emSize.
+// bandXform.xy = SLUG_INDIRECTION_SIZE / range, so range = SLUG_INDIRECTION_SIZE / bandXform.xy.
 // ------------------------------------------------------------------------------------------------
-vec2 slug_EmToUV(vec2 emCoord, vec4 bandXform, ivec2 bandMax) {
+vec2 slug_EmToUV(vec2 emCoord, vec4 bandXform) {
 	vec2 emOrigin = -bandXform.zw / bandXform.xy;
-	vec2 emSize = vec2(bandMax + 1) / bandXform.xy;
+	vec2 emSize = float(SLUG_INDIRECTION_SIZE) / bandXform.xy;
 
 	return (emCoord - emOrigin) / emSize;
 }
@@ -333,8 +264,7 @@ vec4 slug_ApplyEffect(
 	vec2 emCoord,
 	vec4 layerColor,
 	int effectId,
-	vec4 bandXform,
-	ivec2 bandMax
+	vec4 bandXform
 ) {
 	if(effectId == 1) {
 		// ----------------------------------------------------------------------------------------
@@ -386,7 +316,7 @@ vec4 slug_ApplyEffect(
 		// slug_EmToUV() gives a true 0..1 UV across the shape's bounding box. The texture is
 		// sampled directly; bind any osg::Texture2D to unit 2 via the state set.
 		// ----------------------------------------------------------------------------------------
-		vec2 uv01 = slug_EmToUV(emCoord, bandXform, bandMax);
+		vec2 uv01 = slug_EmToUV(emCoord, bandXform);
 		vec4 s = texture(osgSlug_effectTexture, uv01);
 
 		vec3 blended = mix(layerColor.rgb, s.rgb, s.a);
@@ -394,7 +324,7 @@ vec4 slug_ApplyEffect(
 	}
 
 	if(effectId == 4) {
-		vec2 uv01 = slug_EmToUV(emCoord, bandXform, bandMax);
+		vec2 uv01 = slug_EmToUV(emCoord, bandXform);
 
 		// Scroll right-to-left by offsetting X with time
 		float scrolled = uv01.x + float(osg_SimulationTime) * 0.3; // speed
@@ -419,7 +349,7 @@ vec4 slug_ApplyEffect(
 
 	// A kind of "paper burning away" effect; very cool. :)
 	if(effectId == 5) {
-		vec2 uv01 = slug_EmToUV(emCoord, bandXform, bandMax);
+		vec2 uv01 = slug_EmToUV(emCoord, bandXform);
 
 		float t = osg_SimulationTime;
 
@@ -475,19 +405,19 @@ vec4 slug_ApplyDebug(
 	vec4 layerColor,
 	ivec2 glyphLoc,
 	vec4 bandXform,
-	ivec2 bandMax,
 	int iterations
 ) {
+	// bandCoord is in [0, SLUG_INDIRECTION_SIZE) space on both axes.
 	vec2 bandCoord = emCoord * bandXform.xy + bandXform.zw;
 
-	// Detect split mode: if the first hband header's B channel is non-zero, explicit splits are active.
-	bool hasSplits = texelFetch(osgSlug_bandTexture, ivec2(glyphLoc.x, glyphLoc.y), 0).b != 0u;
+	// O(1) band index via indirection tables.
+	int qY = clamp(int(bandCoord.y), 0, SLUG_INDIRECTION_SIZE - 1);
+	int qX = clamp(int(bandCoord.x), 0, SLUG_INDIRECTION_SIZE - 1);
 
-	// Band indices: split path uses the scan helpers; uniform uses the direct linear formula.
-	ivec2 bandIdx = hasSplits
-		? ivec2(slug_FindBandX(glyphLoc, bandMax.y, bandMax.x, bandXform, emCoord),
-				slug_FindBandY(glyphLoc, bandMax.y, bandXform, emCoord))
-		: clamp(ivec2(bandCoord), ivec2(0), ivec2(bandMax.x, bandMax.y));
+	ivec2 bandIdx = ivec2(
+		int(texelFetch(osgSlug_bandTexture, ivec2(glyphLoc.x + SLUG_INDIRECTION_SIZE + qX, glyphLoc.y), 0).r),
+		int(texelFetch(osgSlug_bandTexture, ivec2(glyphLoc.x + qY, glyphLoc.y), 0).r)
+	);
 
 	if(osgSlug_debugMode == 1) {
 		// ----------------------------------------------------------------------------------------
@@ -500,18 +430,26 @@ vec4 slug_ApplyDebug(
 		return vec4(checker ? layerColor.rgb : altColor, fill * layerColor.a);
 	}
 
-	// Edge detection: split path reads real boundary fractions from B channel;
-	// uniform uses fract(bandCoord) at integer boundaries.
-	float atEdge;
-	if(hasSplits) {
-		atEdge = slug_SplitBandEdge(glyphLoc, bandMax.y, bandMax.x, bandXform, emCoord);
-	} else {
-		vec2 bandFrac  = fract(bandCoord);
-		vec2 edgeWidth = fwidth(bandCoord);
-		vec2 edgeDist  = min(bandFrac, 1.0 - bandFrac);
-		vec2 lineMask  = smoothstep(edgeWidth, vec2(0.0), edgeDist);
-		atEdge = max(lineMask.x, lineMask.y);
-	}
+	// Edge detection via indirection table: scan adjacent slots; a boundary exists where adjacent
+	// slots map to different band indices. Uses fwidth/smoothstep for 1px anti-aliased lines.
+	int bY_prev = int(texelFetch(osgSlug_bandTexture, ivec2(glyphLoc.x + max(qY - 1, 0), glyphLoc.y), 0).r);
+	int bY_next = int(texelFetch(osgSlug_bandTexture, ivec2(glyphLoc.x + min(qY + 1, SLUG_INDIRECTION_SIZE - 1), glyphLoc.y), 0).r);
+	int bX_prev = int(texelFetch(osgSlug_bandTexture, ivec2(glyphLoc.x + SLUG_INDIRECTION_SIZE + max(qX - 1, 0), glyphLoc.y), 0).r);
+	int bX_next = int(texelFetch(osgSlug_bandTexture, ivec2(glyphLoc.x + SLUG_INDIRECTION_SIZE + min(qX + 1, SLUG_INDIRECTION_SIZE - 1), glyphLoc.y), 0).r);
+
+	float fracY = fract(bandCoord.y);
+	float dY	= fwidth(bandCoord.y);
+	float edgeY = 0.0;
+	if(bandIdx.y != bY_prev) edgeY = max(edgeY, 1.0 - smoothstep(0.0, dY * 2.0, fracY));
+	if(bandIdx.y != bY_next) edgeY = max(edgeY, 1.0 - smoothstep(0.0, dY * 2.0, 1.0 - fracY));
+
+	float fracX = fract(bandCoord.x);
+	float dX	= fwidth(bandCoord.x);
+	float edgeX = 0.0;
+	if(bandIdx.x != bX_prev) edgeX = max(edgeX, 1.0 - smoothstep(0.0, dX * 2.0, fracX));
+	if(bandIdx.x != bX_next) edgeX = max(edgeX, 1.0 - smoothstep(0.0, dX * 2.0, 1.0 - fracX));
+
+	float atEdge = max(edgeY, edgeX);
 
 	if(osgSlug_debugMode == 2) {
 		// ----------------------------------------------------------------------------------------
@@ -583,7 +521,7 @@ void main() {
 	// impossible to get a CONSISTENTLY-sized "1 pixel" border. To do that, we'd need the
 	// actual/traditional UV values in the range 0-1.
 	if(osgSlug_debugMode == 3) {
-		vec2 uv = slug_EmToUV(v_emCoord, v_bandXform, bandMax);
+		vec2 uv = slug_EmToUV(v_emCoord, v_bandXform);
 
 		vec2 distToEdge = min(uv, 1.0 - uv);
 		float dist = min(distToEdge.x, distToEdge.y);
@@ -593,7 +531,7 @@ void main() {
 
 		float onEdge = step(dist, px);
 
-		/* vec2 uv = slug_EmToUV(v_emCoord, v_bandXform, bandMax);
+		/* vec2 uv = slug_EmToUV(v_emCoord, v_bandXform);
 
 		// detect where actual coverage starts
 		float edgeThreshold = 0.001;
@@ -614,7 +552,7 @@ void main() {
 
 		if(fill < 0.001 && onEdge < 0.01) discard;
 
-		vec4 fillColor = slug_ApplyEffect(fill, v_emCoord, v_color, v_effectId, v_bandXform, bandMax);
+		vec4 fillColor = slug_ApplyEffect(fill, v_emCoord, v_color, v_effectId, v_bandXform);
 
 		vec4 borderColor = vec4(
 			fract(v_bandXform.x * 127.1),
@@ -648,8 +586,8 @@ void main() {
 
 		// color = (osgSlug_debugMode == 0 || osgSlug_debugMode == 6 || osgSlug_debugMode == 10)
 		color = (osgSlug_debugMode == 0 || osgSlug_debugMode == 6)
-			? slug_ApplyEffect(fill, v_emCoord, v_color, v_effectId, v_bandXform, bandMax)
-			: slug_ApplyDebug(fill, v_emCoord, v_color, glyphLoc, v_bandXform, bandMax, iterations)
+			? slug_ApplyEffect(fill, v_emCoord, v_color, v_effectId, v_bandXform)
+			: slug_ApplyDebug(fill, v_emCoord, v_color, glyphLoc, v_bandXform, iterations)
 		;
 	}
 }
