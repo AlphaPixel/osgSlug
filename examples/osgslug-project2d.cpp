@@ -1,24 +1,10 @@
 // vimrun! ./osgslug-project2d
 
-#include "osgSlug/Atlas.hpp"
-#include "osgSlug/Drawable.hpp"
+#include "osgslug-example.hpp"
 
 #define SLUGHORN_CAIRO_IMPLEMENTATION
-#include "slughorn-cairo.hpp"
-#include "slughorn-canvas.hpp"
-
-#include "CLI/CLI.hpp"
-
-OSGSLUG_DISABLE_WARNINGS
-
-#include <osg/MatrixTransform>
-
-#include <osgViewer/Viewer>
-#include <osgViewer/ViewerEventHandlers>
-
-OSGSLUG_ENABLE_WARNINGS
-
-#include <cairo/cairo.h>
+#include "slughorn/cairo.hpp"
+#include "slughorn/canvas.hpp"
 
 // ================================================================================================
 // osgSlug-grid.hpp - GPU-rendered 2D grid using stretched Slug unit-square quads
@@ -322,6 +308,7 @@ private:
 
 }
 
+// TODO: Convert to osgx::make_ref!
 osg::Camera* createOrthoCamera(slug_t width, slug_t height) {
 	osg::Camera* camera = new osg::Camera();
 
@@ -439,11 +426,16 @@ void buildRoundedRectPath(cairo_t* cr) {
 // main
 // =============================================================================
 int main(int argc, char** argv) {
-	CLI::App app{"osgslug-project2d"};
+	osg::ArgumentParser args(&argc, argv);
 
-	auto* perspective = app.add_flag("-p", "Use standard perspective view instead");
+	osgViewer::Viewer viewer(args);
 
-	CLI11_PARSE(app, argc, argv);
+	example::setupArguments(args, "Displays a Shape on a 3D mesh", {
+		{
+			"--perspective",
+			"Use a traditional 3D perspective view (instead of ortho2D)"
+		}
+	});
 
 	auto atlas = osgx::make_ref<osgSlug::Atlas>();
 
@@ -466,7 +458,7 @@ int main(int argc, char** argv) {
 
 	slughorn::Atlas::ShapeInfo info;
 
-	std::tie(info.curves, std::ignore) = slughorn::cairo::decomposePath(cr, SCALE);
+	std::tie(info, std::ignore) = slughorn::cairo::decomposePath(cr, SCALE);
 
 	cairo_destroy(cr);
 	cairo_surface_destroy(surface);
@@ -509,6 +501,7 @@ int main(int argc, char** argv) {
 	sd->addLayer({KEY, {0.2_cv, 0.8_cv, 0.4_cv, 0.8_cv}});
 	// sd->addLayer({KEY, {0.2_cv, 0.8_cv, 0.4_cv, 1.0_cv}});
 	sd->compile();
+	sd->setName("sd");
 
 	grid->setAtlas(atlas); // must contain the unit square shape
 	grid->setGridExtent(800, 600); // world-space width x height
@@ -519,6 +512,7 @@ int main(int argc, char** argv) {
 	grid->setMajorColor({0.8_cv, 0.8_cv, 0.8_cv, 1.0_cv});
 	grid->setMinorColor({0.65_cv, 0.65_cv, 0.65_cv, 0.8_cv});
 	grid->compile();
+	grid->setName("grid");
 
 	auto sdg = osgx::make_ref<osg::Geode>();
 
@@ -531,26 +525,15 @@ int main(int argc, char** argv) {
 	mat->addChild(sdg);
 	mat->setMatrix(osg::Matrix::translate(osg::Vec3(400, 300, 0)));
 
-	osgViewer::Viewer viewer;
+	// If the user wants to view the scene in typical 3D...
+	if(args.read("--perspective")) return example::run(viewer, args, mat);
 
-	if(*perspective) {
-		auto root = osgx::make_ref<osg::MatrixTransform>();
-
-		root->setMatrix(osg::Matrix::rotate(osg::DegreesToRadians(90.0), osg::Vec3(1, 0, 0)));
-		root->addChild(mat);
-
-		viewer.setSceneData(root);
-	}
-
+	// Otherwise, stick our scene into a traditional ortho2D setup.
 	else {
 		auto* project2d = createOrthoCamera(800_cv, 600_cv);
 
 		project2d->addChild(mat);
 
-		viewer.setSceneData(project2d);
+		return example::run(viewer, args, project2d, false);
 	}
-
-	viewer.addEventHandler(new osgViewer::StatsHandler());
-
-	return viewer.run();
 }

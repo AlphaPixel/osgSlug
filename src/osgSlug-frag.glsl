@@ -13,10 +13,20 @@ uniform sampler2D osgSlug_curveTexture;
 uniform usampler2D osgSlug_bandTexture;
 uniform sampler2D osgSlug_effectTexture;
 uniform int osgSlug_debugMode;
+uniform bool osgSlug_textMode; // enables MSAA, stem darkening, and gamma for text layers
+uniform bool osgSlug_stemDarken; // requires osgSlug_textMode; true = apply stem darkening to edge
+uniform float osgSlug_gamma; // 1.0 = off, 2.2 = dark-on-light, ~0.454 = light-on-dark
 
 out vec4 color;
 
-// TODO: This needs to match slughorn::Atlas::TEX_WIDTH, and for NOW is hardcoded to 512 (1 << 9).
+// Hardcoded to log2(512) = 9, matching the default Atlas() constructor.
+// When osgSlug is ready to support non-default atlas widths, replace this define with a uniform:
+//
+// uniform int osgSlug_texWidthLog2; // = log2(atlas.getTextureWidth())
+//
+// The host sets it once at setup: osgSlug_texWidthLog2 = __builtin_ctz(atlas.getTextureWidth())
+// (or a portable equivalent). All uses below >> TEX_WIDTH and (1 << TEX_WIDTH) - 1 stay
+// the same, just referencing the uniform instead.
 #define TEX_WIDTH 9
 
 // Must match slughorn::Atlas::INDIRECTION_SIZE.
@@ -101,41 +111,45 @@ float slug_CalcCoverage(float xcov, float ycov, float xwgt, float ywgt) {
 // band index for that slot. Two texelFetches total per axis, regardless of band count.
 //
 // Band texture layout per shape (from glyphLoc):
-//   [0 .. INDIRECTION_SIZE-1]		   Y indirection table
-//   [INDIRECTION_SIZE .. 2*IS-1]		X indirection table
-//   [2*IS .. 2*IS + numHBands - 1]	  hband headers
-//   [2*IS + numHBands .. ...]		   vband headers
-//   (followed by curve index lists, row-wrapped via slug_CalcBandLoc)
+//
+// [0 .. INDIRECTION_SIZE-1] = Y indirection table
+// [INDIRECTION_SIZE .. 2*IS-1] = X indirection table
+// [2*IS .. 2*IS + numHBands - 1] = hband headers
+// [2*IS + numHBands .. ...] = vband headers
+//
+// ...followed by curve index lists, row-wrapped via slug_CalcBandLoc.
 // ------------------------------------------------------------------------------------------------
 int slug_BandY(ivec2 glyphLoc, vec4 bandTransform, vec2 renderCoord) {
 	int q = clamp(int(renderCoord.y * bandTransform.y + bandTransform.w), 0, SLUG_INDIRECTION_SIZE - 1);
+
 	return int(texelFetch(osgSlug_bandTexture, ivec2(glyphLoc.x + q, glyphLoc.y), 0).r);
 }
 
 int slug_BandX(ivec2 glyphLoc, vec4 bandTransform, vec2 renderCoord) {
 	int q = clamp(int(renderCoord.x * bandTransform.x + bandTransform.z), 0, SLUG_INDIRECTION_SIZE - 1);
+
 	return int(texelFetch(osgSlug_bandTexture, ivec2(glyphLoc.x + SLUG_INDIRECTION_SIZE + q, glyphLoc.y), 0).r);
 }
 
 // ------------------------------------------------------------------------------------------------
 // slug_Render
 //
-// Returns Slug coverage in [0..1] and, via totalIterations, the total number of curve-fetch loop
-// iterations executed for this fragment. The iteration count is the primary cost signal: more
-// iterations = more texture fetches = more expensive fragment. Use with osgSlug_debugMode 3
-// (heatmap) to visualise band efficiency.
+// Core single-sample Slug coverage. pixelsPerEm is passed from the caller (computed via fwidth
+// at uniform control flow in main) so sub-pixel MSAA samples share the same pixel-frequency
+// estimate.
+//
+// Returns coverage in [0..1] and, via totalIterations, the total curve-fetch loop iterations
+// executed. Use with osgSlug_debugMode 4 (heatmap) to visualise band efficiency.
 // ------------------------------------------------------------------------------------------------
 float slug_Render(
 	vec2 renderCoord,
+	vec2 pixelsPerEm,
 	vec4 bandTransform,
 	ivec2 glyphLoc,
 	ivec2 bandMax,
 	out int totalIterations
 ) {
 	int curveIndex;
-
-	vec2 emsPerPixel = fwidth(renderCoord);
-	vec2 pixelsPerEm = 1.0 / emsPerPixel;
 
 	// Former "& 0x00FF" mask removed; was an artifact of the original HLSL packing where bandMaxY
 	// and a flags byte shared one field. In slughorn these are separate values and bandMaxY is
@@ -218,6 +232,51 @@ float slug_Render(
 	totalIterations = iters;
 
 	return slug_CalcCoverage(xcov, ycov, xwgt, ywgt);
+}
+
+// ------------------------------------------------------------------------------------------------
+// slug_RenderText
+//
+// Text-quality wrapper around slug_Render. Adds 4x rotated-grid MSAA below 16 ppem, blending
+// toward the supersampled result via smoothstep(16, 8, ppem). Fully supersampled at 8 ppem;
+// large text pays nothing (branch never taken above 16 ppem).
+//
+// Both emsPerPixel and pixelsPerEm are passed from main() (computed once via fwidth at uniform
+// control flow) so all 5 samples share the same pixel-frequency estimate.
+//
+// Define SLUG_NO_MSAA to compile out the MSAA path for perf profiling.
+// ------------------------------------------------------------------------------------------------
+float slug_RenderText(
+	vec2 renderCoord,
+	vec2 emsPerPixel,
+	vec2 pixelsPerEm,
+	vec4 bandTransform,
+	ivec2 glyphLoc,
+	ivec2 bandMax,
+	out int totalIterations
+) {
+	float ppem = 1.0 / max(emsPerPixel.x, emsPerPixel.y);
+
+	int iters;
+	float c = slug_Render(renderCoord, pixelsPerEm, bandTransform, glyphLoc, bandMax, iters);
+
+#ifndef SLUG_NO_MSAA
+	if (ppem < 16.0) {
+		vec2 d = emsPerPixel * (1.0 / 3.0);
+		int i1, i2, i3, i4;
+		float msaa = 0.25 * (
+			slug_Render(renderCoord + vec2(-d.x, -d.y), pixelsPerEm, bandTransform, glyphLoc, bandMax, i1) +
+			slug_Render(renderCoord + vec2( d.x, -d.y), pixelsPerEm, bandTransform, glyphLoc, bandMax, i2) +
+			slug_Render(renderCoord + vec2(-d.x, d.y), pixelsPerEm, bandTransform, glyphLoc, bandMax, i3) +
+			slug_Render(renderCoord + vec2( d.x, d.y), pixelsPerEm, bandTransform, glyphLoc, bandMax, i4));
+		float msaaAmount = 1.0 - smoothstep(8.0, 16.0, ppem);
+		c = mix(c, msaa, msaaAmount);
+		iters += i1 + i2 + i3 + i4;
+	}
+#endif
+
+	totalIterations = iters;
+	return c;
 }
 
 // ------------------------------------------------------------------------------------------------
@@ -472,7 +531,8 @@ vec4 slug_ApplyDebug(
 		//
 		// maxIterations is the count that maps to full red. With numBands=12 and 14 curves,
 		// theoretical worst case is ~28 (14 x 2 passes), but band culling means most fragments see
-		// far fewer. Tune as needed.
+		// far fewer. Tune as needed. With MSAA active, iters is multiplied by 5 so the heatmap
+		// remains a useful cost signal at small sizes.
 		// ----------------------------------------------------------------------------------------
 		return vec4(heatColor, fill * layerColor.a);
 	}
@@ -491,30 +551,44 @@ vec4 slug_ApplyDebug(
 	return vec4(1.0, 0.0, 1.0, fill * layerColor.a);
 }
 
-// TODO: Borrowed from Behdad/Harfbuzz. It must operate on raw coverage, and thus can't just be
-// thrown into `osgSlug_Render`. We need to decide WHERE.
-//
-// vec2 emsPerPixel = fwidth(v_emCoord);
-// float ppem = 1.0 / max(emsPerPixel.x, emsPerPixel.y);
-//
-// crude brightness estimate from layer color
-// float brightness = dot(v_color.rgb, vec3(0.299, 0.587, 0.114));
-//
-// fill = slug_StemDarken(fill, brightness, ppem);
 float slug_StemDarken(float coverage, float brightness, float ppem) {
 	float k = mix(pow(2.0, brightness - 0.5), 1.0, smoothstep(8.0, 48.0, ppem));
 
 	return pow(coverage, k);
 }
 
-// TODO: premultiplied alpha
 void main() {
 	ivec2 glyphLoc = ivec2(v_shapeData.xy);
 	ivec2 bandMax = ivec2(v_shapeData.zw);
 
+	// fwidth at uniform control flow; both values passed into slug_Render / slug_RenderText so
+	// all samples share the same pixel-frequency estimate.
+	vec2 emsPerPixel = fwidth(v_emCoord);
+	vec2 pixelsPerEm = 1.0 / emsPerPixel;
+
 	int iterations;
 
-	float fill = slug_Render(v_emCoord, v_bandXform, glyphLoc, bandMax, iterations);
+	float fill = osgSlug_textMode
+		? slug_RenderText(v_emCoord, emsPerPixel, pixelsPerEm, v_bandXform, glyphLoc, bandMax, iterations)
+		: slug_Render(v_emCoord, pixelsPerEm, v_bandXform, glyphLoc, bandMax, iterations);
+
+	// Edge-only coverage adjustment for text: stem darkening and gamma correction.
+	// Skipped entirely for non-text layers (osgSlug_textMode == false).
+	// Applied only to partially-covered fragments; fully covered interiors are untouched.
+	if (osgSlug_textMode && fill > 0.0 && fill < 1.0) {
+		float ppem = 1.0 / max(emsPerPixel.x, emsPerPixel.y);
+		float adj = fill;
+
+		if (osgSlug_stemDarken) {
+			float brightness = dot(v_color.rgb, vec3(0.299, 0.587, 0.114));
+			adj = slug_StemDarken(adj, brightness, ppem);
+		}
+
+		if (osgSlug_gamma != 1.0)
+			adj = pow(adj, osgSlug_gamma);
+
+		fill = adj;
+	}
 
 	// Draws a border around the quad; however, because `slugEmToUV` returns the "metrics-based"
 	// size--and due to the mandatory "expand" value used in order to allow antialiasing--it's
@@ -574,20 +648,11 @@ void main() {
 	}
 
 	else {
-		/* if(osgSlug_debugMode == 10) {
-			vec2 emsPerPixel = fwidth(v_emCoord);
-			float ppem = 1.0 / max(emsPerPixel.x, emsPerPixel.y);
-
-			// crude brightness estimate from layer color
-			float brightness = dot(v_color.rgb, vec3(0.299, 0.587, 0.114));
-
-			fill = slug_StemDarken(fill, brightness, ppem);
-		} */
-
-		// color = (osgSlug_debugMode == 0 || osgSlug_debugMode == 6 || osgSlug_debugMode == 10)
 		color = (osgSlug_debugMode == 0 || osgSlug_debugMode == 6)
 			? slug_ApplyEffect(fill, v_emCoord, v_color, v_effectId, v_bandXform)
 			: slug_ApplyDebug(fill, v_emCoord, v_color, glyphLoc, v_bandXform, iterations)
 		;
 	}
+
+	color.rgb *= color.a;
 }

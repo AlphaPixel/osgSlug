@@ -1,6 +1,6 @@
 #pragma once
 
-#include "slughorn.hpp"
+#include "slughorn/slughorn.hpp"
 #include "osgDebug.hpp"
 
 #define OSGSLUG_DISABLE_WARNINGS \
@@ -26,6 +26,9 @@ OSGSLUG_ENABLE_WARNINGS
 constexpr const uint8_t OSGSLUG_VERSION_MAJOR = 0;
 constexpr const uint8_t OSGSLUG_VERSION_MINOR = 0;
 constexpr const uint8_t OSGSLUG_VERSION_PATCH = 1;
+
+using namespace slughorn::literals;
+using slughorn::slug_t;
 
 namespace osgSlug {
 	using Vec2 = osg::Vec2f;

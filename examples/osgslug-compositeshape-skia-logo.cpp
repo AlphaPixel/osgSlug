@@ -24,10 +24,10 @@
 #include "osgSlug/Atlas.hpp"
 #include "osgSlug/Drawable.hpp"
 
-#include "slughorn-serial.hpp"
+#include "slughorn/serial.hpp"
 
 #define SLUGHORN_SKIA_IMPLEMENTATION
-#include "slughorn-skia.hpp"
+#include "slughorn/skia.hpp"
 
 OSGSLUG_DISABLE_WARNINGS
 
@@ -152,7 +152,7 @@ slughorn::CompositeShape buildPixelLogo(osgSlug::Atlas* atlas) {
 			combined.addPath(makeGlyphPath(font, textPixel[i], x, y));
 		}
 
-		slughorn::skia::loadStrokedShape(
+		auto xform = slughorn::skia::loadStrokedShape(
 			combined.detach(), *atlas, key, OUTLINE_STROKE, SCALE,
 			// CANVAS_H,
 			// 0_cv,
@@ -166,7 +166,7 @@ slughorn::CompositeShape buildPixelLogo(osgSlug::Atlas* atlas) {
 			combined.detach(), *atlas, key, SCALE
 		); */
 
-		shape.layers.push_back({ key++, outlineColor });
+		shape.layers.push_back({ key++, outlineColor, xform });
 	}
 
 #if 1
@@ -174,9 +174,10 @@ slughorn::CompositeShape buildPixelLogo(osgSlug::Atlas* atlas) {
 	// Layers 1-5: tiles (local coords, effectId = 1 -> procedural fill)
 	// -------------------------------------------------------------------------
 	for(uint32_t i = 0; i < 5; i++) {
-		slughorn::Matrix xform;
+		// slughorn::Matrix xform;
+		auto xform = slughorn::skia::loadShape(makeTilePath(i), *atlas, key, SCALE);
 
-		if(slughorn::skia::loadShapeLocal(makeTilePath(i), *atlas, key, xform, SCALE)) {
+		// if(slughorn::skia::loadShapeLocal(makeTilePath(i), *atlas, key, xform, SCALE)) {
 			slughorn::Layer layer;
 
 			layer.key = key++;
@@ -185,7 +186,7 @@ slughorn::CompositeShape buildPixelLogo(osgSlug::Atlas* atlas) {
 			layer.effectId = i % 5; // procedural texture fill
 
 			shape.layers.push_back(layer);
-		}
+		// }
 	}
 
 	// -------------------------------------------------------------------------
@@ -200,9 +201,10 @@ slughorn::CompositeShape buildPixelLogo(osgSlug::Atlas* atlas) {
 
 		if(g.isEmpty()) continue;
 
-		slughorn::Matrix xform;
+		// slughorn::Matrix xform;
+		auto xform = slughorn::skia::loadShape(g, *atlas, key, SCALE);
 
-		if(slughorn::skia::loadShapeLocal(g, *atlas, key, xform, SCALE)) {
+		// if(slughorn::skia::loadShapeLocal(g, *atlas, key, xform, SCALE)) {
 			slughorn::Layer layer;
 
 			layer.key = key++;
@@ -215,7 +217,7 @@ slughorn::CompositeShape buildPixelLogo(osgSlug::Atlas* atlas) {
 			layer.transform = xform;
 
 			shape.layers.push_back(layer);
-		}
+		// }
 	}
 
 	// -------------------------------------------------------------------------
@@ -230,9 +232,10 @@ slughorn::CompositeShape buildPixelLogo(osgSlug::Atlas* atlas) {
 
 		if(g.isEmpty()) continue;
 
-		slughorn::Matrix xform;
+		// slughorn::Matrix xform;
+		auto xform = slughorn::skia::loadShape(g, *atlas, key, SCALE);
 
-		if(slughorn::skia::loadShapeLocal(g, *atlas, key, xform, SCALE)) {
+		// if(slughorn::skia::loadShapeLocal(g, *atlas, key, xform, SCALE)) {
 			slughorn::Layer layer;
 
 			layer.key = key++;
@@ -240,7 +243,7 @@ slughorn::CompositeShape buildPixelLogo(osgSlug::Atlas* atlas) {
 			layer.transform = xform;
 
 			shape.layers.push_back(layer);
-		}
+		// }
 	}
 #endif
 

@@ -4,7 +4,7 @@
 #include "osgSlug/Drawable.hpp"
 
 #define SLUGHORN_CAIRO_IMPLEMENTATION
-#include "slughorn-cairo.hpp"
+#include "slughorn/cairo.hpp"
 
 OSGSLUG_DISABLE_WARNINGS
 
@@ -677,14 +677,14 @@ int main() {
     // buildPseudostrokeRoundedRectPath(cr, 10, 10, 80, 80, 15, 10);
     // buildPseudostrokeRoundedRectPath(cr);
 
-    slughorn::Atlas::ShapeInfo info;
+    // slughorn::Atlas::ShapeInfo info;
 
     // info.autoMetrics = true;
 
     // slughorn::cairo::decomposePath(cr, info.curves, SCALE);
-    auto [curves, transform ] = slughorn::cairo::decomposePath(cr, SCALE);
+    auto [info, transform ] = slughorn::cairo::decomposePath(cr, SCALE);
 
-    info.curves = curves;
+    // info.curves = curves;
 
     cairo_destroy(cr);
     cairo_surface_destroy(surface);

@@ -4,7 +4,7 @@
 #include "osgSlug/Drawable.hpp"
 
 #define SLUGHORN_SKIA_IMPLEMENTATION
-#include "slughorn-skia.hpp"
+#include "slughorn/skia.hpp"
 
 OSGSLUG_DISABLE_WARNINGS
 
@@ -160,7 +160,9 @@ int main() {
 	// info.numBands = 4;
 
 	path = slughorn::skia::strokeToFill(path, 8.0);
-	slughorn::skia::decomposePath(path, info.curves, SCALE);
+	// slughorn::skia::decomposePath(path, info.curves, SCALE);
+	// std::tie(info.curves, std::ignore) = slughorn::skia::decomposePath(path, SCALE);
+	std::tie(info, std::ignore) = slughorn::skia::decomposePath(path, SCALE);
 
 	std::cout
 		<< "Decomposed jigsaw piece into "

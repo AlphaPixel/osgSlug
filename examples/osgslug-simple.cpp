@@ -87,6 +87,23 @@ int main(int argc, char** argv) {
 		{0.5_cv, 0.7_cv, 0.25_cv, 0.35_cv, 0.0_cv, 0.0_cv}, // le_cvt
 	};
 
+	/* slughorn::Atlas::ShapeInfo dumbbell;
+
+	dumbbell.curves = {
+		// Bottom-left blob: rough circle around (0.25, 0.2)
+		// 4 quadratic arcs, each covering one quadrant of the circle
+		{0.10_cv, 0.20_cv, 0.10_cv, 0.05_cv, 0.25_cv, 0.05_cv},
+		{0.25_cv, 0.05_cv, 0.40_cv, 0.05_cv, 0.40_cv, 0.20_cv},
+		{0.40_cv, 0.20_cv, 0.40_cv, 0.35_cv, 0.25_cv, 0.35_cv},
+		{0.25_cv, 0.35_cv, 0.10_cv, 0.35_cv, 0.10_cv, 0.20_cv},
+
+		// Top-right blob: rough circle around (0.75, 0.8)
+		{0.60_cv, 0.80_cv, 0.60_cv, 0.65_cv, 0.75_cv, 0.65_cv},
+		{0.75_cv, 0.65_cv, 0.90_cv, 0.65_cv, 0.90_cv, 0.80_cv},
+		{0.90_cv, 0.80_cv, 0.90_cv, 0.95_cv, 0.75_cv, 0.95_cv},
+		{0.75_cv, 0.95_cv, 0.60_cv, 0.95_cv, 0.60_cv, 0.80_cv},
+	}; */
+
 	// Here's where things get even crazier; we add the triangle above to the `osgSlug::Atlas`
 	// instance... AS THE CODEPOINT FOR THE CHARCTER `F`! :) This means any time the scene THINKS it
 	// should render an `F` (capitalized), our shape will appear instead.

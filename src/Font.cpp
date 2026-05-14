@@ -32,7 +32,7 @@ _atlas(atlas) {
 
 Font::~Font() = default;
 
-void Font::load() {
+void Font::load(bool adaptive) {
 	if(_loaded) return;
 
 	if(!_atlas) {
@@ -41,9 +41,26 @@ void Font::load() {
 		return;
 	}
 
-	if(!slughorn::freetype::loadAsciiFont(_fontPath, *_atlas)) {
-		// loadAsciiFont already logged the reason via the callback above.
-		return;
+	if(!adaptive) {
+		if(!slughorn::freetype::loadAsciiFont(_fontPath, *_atlas)) {
+			// loadAsciiFont already logged the reason via the callback above.
+			return;
+		}
+	}
+
+	else {
+		if(!slughorn::freetype::loadAsciiFont(
+			_fontPath,
+			*_atlas,
+			[](const slughorn::Atlas::Curves& curves) {
+				int n = static_cast<int>(std::min(size_t(16), std::max(size_t(1), curves.size() / 2)));
+
+				return slughorn::Atlas::computeAdaptiveSplits(curves, n, n);
+				// return slughorn::Atlas::computeUniformSplits(curves, n, n);
+			}
+		)) {
+			return;
+		}
 	}
 
 	_loaded = true;
@@ -51,14 +68,27 @@ void Font::load() {
 
 // TODO: This is a quick, hacky way... we need to be able VERIFY that the requested codepoints were
 // actually FOUND and loaded.
-bool Font::loadEmoji(const std::string& fontPath, const std::vector<uint32_t>& codepoints) {
+bool Font::loadEmoji(const std::string& fontPath, const std::vector<uint32_t>& codepoints, bool adaptive) {
 	if(!_atlas) {
 		OSG_WARN << "osgSlug::Font::loadEmoji: no atlas set" << std::endl;
 
 		return false;
 	}
 
-	return slughorn::freetype::loadEmojiFont(fontPath, codepoints, *_atlas, _colorGlyphs);
+	if(!adaptive) return slughorn::freetype::loadEmojiFont(fontPath, codepoints, *_atlas, _colorGlyphs);
+
+	// return false;
+	else return slughorn::freetype::loadEmojiFont(
+		fontPath,
+		codepoints,
+		*_atlas,
+		_colorGlyphs,
+		[](const slughorn::Atlas::Curves& curves) {
+			int n = static_cast<int>(std::min(size_t(16), std::max(size_t(1), curves.size() / 2)));
+
+			return slughorn::Atlas::computeAdaptiveSplits(curves, n, n);
+		}
+	);
 }
 
 }

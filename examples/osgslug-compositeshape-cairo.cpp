@@ -23,10 +23,10 @@
 #include "osgSlug/Atlas.hpp"
 #include "osgSlug/Drawable.hpp"
 
-#include "slughorn-serial.hpp"
+#include "slughorn/serial.hpp"
 
 #define SLUGHORN_CAIRO_IMPLEMENTATION
-#include "slughorn-cairo.hpp"
+#include "slughorn/cairo.hpp"
 
 OSGSLUG_DISABLE_WARNINGS
 
@@ -211,11 +211,12 @@ slughorn::CompositeShape buildAxolotl(osgSlug::Atlas* atlas) {
 		cairo_new_path(cr);
 		buildPath(cr);
 
-		slughorn::Atlas::ShapeInfo info;
+		// slughorn::Atlas::ShapeInfo info;
 
-		auto [curves, transform] = slughorn::cairo::decomposePath(cr, SCALE);
+		auto [info, transform] = slughorn::cairo::decomposePath(cr, SCALE);
 
-		info.curves = curves;
+		// info.curves = curves;
+		// info.origin = slughorn::Atlas::ShapeInfo::Origin::Centered;
 
 		if(!info.curves.empty()) {
 			atlas->addShape(key, info);
@@ -270,11 +271,11 @@ slughorn::CompositeShape buildTriangles(osgSlug::Atlas* atlas) {
 		cairo_close_path(cr);
 		cairo_restore(cr);
 
-		slughorn::Atlas::ShapeInfo info;
+		// slughorn::Atlas::ShapeInfo info;
 
-		auto [curves, transform] = slughorn::cairo::decomposePath(cr, SCALE);
+		auto [info, transform] = slughorn::cairo::decomposePath(cr, SCALE);
 
-		info.curves = std::move(curves);
+		// info.curves = std::move(curves);
 
 		if(!info.curves.empty()) {
 			atlas->addShape(key, info);

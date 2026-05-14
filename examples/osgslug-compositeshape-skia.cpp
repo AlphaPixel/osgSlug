@@ -4,7 +4,7 @@
 #include "osgSlug/Drawable.hpp"
 
 #define SLUGHORN_SKIA_IMPLEMENTATION
-#include "slughorn-skia.hpp"
+#include "slughorn/skia.hpp"
 
 OSGSLUG_DISABLE_WARNINGS
 
@@ -24,13 +24,19 @@ slughorn::CompositeShape buildCompositeShape(osgSlug::Atlas* atlas) {
 	uint32_t key = 0xF0000;
 
 	auto addLayer = [&](SkPathBuilder& b, slughorn::Color color) {
-		slughorn::Atlas::ShapeInfo info;
+		// slughorn::Atlas::ShapeInfo info;
 
-		slughorn::skia::decomposePath(b.detach(), info.curves, SCALE);
+		// slughorn::skia::decomposePath(b.detach(), info.curves, SCALE);
+		// std::tie(info.curves, std::ignore) = slughorn::skia::decomposePath(b.detach(), SCALE);
+		auto [info, transform] = slughorn::skia::decomposePath(b.detach(), SCALE, slughorn::Atlas::ShapeInfo::Origin::Centered);
+		// auto [curves, transform] = slughorn::skia::decomposePath(b.detach(), SCALE);
+
+		// info.curves = curves;
+		// info.origin = slughorn::Atlas::ShapeInfo::Origin::Centered;
 
 		atlas->addShape(key, info);
 
-		shape.layers.push_back({key++, color});
+		shape.layers.push_back({key++, color, transform});
 	};
 
 	// ── Left gill (back, behind head) ──

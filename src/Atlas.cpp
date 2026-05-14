@@ -1,6 +1,6 @@
 #include "osgSlug/Atlas.hpp"
 
-#include "slughorn-serial.hpp"
+// #include "slughorn/serial.hpp"
 
 #include <osg/Image>
 #include <osg/BlendFunc>
@@ -20,27 +20,21 @@
 
 namespace osgSlug {
 
+Atlas::Atlas(const slughorn::Atlas& src) {
+	static_cast<slughorn::Atlas&>(*this) = src;
+
+	packTextures();
+}
+
 osg::ref_ptr<Atlas> Atlas::read(std::filesystem::path path) {
 	// slughorn::serial will throw an exception for us; so, using the following line is optional.
 	// if(!std::filesystem::exists(path)) return nullptr;
 
-	osg::ref_ptr<Atlas> atlas = new osgSlug::Atlas();
-
-	static_cast<slughorn::Atlas&>(*atlas) = slughorn::serial::read(path.string());
-
-	atlas->packTextures();
-
-	return atlas;
+	return fromAtlas(path.string());
 }
 
 osg::ref_ptr<Atlas> Atlas::read(std::ifstream& ifs) {
-	osg::ref_ptr<Atlas> atlas = new osgSlug::Atlas();
-
-	static_cast<slughorn::Atlas&>(*atlas) = slughorn::serial::read(ifs);
-
-	atlas->packTextures();
-
-	return atlas;
+	return fromAtlas(ifs);
 }
 
 void Atlas::packTextures() {
@@ -84,7 +78,6 @@ osg::StateSet* Atlas::createDefaultStateSet() const {
 	auto* ss = new osg::StateSet();
 	auto* program = new osg::Program();
 
-	// TODO: IMPROVE THIS SUBSTANTIALLY!
 	program->addShader(osg::Shader::readShaderFile(osg::Shader::VERTEX, "../src/osgSlug-vert.glsl"));
 	program->addShader(osg::Shader::readShaderFile(osg::Shader::FRAGMENT, "../src/osgSlug-frag.glsl"));
 
@@ -96,6 +89,8 @@ osg::StateSet* Atlas::createDefaultStateSet() const {
 	ss->setTextureAttributeAndModes(1, _bandTexture, osg::StateAttribute::ON);
 	ss->setMode(GL_BLEND, osg::StateAttribute::ON);
 	ss->setAttributeAndModes(new osg::BlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA));
+	// TODO: This is premultiplied alpha, and needs to be synchronized with the shader!
+	// ss->setAttributeAndModes(new osg::BlendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA));
 	ss->setMode(GL_DEPTH_TEST, osg::StateAttribute::OFF);
 	ss->setRenderingHint(osg::StateSet::TRANSPARENT_BIN);
 

@@ -61,6 +61,14 @@ some really great ideas moving forward!
 
 ## Soon
 
+1 - sindonia text 
+2 - editor with grid 
+3 - clock 
+4 - shader cleanup osgSlug 
+5 - texture pack visualizer 
+6 - sdf (move pybind11 render to slughorn/render.hpp) 
+
+- [ ] Introduce some kind of shader composition system
 - [ ] Create a reusable "screen grid" widget
 - [ ] Audio visualizer effect/demo
 - [ ] Progress meter demo

@@ -19,6 +19,7 @@ int main(int argc, char** argv) {
 
 	osgSlug::Atlas::ShapeInfo tri;
 
+	tri.origin = slughorn::Atlas::ShapeInfo::Origin::Centered;
 	tri.numBandsX = 2;
 	tri.numBandsY = 5;
 	tri.curves = {

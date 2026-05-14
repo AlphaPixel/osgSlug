@@ -18,6 +18,7 @@ _atlas(atlas) {
 	_drawable = new ShapeDrawable();
 
 	_drawable->setAtlas(_atlas);
+	_drawable->setName(getName());
 
 	_geode->addDrawable(_drawable);
 	_geode->setStateSet(_atlas->createDefaultStateSet());

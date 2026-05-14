@@ -2,6 +2,8 @@
 
 #include "Types.hpp"
 
+#include "slughorn/serial.hpp"
+
 OSGSLUG_DISABLE_WARNINGS
 
 #include <osg/Referenced>
@@ -31,6 +33,7 @@ namespace osgSlug {
 class Atlas: public osg::Referenced, public slughorn::Atlas {
 public:
 	Atlas() = default;
+	explicit Atlas(const slughorn::Atlas& src);
 
 	static osg::ref_ptr<Atlas> read(std::filesystem::path path);
 	static osg::ref_ptr<Atlas> read(std::ifstream& ifs);
@@ -46,8 +49,23 @@ public:
 
 	osg::StateSet* createDefaultStateSet() const;
 
+	static osg::ref_ptr<Atlas> fromAtlas(const slughorn::Atlas& src) {
+		osg::ref_ptr<Atlas> atlas = new osgSlug::Atlas();
+
+		static_cast<slughorn::Atlas&>(*atlas) = src;
+
+		atlas->packTextures();
+
+		return atlas;
+	}
+
 protected:
 	virtual ~Atlas() = default;
+
+	template<typename... Args>
+	static osg::ref_ptr<Atlas> fromAtlas(Args&&... args) {
+		return new osgSlug::Atlas(slughorn::serial::read(std::forward<Args>(args)...));
+	}
 
 private:
 	static osg::ref_ptr<osg::Texture2D> _makeTexture(const slughorn::Atlas::TextureData& data);

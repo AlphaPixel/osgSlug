@@ -3,8 +3,8 @@
 #include "osgSlug/Atlas.hpp"
 #include "osgSlug/Drawable.hpp"
 
-#include "slughorn-canvas.hpp"
-#include "slughorn-serial.hpp"
+#include "slughorn/canvas.hpp"
+#include "slughorn/serial.hpp"
 
 OSGSLUG_DISABLE_WARNINGS
 
@@ -24,6 +24,7 @@ int main(int argc, char** argv) {
 
 	slughorn::canvas::Canvas canvas(*atlas);
 
+#if 0
 	// Draw the "pill" shape, but cheat a little bit...
 	canvas.beginPath();
 	canvas.roundedRect(0.1_cv, 0.1_cv, 0.8_cv, 0.1_cv, 0.1_cv);
@@ -43,6 +44,20 @@ int main(int argc, char** argv) {
 
 	// atlas->addCompositeShape(slughorn::Key::fromString("audio_bars"), compositeShape);
 	atlas->addCompositeShape("audio_bars", compositeShape);
+#endif
+
+	canvas.rect(0.05_cv, 0.05_cv, 0.9_cv, 0.9_cv);
+	canvas.fill({0.5_cv, 0_cv, 0_cv, 1_cv});
+
+	canvas.circle(0.5_cv, 0.5_cv, 0.35_cv);
+	canvas.fill({0_cv, 0.5_cv, 0_cv, 1_cv});
+
+	canvas.roundedRect(0.25_cv, 0.25_cv, 0.5_cv, 0.5_cv, 0.08_cv);
+	canvas.fill({0_cv, 0_cv, 0.5_cv, 1_cv});
+
+	// canvas.finalize(Key::fromString("three_layer"));
+	auto compositeShape = canvas.finalize();
+
 	atlas->build();
 	atlas->packTextures();
 
@@ -52,10 +67,10 @@ int main(int argc, char** argv) {
 
 	sd->setAtlas(atlas);
 	sd->addCompositeShape(compositeShape);
-	sd->setInitialBound(osg::BoundingBox(
+	/* sd->setInitialBound(osg::BoundingBox(
 		-1.25f, -1.25f, -1.25f,
 		 1.25f, 1.25f, 1.25f
-	));
+	)); */
 	sd->compile();
 
 	auto sdg = osgx::make_ref<osg::Geode>();

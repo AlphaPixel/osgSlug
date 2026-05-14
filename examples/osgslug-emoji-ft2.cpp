@@ -1,38 +1,31 @@
 //vimrun! ./osgslug-emoji-ft2
 
+#include "osgslug-example.hpp"
+
 #include "osgSlug/Font.hpp"
 #include "osgSlug/Text.hpp"
 
 #define SLUGHORN_EMOJI_IMPLEMENTATION
-#include "slughorn-emoji.hpp"
-#include "slughorn-serial.hpp"
-
-#include "osgDebug.hpp"
-
-#include "CLI/CLI.hpp"
-
-OSGSLUG_DISABLE_WARNINGS
-
-#include <osg/io_utils>
-#include <osg/MatrixTransform>
-
-#include <osgGA/TrackballManipulator>
-
-#include <osgViewer/Viewer>
-#include <osgViewer/ViewerEventHandlers>
-
-OSGSLUG_ENABLE_WARNINGS
+#include "slughorn/emoji.hpp"
+#include "slughorn/serial.hpp"
 
 int main(int argc, char** argv) {
-	CLI::App app{"osgslug-emoji-ft2"};
+	osg::ArgumentParser args(&argc, argv);
 
-	std::string fontFile;
-	std::string emoji;
+	osgViewer::Viewer viewer(args);
 
-	app.add_option("font", fontFile, "Input font file (TTT/OTF)")->required();
-	app.add_option("emoji", emoji, "Emoji codepoint (or name from slughorn-emoji.hpp)");
+	if(!example::setupArguments(
+		args,
+		"Load a Shape/CompositeShape from a .slug/.slugb file",
+		{},
+		2,
+		"FONT_FILE EMOJI"
+	)) return 1;
 
-	CLI11_PARSE(app, argc, argv);
+	// if(!example::validatePositional(args, 2, "FONT_FILE EMOJI")) return example::fail(args, 1);
+
+	std::string fontFile = args[1];
+	std::string emoji = args[2];
 
 	uint32_t emojiCodepoint = slughorn::emoji::randomCodepoint();
 
@@ -47,7 +40,7 @@ int main(int argc, char** argv) {
 			catch(const std::exception& e) {
 				OSG_FATAL << "Invalid hex value '" << emoji << "'; exiting..." << std::endl;
 
-				return 2;
+				return example::fail(args, 2);
 			}
 
 			if(!slughorn::emoji::codepointToName(emojiCodepoint)) OSG_WARN
@@ -56,16 +49,14 @@ int main(int argc, char** argv) {
 		}
 	}
 
-	osgViewer::Viewer viewer;
-
 	auto atlas = osgx::make_ref<osgSlug::Atlas>();
 	auto font = osgx::make_ref<osgSlug::Font>(atlas);
 
 	// TODO: This isn't reliable yet...
-	if(!font->loadEmoji(fontFile, {emojiCodepoint})) {
+	if(!font->loadEmoji(fontFile, {emojiCodepoint}, true)) {
 		OSG_WARN << "Couldn't find " << emojiCodepoint << " in font: " << fontFile << std::endl;
 
-		return 3;
+		return example::fail(args, 3);
 	}
 
 	OSG_NOTICE << "Found emoji '" << emojiCodepoint << "'; continuing..." << std::endl;
@@ -114,23 +105,5 @@ int main(int argc, char** argv) {
 	sdg->setStateSet(atlas->createDefaultStateSet());
 	sdg->setName("sdg");
 
-	auto root = osgx::make_ref<osg::MatrixTransform>();
-
-	root->setMatrix(osg::Matrix::rotate(osg::DegreesToRadians(90.0), osg::Vec3(1, 0, 0)));
-	root->addChild(sdg);
-	root->setName("root");
-
-	auto dv = osgDebug::DrawVisitor();
-
-	root->accept(dv);
-
-	auto debugSupported = osgx::make_ref<osgDebug::GraphicsOperation>();
-
-	viewer.setRealizeOperation(debugSupported);
-	viewer.setCameraManipulator(new osgGA::TrackballManipulator());
-	viewer.realize();
-	viewer.setSceneData(root);
-	viewer.addEventHandler(new osgViewer::StatsHandler());
-
-	return viewer.run();
+	return example::run(viewer, args, sdg);
 }

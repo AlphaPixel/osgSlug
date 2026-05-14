@@ -2,46 +2,35 @@
 
 // =============================================================================
 // Demonstrates loading a real-world SVG file directly into a slughorn
-// CompositeShape using slughorn-nanosvg.hpp.
+// CompositeShape using slughorn/nanosvg.hpp.
 // =============================================================================
 
-#include "osgSlug/Atlas.hpp"
-#include "osgSlug/Drawable.hpp"
+#include "osgslug-example.hpp"
 
-#include "slughorn-nanosvg.hpp"
-#include "slughorn-serial.hpp"
-
-#include "osgDebug.hpp"
-
-#include "CLI/CLI.hpp"
-
-OSGSLUG_DISABLE_WARNINGS
-
-#include <osg/MatrixTransform>
-
-#include <osgViewer/Viewer>
-#include <osgViewer/ViewerEventHandlers>
-
-OSGSLUG_ENABLE_WARNINGS
-
-#include <iostream>
+#include "slughorn/nanosvg.hpp"
 
 // =============================================================================
 // main
 // =============================================================================
 
 int main(int argc, char** argv) {
-	CLI::App app{"osgslug-nanosvg"};
+	osg::ArgumentParser args(&argc, argv);
 
-	std::string svgFile;
+	osgViewer::Viewer viewer(args);
 
-	app.add_option("svgfile", svgFile, "Input SVG file")->required();
+	if(!example::setupArguments(
+		args,
+		"Load an SVG file using NanoSVG",
+		{},
+		1,
+		"SVG_FILE"
+	)) return 1;
 
-	CLI11_PARSE(app, argc, argv);
+	std::string svgFile = args[1];
 
 	auto atlas = osgx::make_ref<osgSlug::Atlas>();
 
-	// TODO: Change this to `KeyIterator` instead (in slughorn-nanosvg.hpp).
+	// TODO: Change this to `KeyIterator` instead (in slughorn/nanosvg.hpp).
 	uint32_t baseKey = 0xD0000;
 	auto logo = slughorn::nanosvg::loadFile(svgFile, *atlas, baseKey);
 
@@ -85,26 +74,11 @@ int main(int argc, char** argv) {
 	auto root = osgx::make_ref<osg::MatrixTransform>();
 
 	root->setMatrix(
-		osg::Matrix::scale(1.0, -1.0, 1.0) *
-		osg::Matrix::rotate(osg::DegreesToRadians(90.0), osg::Vec3(1, 0, 0))
+		osg::Matrix::scale(1.0, -1.0, 1.0)
+		// osg::Matrix::rotate(osg::DegreesToRadians(90.0), osg::Vec3(1, 0, 0))
 	);
 	root->addChild(geode);
 	root->setName("root");
 
-	auto dv = osgDebug::DrawVisitor<120, 60>();
-
-	// Adds the osgDebug::DrawCallback to every detected `Drawable` in the subgraph.
-	root->accept(dv);
-
-	auto debugSupported = osgx::make_ref<osgDebug::GraphicsOperation>();
-
-	osgViewer::Viewer viewer;
-
-	viewer.getCamera()->setClearColor(osg::Vec4(0.85_cv, 0.85_cv, 0.85_cv, 1_cv));
-	viewer.setRealizeOperation(debugSupported);
-	viewer.realize();
-	viewer.setSceneData(root);
-	viewer.addEventHandler(new osgViewer::StatsHandler());
-
-	return viewer.run();
+	return example::run(viewer, args, root);
 }
