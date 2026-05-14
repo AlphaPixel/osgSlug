@@ -46,6 +46,7 @@ public:
 	// Valid after packTextures().
 	osg::Texture2D* getCurveTexture() const { return _curveTexture.get(); }
 	osg::Texture2D* getBandTexture() const { return _bandTexture.get(); }
+	osg::Texture2D* getGradientTexture() const { return _gradientTexture.get(); }
 
 	osg::StateSet* createDefaultStateSet() const;
 
@@ -72,6 +73,7 @@ private:
 
 	osg::ref_ptr<osg::Texture2D> _curveTexture;
 	osg::ref_ptr<osg::Texture2D> _bandTexture;
+	osg::ref_ptr<osg::Texture2D> _gradientTexture;  // null when no gradients registered
 };
 
 }

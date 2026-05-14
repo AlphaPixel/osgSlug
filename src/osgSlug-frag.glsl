@@ -6,12 +6,16 @@ in vec4 v_color;
 flat in vec4 v_bandXform;
 flat in vec4 v_shapeData;
 flat in int v_effectId;
+flat in int v_gradientId;
+in vec4 v_gradientXform;
 
 uniform float osg_SimulationTime;
 
 uniform sampler2D osgSlug_curveTexture;
 uniform usampler2D osgSlug_bandTexture;
 uniform sampler2D osgSlug_effectTexture;
+uniform sampler2D slug_gradientTexture;
+uniform int slug_gradientCount;
 uniform int osgSlug_debugMode;
 uniform bool osgSlug_textMode; // enables MSAA, stem darkening, and gamma for text layers
 uniform bool osgSlug_stemDarken; // requires osgSlug_textMode; true = apply stem darkening to edge
@@ -590,6 +594,38 @@ void main() {
 		fill = adj;
 	}
 
+	vec4 effectiveColor = v_color;
+
+	if(v_gradientId > 0 && slug_gradientCount > 0) {
+		float t;
+
+		if(v_gradientXform.w == 0.0) {
+			// Linear: xform = (dirX, dirY, offset, 0)
+			t = dot(v_emCoord, v_gradientXform.xy) + v_gradientXform.z;
+		}
+
+		else if(v_gradientXform.w > 0.0) {
+			// Radial: xform = (cx, cy, r0*invDR, invDR) where invDR = 1/(r1-r0)
+			float dist = length(v_emCoord - v_gradientXform.xy);
+			t = dist * v_gradientXform.w - v_gradientXform.z;
+		}
+
+		else {
+			// Sweep: xform = (cx, cy, startAngle, -invArcSpan)
+			float angle = atan(
+				v_emCoord.y - v_gradientXform.y,
+				v_emCoord.x - v_gradientXform.x
+			);
+
+			t = (angle - v_gradientXform.z) * (-v_gradientXform.w);
+		}
+
+		t = clamp(t, 0.0, 1.0);
+		float gv = (float(v_gradientId) - 0.5) / float(slug_gradientCount);
+		vec4 gc = texture(slug_gradientTexture, vec2(t, gv));
+		effectiveColor = vec4(gc.rgb, gc.a * v_color.a);
+	}
+
 	// Draws a border around the quad; however, because `slugEmToUV` returns the "metrics-based"
 	// size--and due to the mandatory "expand" value used in order to allow antialiasing--it's
 	// impossible to get a CONSISTENTLY-sized "1 pixel" border. To do that, we'd need the
@@ -626,7 +662,7 @@ void main() {
 
 		if(fill < 0.001 && onEdge < 0.01) discard;
 
-		vec4 fillColor = slug_ApplyEffect(fill, v_emCoord, v_color, v_effectId, v_bandXform);
+		vec4 fillColor = slug_ApplyEffect(fill, v_emCoord, effectiveColor, v_effectId, v_bandXform);
 
 		vec4 borderColor = vec4(
 			fract(v_bandXform.x * 127.1),
@@ -649,8 +685,8 @@ void main() {
 
 	else {
 		color = (osgSlug_debugMode == 0 || osgSlug_debugMode == 6)
-			? slug_ApplyEffect(fill, v_emCoord, v_color, v_effectId, v_bandXform)
-			: slug_ApplyDebug(fill, v_emCoord, v_color, glyphLoc, v_bandXform, iterations)
+			? slug_ApplyEffect(fill, v_emCoord, effectiveColor, v_effectId, v_bandXform)
+			: slug_ApplyDebug(fill, v_emCoord, effectiveColor, glyphLoc, v_bandXform, iterations)
 		;
 	}
 

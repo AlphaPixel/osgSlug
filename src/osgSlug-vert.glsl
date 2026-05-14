@@ -6,6 +6,8 @@ layout(location = 2) in vec2 a_emCoord;
 layout(location = 3) in vec4 a_bandXform;
 layout(location = 4) in vec4 a_shapeData;
 layout(location = 5) in float a_effectId;
+layout(location = 6) in float a_gradientId;
+layout(location = 7) in vec4 a_gradientXform;
 
 uniform mat4 osg_ModelViewProjectionMatrix;
 uniform float osg_SimulationTime;
@@ -16,11 +18,14 @@ out vec4 v_color;
 flat out vec4 v_bandXform;
 flat out vec4 v_shapeData;
 flat out int v_effectId;
+flat out int v_gradientId;
+out vec4 v_gradientXform;
 
 void main() {
 	vec3 pos = a_position;
 	float t = osg_SimulationTime;
 	int eid = int(a_effectId + 0.5);
+	int gid = int(a_gradientId + 0.5);
 	int mode = eid / 100;
 	int index = eid % 100;
 
@@ -67,6 +72,8 @@ void main() {
 	v_shapeData = a_shapeData;
 	v_color = a_color;
 	v_effectId = eid;
+	v_gradientId = gid;
+	v_gradientXform = a_gradientXform;
 
 	gl_Position = osg_ModelViewProjectionMatrix * vec4(pos, 1.0);
 }

@@ -16,6 +16,8 @@ void ShapeDrawable::compile() {
 	auto bandXform = osgx::make_ref<osgx::Vec4Array>();
 	auto shapeData = osgx::make_ref<osgx::Vec4Array>();
 	auto effectIds = osgx::make_ref<osgx::FloatArray>();
+	auto gradientIds = osgx::make_ref<osgx::FloatArray>();
+	auto gradientXforms = osgx::make_ref<osgx::Vec4Array>();
 	auto indices = osgx::make_ref<osgx::DrawElementsUShort>();
 
 	// TODO (known): clear arrays here to avoid accumulation on repeated compile() calls. Safe for
@@ -76,6 +78,33 @@ void ShapeDrawable::compile() {
 
 		effectIds->append_n<4>(cv(layer.effectId));
 
+		gradientIds->append_n<4>(cv(layer.gradientId));
+
+		osg::Vec4 gx(0.0f, 0.0f, 0.0f, 0.0f);
+
+		if(layer.gradientId > 0) {
+			const auto& grad = _atlas->getGradients()[layer.gradientId - 1];
+			const auto& m = grad.transform;
+
+			if(grad.type == slughorn::GradientInfo::Type::Radial) {
+				const float deltaR = m.xx - grad.innerRadius;
+				const float invDeltaR = deltaR > 1e-6f ? 1.0f / deltaR : 0.0f;
+
+				gx = { m.dx, m.dy, grad.innerRadius * invDeltaR, invDeltaR };
+			}
+
+			else if(grad.type == slughorn::GradientInfo::Type::Sweep) {
+				const float arcSpan = m.xy;
+				const float invArcSpan = arcSpan > 1e-6f ? 1.0f / arcSpan : 0.0f;
+
+				gx = { m.dx, m.dy, m.xx, -invArcSpan }; // w < 0 = sweep
+			}
+
+			else gx = { m.xx, m.xy, m.dx, 0.0f };
+		}
+
+		gradientXforms->append_n<4>(gx);
+
 		indices->append_range({
 			base, index_element_type(base + 1), index_element_type(base + 2),
 			base, index_element_type(base + 2), index_element_type(base + 3)
@@ -105,6 +134,12 @@ void ShapeDrawable::compile() {
 	setVertexAttribArray(5, effectIds);
 	setVertexAttribBinding(5, osg::Geometry::BIND_PER_VERTEX);
 
+	setVertexAttribArray(6, gradientIds);
+	setVertexAttribBinding(6, osg::Geometry::BIND_PER_VERTEX);
+
+	setVertexAttribArray(7, gradientXforms);
+	setVertexAttribBinding(7, osg::Geometry::BIND_PER_VERTEX);
+
 	addPrimitiveSet(indices);
 }
 
@@ -119,6 +154,8 @@ void BoxDrawable::compile() {
 	auto bandXform = osgx::make_ref<osgx::Vec4Array>();
 	auto shapeData = osgx::make_ref<osgx::Vec4Array>();
 	auto effectIds = osgx::make_ref<osgx::FloatArray>();
+	auto gradientIds = osgx::make_ref<osgx::FloatArray>();
+	auto gradientXforms = osgx::make_ref<osgx::Vec4Array>();
 	// auto indices = osgx::make_ref<osgx::DrawElementsUShort>(osg::PrimitiveSet::TRIANGLES);
 	auto indices = osgx::make_ref<osgx::DrawElementsUShort>();
 
@@ -146,6 +183,31 @@ void BoxDrawable::compile() {
 
 		const Vec4 color(layer.color.r, layer.color.g, layer.color.b, layer.color.a);
 		const auto eid = cv(layer.effectId);
+		const auto gid = cv(layer.gradientId);
+
+		osg::Vec4 gx(0.0f, 0.0f, 0.0f, 0.0f);
+
+		if(layer.gradientId > 0) {
+			const auto& grad = atlas->getGradients()[layer.gradientId - 1];
+			const auto& m = grad.transform;
+
+			if(grad.type == slughorn::GradientInfo::Type::Radial) {
+				const float deltaR = m.xx - grad.innerRadius;
+				const float invDeltaR = deltaR > 1e-6f ? 1.0f / deltaR : 0.0f;
+
+				gx = { m.dx, m.dy, grad.innerRadius * invDeltaR, invDeltaR };
+			}
+
+			else if(grad.type == slughorn::GradientInfo::Type::Sweep) {
+				const float arcSpan = m.xy;
+				const float invArcSpan = arcSpan > 1e-6f ? 1.0f / arcSpan : 0.0f;
+
+				gx = { m.dx, m.dy, m.xx, -invArcSpan }; // w < 0 = sweep
+			}
+
+			else gx = { m.xx, m.xy, m.dx, 0.0f };
+		}
+
 		auto base = static_cast<index_element_type>(vertices->size());
 
 		Vec3 ps[4] = {p0, p1, p2, p3};
@@ -163,6 +225,8 @@ void BoxDrawable::compile() {
 			bandXform->push_back(bx);
 			shapeData->push_back(sd);
 			effectIds->push_back(eid);
+			gradientIds->push_back(gid);
+			gradientXforms->push_back(gx);
 		}
 
 		indices->append_range({
@@ -199,6 +263,12 @@ void BoxDrawable::compile() {
 	setVertexAttribArray(5, effectIds);
 	setVertexAttribBinding(5, osg::Geometry::BIND_PER_VERTEX);
 
+	setVertexAttribArray(6, gradientIds);
+	setVertexAttribBinding(6, osg::Geometry::BIND_PER_VERTEX);
+
+	setVertexAttribArray(7, gradientXforms);
+	setVertexAttribBinding(7, osg::Geometry::BIND_PER_VERTEX);
+
 	addPrimitiveSet(indices);
 }
 
@@ -219,6 +289,8 @@ void SubdividedDrawable::compile() {
 	auto bandXform = osgx::make_ref<osgx::Vec4Array>();
 	auto shapeData = osgx::make_ref<osgx::Vec4Array>();
 	auto effectIds = osgx::make_ref<osgx::FloatArray>();
+	auto gradientIds = osgx::make_ref<osgx::FloatArray>();
+	auto gradientXforms = osgx::make_ref<osgx::Vec4Array>();
 	auto indices = osgx::make_ref<osgx::DrawElementsUShort>();
 
 	static constexpr slug_t SLUG_EXPAND = 0.01_cv;
@@ -244,6 +316,22 @@ void SubdividedDrawable::compile() {
 	);
 
 	const slug_t eid = static_cast<slug_t>(_layers[0].effectId);
+	const slug_t gid = static_cast<slug_t>(_layers[0].gradientId);
+
+	osg::Vec4 gx(0.0f, 0.0f, 0.0f, 0.0f);
+
+	if(_layers[0].gradientId > 0) {
+		const auto& grad = atlas->getGradients()[_layers[0].gradientId - 1];
+		const auto& m = grad.transform;
+
+		if(grad.type == slughorn::GradientInfo::Type::Radial) {
+			const float deltaR = m.xx - grad.innerRadius;
+			const float invDeltaR = deltaR > 1e-6f ? 1.0f / deltaR : 0.0f;
+			gx = { m.dx, m.dy, grad.innerRadius * invDeltaR, invDeltaR };
+		}
+
+		else gx = { m.xx, m.xy, m.dx, 0.0f };
+	}
 
 	// Vertex grid: (_stepsV+1) rows x (_stepsU+1) cols
 	for(size_t sv = 0; sv <= _stepsV; sv++) {
@@ -264,6 +352,8 @@ void SubdividedDrawable::compile() {
 			bandXform->push_back(bx);
 			shapeData->push_back(sd);
 			effectIds->push_back(eid);
+			gradientIds->push_back(gid);
+			gradientXforms->push_back(gx);
 		}
 	}
 
@@ -313,6 +403,12 @@ void SubdividedDrawable::compile() {
 
 	setVertexAttribArray(5, effectIds);
 	setVertexAttribBinding(5, osg::Geometry::BIND_PER_VERTEX);
+
+	setVertexAttribArray(6, gradientIds);
+	setVertexAttribBinding(6, osg::Geometry::BIND_PER_VERTEX);
+
+	setVertexAttribArray(7, gradientXforms);
+	setVertexAttribBinding(7, osg::Geometry::BIND_PER_VERTEX);
 
 	addPrimitiveSet(indices);
 }
