@@ -63,6 +63,8 @@ void Font::load(bool adaptive) {
 		}
 	}
 
+	if(auto m = slughorn::freetype::loadFontMetrics(_fontPath)) _metrics = *m;
+
 	_loaded = true;
 }
 

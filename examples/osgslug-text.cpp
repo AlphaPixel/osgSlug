@@ -154,7 +154,12 @@ int main(int argc, char** argv) {
 	atlas->build();
 	atlas->packTextures();
 
-	auto text = osgx::make_ref<osgSlug::Text>(atlas, cv(fontSize));
+	auto text = osgx::make_ref<osgSlug::Text>(
+		atlas,
+		osgSlug::Text::fromPixels(cv(fontSize))
+	);
+
+	text->setFontMetrics(font->metrics());
 
 	for(std::size_t i = 0; i < lines.size(); ++i) {
 		const auto& c = colors[i];

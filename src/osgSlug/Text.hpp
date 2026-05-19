@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Drawable.hpp"
+#include "slughorn/freetype.hpp"
 
 OSGSLUG_DISABLE_WARNINGS
 
@@ -26,7 +27,7 @@ namespace osgSlug {
 //
 // Usage:
 //
-// auto* text = new osgSlug::Text(atlas, 32_cv);
+// auto* text = new osgSlug::Text(atlas, Text::fromPoints(12_cv, 96_cv));
 // text->addText("Hello ", {1_cv, 0.5_cv, 0_cv, 1_cv});
 // text->addText("World", {0.4_cv, 0.6_cv, 1_cv, 1_cv});
 // text->addText("\nLine 2");
@@ -51,6 +52,49 @@ public:
 
 	slug_t getFontSize() const { return _fontSize; }
 
+	void setFontMetrics(const slughorn::freetype::FontMetrics& m) { _metrics = m; }
+	const slughorn::freetype::FontMetrics& getFontMetrics() const { return _metrics; }
+
+	void setDpi(slug_t dpi) { _dpi = dpi; }
+	slug_t getDpi() const { return _dpi; }
+
+	// --- Static conversion helpers (usable before a Text object exists) ------
+
+	// em-size in world units for a given point size at dpi.
+	static slug_t fromPoints(slug_t pointSize, slug_t dpi=96_cv) {
+		return cv(pointSize * (dpi / 72_cv));
+	}
+
+	// em-size so that cap-height letters are exactly capPixels world units tall.
+	static slug_t fromCapHeight(slug_t capPixels, slug_t capHeightRatio) {
+		return cv(capPixels / capHeightRatio);
+	}
+
+	// em-size = pixels directly (explicit / power-user path).
+	static slug_t fromPixels(slug_t pixels) {
+		return cv(pixels);
+	}
+
+	// Reverse: point size that corresponds to emSize at dpi.
+	static slug_t toPoints(slug_t emSize, slug_t dpi=96_cv) {
+		return static_cast<slug_t>(emSize) * (72_cv / dpi);
+	}
+
+	// Reverse: cap-height in world units at emSize.
+	static slug_t toCapHeight(slug_t emSize, slug_t capHeightRatio) {
+		return static_cast<slug_t>(emSize) * static_cast<slug_t>(capHeightRatio);
+	}
+
+	// --- Instance helpers (use stored metrics / dpi) --------------------------
+
+	slug_t fromCapHeight(slug_t capPixels) const {
+		return fromCapHeight(capPixels, static_cast<slug_t>(_metrics.capHeightRatio));
+	}
+
+	slug_t toCapHeight(slug_t emSize) const {
+		return toCapHeight(emSize, static_cast<slug_t>(_metrics.capHeightRatio));
+	}
+
 	void setAutoScaleToScreen(bool value);
 	bool getAutoScaleToScreen() const { return _autoScaleToScreen; }
 
@@ -71,7 +115,10 @@ private:
 	std::vector<Run> _runs;
 
 	slug_t _fontSize = 32_cv;
+	slug_t _dpi = 96_cv;
 	bool _autoScaleToScreen = false;
+
+	slughorn::freetype::FontMetrics _metrics;
 
 	osg::ref_ptr<Atlas> _atlas;
 	osg::ref_ptr<osg::Geode> _geode;

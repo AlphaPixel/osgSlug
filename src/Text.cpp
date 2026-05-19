@@ -83,7 +83,13 @@ void Text::compile() {
 		for(char ch : run.text) {
 			if(ch == '\n') {
 				cursorX = 0_cv;
-				cursorY -= _fontSize + 3_cv; // / 1.5_cv;
+
+				// Use font's recommended line gap; fall back to CSS-standard 1.2× when absent.
+				const slug_t leading = _metrics.lineGapRatio > 0_cv
+				    ? _fontSize * (1.0_cv + _metrics.lineGapRatio)
+				    : _fontSize * 1.2_cv;
+
+				cursorY -= leading;
 
 				continue;
 			}
@@ -114,8 +120,6 @@ void Text::compile() {
 			cursorX += shape->advance * _fontSize;
 
 			if(tpa) cursorX = std::round(cursorX);
-
-			OSG_WARN << "cursorX: " << cursorX << std::endl;
 		}
 	}
 
