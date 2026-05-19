@@ -1,17 +1,9 @@
 //vimrun! ./osgslug-compositeshape-skia
 
-#include "osgSlug/Atlas.hpp"
-#include "osgSlug/Drawable.hpp"
+#include "osgslug-example.hpp"
 
 #define SLUGHORN_SKIA_IMPLEMENTATION
 #include "slughorn/skia.hpp"
-
-OSGSLUG_DISABLE_WARNINGS
-
-#include <osgViewer/Viewer>
-#include <osgViewer/ViewerEventHandlers>
-
-OSGSLUG_ENABLE_WARNINGS
 
 #include "include/core/SkPathBuilder.h"
 #include "include/core/SkPath.h"
@@ -28,8 +20,12 @@ slughorn::CompositeShape buildCompositeShape(osgSlug::Atlas* atlas) {
 
 		// slughorn::skia::decomposePath(b.detach(), info.curves, SCALE);
 		// std::tie(info.curves, std::ignore) = slughorn::skia::decomposePath(b.detach(), SCALE);
-		auto [info, transform] = slughorn::skia::decomposePath(b.detach(), SCALE, slughorn::Atlas::ShapeInfo::Origin::Centered);
 		// auto [curves, transform] = slughorn::skia::decomposePath(b.detach(), SCALE);
+		auto [info, transform] = slughorn::skia::decomposePath(
+			b.detach(),
+			SCALE,
+			slughorn::Atlas::ShapeInfo::Origin::Type::Centered
+		);
 
 		// info.curves = curves;
 		// info.origin = slughorn::Atlas::ShapeInfo::Origin::Centered;
@@ -210,7 +206,13 @@ slughorn::CompositeShape buildCompositeShape(osgSlug::Atlas* atlas) {
 	return shape;
 }
 
-int main() {
+int main(int argc, char** argv) {
+	osg::ArgumentParser args(&argc, argv);
+
+	osgViewer::Viewer viewer(args);
+
+	if(!example::setupArguments(args, "Demonstrates Skia-authored CompositeShapes")) return 0;
+
 	auto atlas = osgx::make_ref<osgSlug::Atlas>();
 
 	slughorn::CompositeShape shape = buildCompositeShape(atlas);
@@ -229,17 +231,5 @@ int main() {
 	sdg->addDrawable(sd);
 	sdg->setStateSet(atlas->createDefaultStateSet());
 
-	auto root = osgx::make_ref<osg::MatrixTransform>();
-
-	root->setMatrix(
-		osg::Matrix::rotate(osg::DegreesToRadians(90.0), osg::Vec3(1, 0, 0))
-	);
-	root->addChild(sdg);
-
-	osgViewer::Viewer viewer;
-
-	viewer.setSceneData(root);
-	viewer.addEventHandler(new osgViewer::StatsHandler());
-
-	return viewer.run();
+	return example::run(viewer, args, sdg);
 }

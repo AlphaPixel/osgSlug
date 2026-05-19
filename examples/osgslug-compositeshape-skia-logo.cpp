@@ -21,22 +21,14 @@
 //   Layers 11-15 "PIXEL" glyphs        (effectId = 0, standard fill)
 // =============================================================================
 
-#include "osgSlug/Atlas.hpp"
-#include "osgSlug/Drawable.hpp"
+#include "osgslug-example.hpp"
 
 #include "slughorn/serial.hpp"
 
 #define SLUGHORN_SKIA_IMPLEMENTATION
 #include "slughorn/skia.hpp"
 
-OSGSLUG_DISABLE_WARNINGS
-
 #include <osgDB/ReadFile>
-
-#include <osgViewer/Viewer>
-#include <osgViewer/ViewerEventHandlers>
-
-OSGSLUG_ENABLE_WARNINGS
 
 #include "include/core/SkPathBuilder.h"
 #include "include/core/SkPath.h"
@@ -263,6 +255,12 @@ slughorn::CompositeShape buildPixelLogo(osgSlug::Atlas* atlas) {
 // =============================================================================
 
 int main(int argc, char** argv) {
+	osg::ArgumentParser args(&argc, argv);
+
+	osgViewer::Viewer viewer(args);
+
+	if(!example::setupArguments(args, "Demonstrates Skia-authored CompositeShapes with textured effects")) return 0;
+
 	auto atlas = osgx::make_ref<osgSlug::Atlas>();
 
 	slughorn::CompositeShape logo = buildPixelLogo(atlas);
@@ -296,10 +294,5 @@ int main(int argc, char** argv) {
 	geode->addDrawable(sd);
 	geode->setStateSet(ss);
 
-	osgViewer::Viewer viewer;
-
-	viewer.setSceneData(geode);
-	viewer.addEventHandler(new osgViewer::StatsHandler());
-
-	return viewer.run();
+	return example::run(viewer, args, geode, false);
 }

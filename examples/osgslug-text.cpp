@@ -1,4 +1,4 @@
-//vimrun! ./osgslug-simple
+//vimrun! ./osgslug-text font/UbuntuMono-R.ttf --input-file poem.txt
 
 #include "osgslug-example.hpp"
 
@@ -41,6 +41,25 @@ static std::vector<std::string> splitLines(std::string_view text) {
 	return lines;
 }
 
+// TODO: Convert to osgx::make_ref!
+osg::Camera* createOrthoCamera(slug_t width, slug_t height) {
+	osg::Camera* camera = new osg::Camera();
+
+	camera->getOrCreateStateSet()->setMode(
+		GL_LIGHTING,
+		osg::StateAttribute::PROTECTED | osg::StateAttribute::OFF
+	);
+
+	camera->setProjectionMatrix(osg::Matrix::ortho2D(0_cv, width, 0_cv, height));
+	camera->setReferenceFrame(osg::Transform::ABSOLUTE_RF);
+	camera->setViewMatrix(osg::Matrix::identity());
+	camera->setViewport(new osg::Viewport(0, 0, static_cast<int>(width), static_cast<int>(height)));
+	camera->setClearMask(GL_DEPTH_BUFFER_BIT);
+	camera->setRenderOrder(osg::Camera::POST_RENDER);
+
+	return camera;
+}
+
 int main(int argc, char** argv) {
 	osg::ArgumentParser args(&argc, argv);
 
@@ -54,10 +73,17 @@ int main(int argc, char** argv) {
 				"--input-file <string>",
 				"File to read text input from"
 			},
-			// TODO: Implement this!
+			{
+				"--font-size <int>",
+				"Size in font pts (DEFAULT: 16)"
+			},
 			{
 				"--font-color <color>",
 				"Font color to use (RGBA 0.0-1.0)"
+			},
+			{
+				"--perspective",
+				"Use a traditional 3D perspective view (instead of ortho2D)"
 			}
 		},
 		1,
@@ -71,9 +97,12 @@ int main(int argc, char** argv) {
 	bool smallText = false;
 
 	if(args.read("--input-file", inputFile)) {}
-
 	if(args.read("--random-colors")) randomColors = true;
 	if(args.read("--small-text")) smallText = true;
+
+	int fontSize = 16;
+
+	while(args.read("--font-size", fontSize)) {}
 
 	slughorn::Color color{1_cv, 1_cv, 1_cv, 1_cv};
 
@@ -125,7 +154,7 @@ int main(int argc, char** argv) {
 	atlas->build();
 	atlas->packTextures();
 
-	auto text = osgx::make_ref<osgSlug::Text>(atlas, 1_cv);
+	auto text = osgx::make_ref<osgSlug::Text>(atlas, cv(fontSize));
 
 	for(std::size_t i = 0; i < lines.size(); ++i) {
 		const auto& c = colors[i];
@@ -150,5 +179,18 @@ int main(int argc, char** argv) {
 		text->getOrCreateStateSet()->addUniform(new osg::Uniform("osgSlug_gamma", 0.454f));
 	}
 
-	return example::run(viewer, args, text);
+	if(args.read("--perspective")) return example::run(viewer, args, text);
+
+	else {
+		auto mat = osgx::make_ref<osg::MatrixTransform>();
+
+		mat->addChild(text);
+		// mat->setMatrix(osg::Matrix::translate(osgSlug::Vec3(3_cv, 440_cv, 0)));
+
+		auto* project2d = createOrthoCamera(800_cv, 600_cv);
+
+		project2d->addChild(mat);
+
+		return example::run(viewer, args, project2d, false);
+	}
 }

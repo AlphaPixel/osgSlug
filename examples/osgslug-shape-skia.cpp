@@ -1,19 +1,9 @@
 //vimrun! ./osgslug-shape-skia
 
-#include "osgSlug/Atlas.hpp"
-#include "osgSlug/Drawable.hpp"
+#include "osgslug-example.hpp"
 
 #define SLUGHORN_SKIA_IMPLEMENTATION
 #include "slughorn/skia.hpp"
-
-OSGSLUG_DISABLE_WARNINGS
-
-#include <osg/MatrixTransform>
-
-#include <osgViewer/Viewer>
-#include <osgViewer/ViewerEventHandlers>
-
-OSGSLUG_ENABLE_WARNINGS
 
 #include "include/core/SkPathBuilder.h"
 #include "include/core/SkPath.h"
@@ -144,7 +134,13 @@ SkPath buildJigsawPiecePath() {
 // =============================================================================
 // main
 // =============================================================================
-int main() {
+int main(int argc, char** argv) {
+	osg::ArgumentParser args(&argc, argv);
+
+	osgViewer::Viewer viewer(args);
+
+	if(!example::setupArguments(args, "Demonstrates Skia-authored Shapes")) return 0;
+
 	constexpr uint32_t PIECE_KEY = 1;
 
 	// Normalise into a ~1.0 em square so it plays nicely with slughorn metrics
@@ -203,15 +199,5 @@ int main() {
 	// sdg->setStateSet(createStateSetForAtlas(atlas));
 	// sdg->getOrCreateStateSet()->addUniform(new osg::Uniform("slug_debugMode", 4));
 
-	osgViewer::Viewer viewer;
-
-	auto root = osgx::make_ref<osg::MatrixTransform>();
-
-	root->setMatrix(osg::Matrix::rotate(osg::DegreesToRadians(90.0), osg::Vec3(1, 0, 0)));
-	root->addChild(sdg);
-
-	viewer.setSceneData(root);
-	viewer.addEventHandler(new osgViewer::StatsHandler());
-
-	return viewer.run();
+	return example::run(viewer, args, sdg);
 }

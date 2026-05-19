@@ -1,25 +1,23 @@
 //vimrun! ./osgslug-simple-animation
 
+#include "osgslug-example.hpp"
+
 #include "osgSlug/Font.hpp"
 #include "osgSlug/Text.hpp"
 
-OSGSLUG_DISABLE_WARNINGS
-
-#include <osg/MatrixTransform>
-
-#include <osgViewer/Viewer>
-#include <osgViewer/ViewerEventHandlers>
-
-OSGSLUG_ENABLE_WARNINGS
-
 int main(int argc, char** argv) {
-	osgViewer::Viewer viewer;
+	osg::ArgumentParser args(&argc, argv);
+
+	osgViewer::Viewer viewer(args);
+
+	if(!example::setupArguments(args, "Demonstrates animated ShapeDrawable effects")) return 0;
 
 	auto atlas = osgx::make_ref<osgSlug::Atlas>();
 
 	osgSlug::Atlas::ShapeInfo tri;
 
-	tri.origin = slughorn::Atlas::ShapeInfo::Origin::Centered;
+	// tri.origin = slughorn::Atlas::ShapeInfo::Origin(slughorn::Atlas::ShapeInfo::Origin::Type::Centered);
+	tri.origin = slughorn::Atlas::ShapeInfo::Origin::Type::Centered;
 	tri.numBandsX = 2;
 	tri.numBandsY = 5;
 	tri.curves = {
@@ -84,13 +82,5 @@ int main(int argc, char** argv) {
 	sdg->addDrawable(sd);
 	sdg->setStateSet(atlas->createDefaultStateSet());
 
-	auto root = osgx::make_ref<osg::MatrixTransform>();
-
-	root->setMatrix(osg::Matrix::rotate(osg::DegreesToRadians(90.0), osg::Vec3(1, 0, 0)));
-	root->addChild(sdg);
-
-	viewer.setSceneData(root);
-	viewer.addEventHandler(new osgViewer::StatsHandler());
-
-	return viewer.run();
+	return example::run(viewer, args, sdg);
 }

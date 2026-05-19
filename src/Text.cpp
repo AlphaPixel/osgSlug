@@ -77,11 +77,13 @@ void Text::compile() {
 	slug_t cursorX = 0_cv;
 	slug_t cursorY = 0_cv; // -cv(_fontSize); // 0_cv;
 
+	const auto tpa = osgSlug::getEnv<bool>("TEXT_PIXEL_ALIGN", false);
+
 	for(const auto& run : _runs) {
 		for(char ch : run.text) {
 			if(ch == '\n') {
 				cursorX = 0_cv;
-				cursorY -= _fontSize; // / 1.5_cv;
+				cursorY -= _fontSize + 3_cv; // / 1.5_cv;
 
 				continue;
 			}
@@ -110,6 +112,10 @@ void Text::compile() {
 			});
 
 			cursorX += shape->advance * _fontSize;
+
+			if(tpa) cursorX = std::round(cursorX);
+
+			OSG_WARN << "cursorX: " << cursorX << std::endl;
 		}
 	}
 

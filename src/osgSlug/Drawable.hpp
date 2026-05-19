@@ -70,19 +70,18 @@ private:
 //
 // (float u, float v) -> Vec3
 //
-// The subdivider handles em-coord mapping, index stitching, and vertex
-// attribute binding. The slug pipeline sees exactly the same data as
-// ShapeDrawable, just with more triangles and non-flat positions.
+// The subdivider handles em-coord mapping, index stitching, and vertex attribute binding. The slug
+// pipeline sees exactly the same data as ShapeDrawable, just with more triangles and non-flat
+// positions.
 //
-// Single-layer: uses _layers[0] for shape/color/effectId.
-// The position function owns all geometric decisions; the base class
-// owns all slug plumbing.
+// Single-layer: uses _layers[0] for shape/color/effectId. The position function owns all geometric
+// decisions; the base class owns all slug plumbing.
 //
 // TODO: multi-layer support (different shapes per region).
 // TODO: proper expand strategy for 3D meshes (SLUG_EXPAND=0.01 is a
 //
-// 2D quad concept; for curved surfaces "expand" in em-space may
-// need to account for surface curvature / texel density).
+// 2D quad concept; for curved surfaces "expand" in em-space may need to account for surface
+// curvature / texel density).
 class SubdividedDrawable: public ShapeDrawable {
 public:
 	using PositionCallback = std::function<Vec3(slug_t u, slug_t v)>;

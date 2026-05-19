@@ -18,14 +18,14 @@ int main(int argc, char** argv) {
 		args,
 		"Load a Shape/CompositeShape from a .slug/.slugb file",
 		{},
-		2,
+		1,
 		"FONT_FILE EMOJI"
 	)) return 1;
 
 	// if(!example::validatePositional(args, 2, "FONT_FILE EMOJI")) return example::fail(args, 1);
 
 	std::string fontFile = args[1];
-	std::string emoji = args[2];
+	std::string emoji = args.argc() >= 3 ? args[2] : "";
 
 	uint32_t emojiCodepoint = slughorn::emoji::randomCodepoint();
 

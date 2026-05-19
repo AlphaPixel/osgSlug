@@ -430,12 +430,12 @@ int main(int argc, char** argv) {
 
 	osgViewer::Viewer viewer(args);
 
-	example::setupArguments(args, "Displays a Shape on a 3D mesh", {
+	if(!example::setupArguments(args, "Displays a Shape on a 3D mesh", {
 		{
 			"--perspective",
 			"Use a traditional 3D perspective view (instead of ortho2D)"
 		}
-	});
+	})) return 0;
 
 	auto atlas = osgx::make_ref<osgSlug::Atlas>();
 

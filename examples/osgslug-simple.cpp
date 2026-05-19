@@ -1,15 +1,13 @@
 //vimrun! ./osgslug-simple
 
+#include "osgslug-example.hpp"
+
 #include "osgSlug/Font.hpp"
 #include "osgSlug/Text.hpp"
 
 OSGSLUG_DISABLE_WARNINGS
 
-#include <osg/MatrixTransform>
 #include <osg/ComputeBoundsVisitor>
-
-#include <osgViewer/Viewer>
-#include <osgViewer/ViewerEventHandlers>
 
 OSGSLUG_ENABLE_WARNINGS
 
@@ -69,7 +67,11 @@ struct SpinCallback: public osg::NodeCallback {
 };
 
 int main(int argc, char** argv) {
-	osgViewer::Viewer viewer;
+	osg::ArgumentParser args(&argc, argv);
+
+	osgViewer::Viewer viewer(args);
+
+	if(!example::setupArguments(args, "Demonstrates text rendering with a manually injected glyph")) return 0;
 
 	auto atlas = osgx::make_ref<osgSlug::Atlas>();
 
@@ -178,8 +180,6 @@ int main(int argc, char** argv) {
 	root->addChild(text);
 
 	viewer.getCamera()->setClearColor(osg::Vec4(0.2f, 0.2f, 0.2f, 1.0f));
-	viewer.setSceneData(root);
-	viewer.addEventHandler(new osgViewer::StatsHandler());
 
-	return viewer.run();
+	return example::run(viewer, args, root, false);
 }

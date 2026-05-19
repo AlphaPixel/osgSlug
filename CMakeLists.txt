@@ -171,45 +171,47 @@ if(OSGSLUG_BUILD_EXAMPLES)
 	endfunction()
 
 	osgslug_example(osgslug-tmp SOURCES "examples/osgslug-tmp.cpp")
-	# osgslug_example(osgslug-serial SOURCES "examples/osgslug-serial.cpp")
-	# osgslug_example(osgslug-text SOURCES "examples/osgslug-text.cpp")
-	# osgslug_example(osgslug-simple SOURCES "examples/osgslug-simple.cpp")
-	# osgslug_example(osgslug-simple-3d SOURCES "examples/osgslug-simple-3d.cpp")
-	# osgslug_example(osgslug-simple-animation SOURCES "examples/osgslug-simple-animation.cpp")
-	# osgslug_example(osgslug-font-animation SOURCES "examples/osgslug-font-animation.cpp")
-	# osgslug_example(osgslug-lines SOURCES "examples/osgslug-lines.cpp")
-	# osgslug_example(osgslug-nanosvg SOURCES "examples/osgslug-nanosvg.cpp")
-	# osgslug_example(osgslug-emoji-ft2 SOURCES "examples/osgslug-emoji-ft2.cpp")
-	# osgslug_example(osgslug-shape-canvas SOURCES "examples/osgslug-shape-canvas.cpp")
-	# osgslug_example(osgslug-shape-skia
-	# 	SOURCES "examples/osgslug-shape-skia.cpp"
-	# 	LIBS "skia"
-	# )
-	# osgslug_example(osgslug-shape-cairo
-	# 	SOURCES "examples/osgslug-shape-cairo.cpp"
-	# 	LIBS "PkgConfig::CAIRO"
-	# )
-	# osgslug_example(osgslug-compositeshape-canvas
-	# 	SOURCES "examples/osgslug-compositeshape-canvas.cpp"
-	# )
-	# osgslug_example(osgslug-compositeshape-skia
-	# 	SOURCES "examples/osgslug-compositeshape-skia.cpp"
-	# 	LIBS "skia"
-	# )
-	# osgslug_example(osgslug-compositeshape-skia-logo
-	# 	SOURCES "examples/osgslug-compositeshape-skia-logo.cpp"
-	# 	LIBS
-	# 		"skia"
-	# 		"PkgConfig::FONTCONFIG"
-	# )
-	# osgslug_example(osgslug-compositeshape-cairo
-	# 	SOURCES "examples/osgslug-compositeshape-cairo.cpp"
-	# 	LIBS "PkgConfig::CAIRO"
-	# )
-	# osgslug_example(osgslug-project2d
-	# 	SOURCES "examples/osgslug-project2d.cpp"
-	# 	LIBS "PkgConfig::CAIRO"
-	# )
+	osgslug_example(osgslug-serial SOURCES "examples/osgslug-serial.cpp")
+	osgslug_example(osgslug-text SOURCES "examples/osgslug-text.cpp")
+	osgslug_example(osgslug-gradient-canvas SOURCES "examples/osgslug-gradient-canvas.cpp")
+	osgslug_example(osgslug-simple SOURCES "examples/osgslug-simple.cpp")
+	osgslug_example(osgslug-simple-3d SOURCES "examples/osgslug-simple-3d.cpp")
+	osgslug_example(osgslug-simple-animation SOURCES "examples/osgslug-simple-animation.cpp")
+	osgslug_example(osgslug-font-animation SOURCES "examples/osgslug-font-animation.cpp")
+	osgslug_example(osgslug-lines SOURCES "examples/osgslug-lines.cpp")
+	osgslug_example(osgslug-nanosvg SOURCES "examples/osgslug-nanosvg.cpp")
+	osgslug_example(osgslug-emoji-ft2 SOURCES "examples/osgslug-emoji-ft2.cpp")
+	osgslug_example(osgslug-emoji-grid SOURCES "examples/osgslug-emoji-grid.cpp")
+	osgslug_example(osgslug-shape-canvas SOURCES "examples/osgslug-shape-canvas.cpp")
+	osgslug_example(osgslug-shape-skia
+		SOURCES "examples/osgslug-shape-skia.cpp"
+		LIBS "skia"
+	)
+	osgslug_example(osgslug-shape-cairo
+		SOURCES "examples/osgslug-shape-cairo.cpp"
+		LIBS "PkgConfig::CAIRO"
+	)
+	osgslug_example(osgslug-compositeshape-canvas
+		SOURCES "examples/osgslug-compositeshape-canvas.cpp"
+	)
+	osgslug_example(osgslug-compositeshape-skia
+		SOURCES "examples/osgslug-compositeshape-skia.cpp"
+		LIBS "skia"
+	)
+	osgslug_example(osgslug-compositeshape-skia-logo
+		SOURCES "examples/osgslug-compositeshape-skia-logo.cpp"
+		LIBS
+			"skia"
+			"PkgConfig::FONTCONFIG"
+	)
+	osgslug_example(osgslug-compositeshape-cairo
+		SOURCES "examples/osgslug-compositeshape-cairo.cpp"
+		LIBS "PkgConfig::CAIRO"
+	)
+	osgslug_example(osgslug-project2d
+		SOURCES "examples/osgslug-project2d.cpp"
+		LIBS "PkgConfig::CAIRO"
+	)
 endif()
 
 pybind11_add_module(osgSlug_python "ext/osgSlug-python.cpp")

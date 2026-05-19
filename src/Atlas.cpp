@@ -5,8 +5,6 @@
 #include <osg/Image>
 #include <osg/BlendFunc>
 
-#include <cstring>
-
 // TODO: Remove these!
 #ifndef GL_RGBA_INTEGER
 #define GL_RGBA_INTEGER 0x8D99
@@ -111,21 +109,10 @@ osg::StateSet* Atlas::createDefaultStateSet() const {
 	ss->setMode(GL_DEPTH_TEST, osg::StateAttribute::OFF);
 	ss->setRenderingHint(osg::StateSet::TRANSPARENT_BIN);
 
-	if(const char* debug = getenv("OSGSLUG_DEBUG"); debug) {
-		int dm = 0;
-
-		try {
-			dm = static_cast<int>(std::stoul(debug, nullptr));
-		}
-
-		catch(const std::exception& e) {
-			OSG_WARN << "Invalid OSGSLUG_DEBUG value; ignoring..." << std::endl;
-		}
-
-		OSG_NOTICE << "OSGSLUG_DEBUG mode=" << dm << " detected..." << std::endl;
-
-		ss->addUniform(new osg::Uniform("osgSlug_debugMode", dm));
-	}
+	if(auto dm = getEnv<int>("DEBUG", 0); dm) ss->addUniform(new osg::Uniform(
+		"osgSlug_debugMode",
+		dm
+	));
 
 	return ss;
 }

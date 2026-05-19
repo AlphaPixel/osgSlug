@@ -1,25 +1,21 @@
 // vimrun! ./osgslug-shape-canvas
 
-#include "osgSlug/Atlas.hpp"
-#include "osgSlug/Drawable.hpp"
+#include "osgslug-example.hpp"
 
 #include "slughorn/canvas.hpp"
 #include "slughorn/serial.hpp"
-
-OSGSLUG_DISABLE_WARNINGS
-
-#include <osg/MatrixTransform>
-
-#include <osgViewer/Viewer>
-#include <osgViewer/ViewerEventHandlers>
-
-OSGSLUG_ENABLE_WARNINGS
 
 #include <iostream>
 #include <algorithm>
 #include <cmath>
 
 int main(int argc, char** argv) {
+	osg::ArgumentParser args(&argc, argv);
+
+	osgViewer::Viewer viewer(args);
+
+	if(!example::setupArguments(args, "Demonstrates Canvas-authored Shapes")) return 0;
+
 	auto atlas = osgx::make_ref<osgSlug::Atlas>();
 
 	uint32_t keyBase = 0xE0000;
@@ -105,16 +101,5 @@ int main(int argc, char** argv) {
 	sdg->addDrawable(sd);
 	sdg->setStateSet(atlas->createDefaultStateSet());
 
-	osgViewer::Viewer viewer;
-
-	// TODO: Move this to some kind of HELPER for the backend (if the backend doesn't use Y-up)!
-	auto root = osgx::make_ref<osg::MatrixTransform>();
-
-	root->setMatrix(osg::Matrix::rotate(osg::DegreesToRadians(90.0), osg::Vec3(1, 0, 0)));
-	root->addChild(sdg);
-
-	viewer.setSceneData(root);
-	viewer.addEventHandler(new osgViewer::StatsHandler());
-
-	return viewer.run();
+	return example::run(viewer, args, sdg);
 }

@@ -20,20 +20,12 @@
 // zero offset waste.
 // ================================================================================================
 
-#include "osgSlug/Atlas.hpp"
-#include "osgSlug/Drawable.hpp"
+#include "osgslug-example.hpp"
 
 #include "slughorn/serial.hpp"
 
 #define SLUGHORN_CAIRO_IMPLEMENTATION
 #include "slughorn/cairo.hpp"
-
-OSGSLUG_DISABLE_WARNINGS
-
-#include <osgViewer/Viewer>
-#include <osgViewer/ViewerEventHandlers>
-
-OSGSLUG_ENABLE_WARNINGS
 
 #include <cairo/cairo.h>
 #include <cmath>
@@ -297,6 +289,12 @@ slughorn::CompositeShape buildTriangles(osgSlug::Atlas* atlas) {
 // =============================================================================
 
 int main(int argc, char** argv) {
+	osg::ArgumentParser args(&argc, argv);
+
+	osgViewer::Viewer viewer(args);
+
+	if(!example::setupArguments(args, "Demonstrates Cairo-authored CompositeShapes")) return 0;
+
 	auto atlas = osgx::make_ref<osgSlug::Atlas>();
 
 	slughorn::CompositeShape axolotl = buildAxolotl(atlas);
@@ -341,10 +339,5 @@ int main(int argc, char** argv) {
 	);
 	root->addChild(geode);
 
-	osgViewer::Viewer viewer;
-
-	viewer.setSceneData(root);
-	viewer.addEventHandler(new osgViewer::StatsHandler());
-
-	return viewer.run();
+	return example::run(viewer, args, root, false);
 }

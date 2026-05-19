@@ -7,6 +7,7 @@ flat in vec4 v_bandXform;
 flat in vec4 v_shapeData;
 flat in int v_effectId;
 flat in int v_gradientId;
+in vec4 v_gradientMeta;
 in vec4 v_gradientXform;
 
 uniform float osg_SimulationTime;
@@ -605,9 +606,12 @@ void main() {
 		}
 
 		else if(v_gradientXform.w > 0.0) {
-			// Radial: xform = (cx, cy, r0*invDR, invDR) where invDR = 1/(r1-r0)
-			float dist = length(v_emCoord - v_gradientXform.xy);
-			t = dist * v_gradientXform.w - v_gradientXform.z;
+			// Radial/AffineRadial: xform = B matrix (column-major mat2); meta.yz = center; meta.w = r0_norm
+			// t = length(B * (emCoord - center)) - r0_norm
+			// For circular: B = invDR * I (degenerate ellipse); for affine: full 2x2.
+			vec2 d = v_emCoord - v_gradientMeta.yz;
+			mat2 B = mat2(v_gradientXform);
+			t = length(B * d) - v_gradientMeta.w;
 		}
 
 		else {
@@ -626,7 +630,7 @@ void main() {
 		effectiveColor = vec4(gc.rgb, gc.a * v_color.a);
 	}
 
-	// Draws a border around the quad; however, because `slugEmToUV` returns the "metrics-based"
+	// Draws a border around the quad; however, because `slug_EmToUV` returns the "metrics-based"
 	// size--and due to the mandatory "expand" value used in order to allow antialiasing--it's
 	// impossible to get a CONSISTENTLY-sized "1 pixel" border. To do that, we'd need the
 	// actual/traditional UV values in the range 0-1.
@@ -690,5 +694,6 @@ void main() {
 		;
 	}
 
-	color.rgb *= color.a;
+	// TODO: This line is required when using PREMULTIPLIED ALPHA!
+	// color.rgb *= color.a;
 }
