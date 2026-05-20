@@ -47,7 +47,7 @@ int main(int argc, char** argv) {
 		<< std::endl
 	;
 
-	atlas->addCompositeShape(slughorn::Key::fromString("logo"), logo);
+	atlas->addCompositeShape(slughorn::Key("logo"), logo);
 	atlas->build();
 	atlas->packTextures();
 

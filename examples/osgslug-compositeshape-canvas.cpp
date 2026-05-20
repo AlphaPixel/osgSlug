@@ -38,7 +38,7 @@ int main(int argc, char** argv) {
 		});
 	}
 
-	// atlas->addCompositeShape(slughorn::Key::fromString("audio_bars"), compositeShape);
+	// atlas->addCompositeShape(slughorn::Key("audio_bars"), compositeShape);
 	atlas->addCompositeShape("audio_bars", compositeShape);
 #endif
 
@@ -51,7 +51,7 @@ int main(int argc, char** argv) {
 	canvas.roundedRect(0.25_cv, 0.25_cv, 0.5_cv, 0.5_cv, 0.08_cv);
 	canvas.fill({0_cv, 0_cv, 0.5_cv, 1_cv});
 
-	// canvas.finalize(Key::fromString("three_layer"));
+	// canvas.finalize(Key("three_layer"));
 	auto compositeShape = canvas.finalize();
 
 	atlas->build();

@@ -300,7 +300,7 @@ int main(int argc, char** argv) {
 	slughorn::CompositeShape axolotl = buildAxolotl(atlas);
 	// CompositeShape axolotl = buildTriangles(atlas);
 
-	atlas->addCompositeShape(slughorn::Key::fromString("axolotl"), axolotl);
+	atlas->addCompositeShape(slughorn::Key("axolotl"), axolotl);
 
 	atlas->build();
 	atlas->packTextures();
@@ -318,7 +318,7 @@ int main(int argc, char** argv) {
 
 	sd->setAtlas(atlas);
 	sd->addCompositeShape(
-		*atlas->getCompositeShape(slughorn::Key::fromString("axolotl"))
+		*atlas->getCompositeShape(slughorn::Key("axolotl"))
 		// {0_cv, 0_cv},
 		// 300_cv
 	);

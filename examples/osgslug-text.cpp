@@ -45,13 +45,8 @@ static std::vector<std::string> splitLines(std::string_view text) {
 osg::Camera* createOrthoCamera(slug_t width, slug_t height) {
 	osg::Camera* camera = new osg::Camera();
 
-	camera->getOrCreateStateSet()->setMode(
-		GL_LIGHTING,
-		osg::StateAttribute::PROTECTED | osg::StateAttribute::OFF
-	);
-
-	camera->setProjectionMatrix(osg::Matrix::ortho2D(0_cv, width, 0_cv, height));
 	camera->setReferenceFrame(osg::Transform::ABSOLUTE_RF);
+	camera->setProjectionMatrix(osg::Matrix::ortho2D(0_cv, width, 0_cv, height));
 	camera->setViewMatrix(osg::Matrix::identity());
 	camera->setViewport(new osg::Viewport(0, 0, static_cast<int>(width), static_cast<int>(height)));
 	camera->setClearMask(GL_DEPTH_BUFFER_BIT);

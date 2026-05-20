@@ -26,7 +26,7 @@ int main(int argc, char** argv) {
 		{0.5_cv, 0.7_cv, 0.25_cv, 0.35_cv, 0.0_cv, 0.0_cv}, // le_cvt
 	};
 
-	auto key = slughorn::Key::fromString("tri");
+	auto key = slughorn::Key("tri");
 
 	atlas->addShape(key, tri);
 	atlas->build();
@@ -61,7 +61,7 @@ int main(int argc, char** argv) {
 		{0,1, 0,0.5, 0,0}
 	};
 
-	auto key = slughorn::Key::fromString("quad");
+	auto key = slughorn::Key("quad");
 
 	atlas->addShape(key, quad);
 	atlas->build();

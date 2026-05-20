@@ -238,15 +238,15 @@ inline slughorn::Key parseKey(const std::string& s) {
 	if(s.size() > 2 && s[0] == '0' && (s[1] == 'x' || s[1] == 'X')) {
 		auto [ptr, ec] = std::from_chars(s.data() + 2, s.data() + s.size(), cp, 16);
 
-		if(ec == std::errc{}) return slughorn::Key::fromCodepoint(cp);
+		if(ec == std::errc{}) return slughorn::Key(cp);
 	}
 
 	auto [ptr, ec] = std::from_chars(s.data(), s.data() + s.size(), cp);
 
-	if(ec == std::errc{}) return slughorn::Key::fromCodepoint(cp);
+	if(ec == std::errc{}) return slughorn::Key(cp);
 
 	// Not a number; treat as a named key
-	return slughorn::Key::fromString(s);
+	return slughorn::Key(s);
 }
 
 }

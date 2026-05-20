@@ -88,7 +88,7 @@ int main(int argc, char** argv) {
 			cs.layers.push_back(layer);
 		}
 
-		atlas->addCompositeShape(slughorn::Key::fromString("emoji"), cs);
+		atlas->addCompositeShape(slughorn::Key("emoji"), cs);
 	}
 
 	// slughorn::serial::writeJSON(*atlas, std::cerr);
