@@ -68,6 +68,17 @@ void main() {
 		pos.x = (pos.x - 0.0) * sx + 0.0;
 	}
 
+	// Clock hand rotation: forward-rotates the quad around the world pivot, inverse-rotates.
+	// TODO: How do we avoid having to hard-code `worldPivot`? What happens when we DON'T use it?
+	if(eid == 8) {
+		float c = cos(t), s = sin(t);
+		mat2 R = mat2(c, s, -s, c); // CCW forward rotation
+		mat2 Rinv = mat2(c, -s, s, c); // inverse (transpose of orthogonal)
+		vec2 worldPivot = vec2(0.5, 0.5);
+
+		pos.xy = R * (pos.xy - worldPivot) + worldPivot;
+	}
+
 	v_emCoord = a_emCoord;
 	v_bandXform = a_bandXform;
 	v_shapeData = a_shapeData;
