@@ -57,15 +57,25 @@ ShapeDrawable::ShapeDrawable() {
 	setUseVertexBufferObjects(true);
 }
 
+osg::BoundingBox ShapeDrawable::computeBoundingBox() const {
+	osg::BoundingBox bb;
+
+	const auto* verts = dynamic_cast<const osgx::Vec4Array*>(getVertexAttribArray(0));
+
+	if(verts) for(const auto& v : *verts) bb.expandBy(osg::Vec3(v.x(), v.y(), v.z()));
+
+	return bb;
+}
+
 void ShapeDrawable::compile() {
 	if(!_atlas || !_atlas->isBuilt() || _layers.empty()) return;
 
-	auto vertices = osgx::make_ref<osgx::Vec3Array>();
+	auto vertices = osgx::make_ref<osgx::Vec4Array>();
 	auto colors = osgx::make_ref<osgx::Vec4Array>();
-	auto emCoords = osgx::make_ref<osgx::Vec2Array>();
+	auto emCoords = osgx::make_ref<osgx::Vec4Array>();
 	auto bandXform = osgx::make_ref<osgx::Vec4Array>();
 	auto shapeData = osgx::make_ref<osgx::Vec4Array>();
-	auto effectIds = osgx::make_ref<osgx::FloatArray>();
+	auto effectData = osgx::make_ref<osgx::Vec4Array>();
 	auto gradientMeta = osgx::make_ref<osgx::Vec4Array>();
 	auto gradientXforms = osgx::make_ref<osgx::Vec4Array>();
 	auto indices = osgx::make_ref<osgx::DrawElementsUShort>();
@@ -74,6 +84,7 @@ void ShapeDrawable::compile() {
 	// now since compile() is only called once.
 
 	index_element_type base = 0;
+	int layerIdx = 0;
 
 	for(const auto& layer : _layers) {
 		const auto* shape = _atlas->getShape(layer.key);
@@ -88,12 +99,13 @@ void ShapeDrawable::compile() {
 		// Scene placement is the caller's responsibility (MatrixTransform).
 		// const slughorn::Quad q = shape->computeQuad(layer.transform, layer.scale, cv(expand));
 		const auto q = shape->computeQuad(layer.transform, layer.scale, expand);
+		const slug_t lidx = static_cast<slug_t>(layerIdx + 1);
 
 		vertices->append_range({
-			{q.x0, q.y0, 0_cv},
-			{q.x1, q.y0, 0_cv},
-			{q.x1, q.y1, 0_cv},
-			{q.x0, q.y1, 0_cv}
+			{q.x0, q.y0, 0_cv, lidx},
+			{q.x1, q.y0, 0_cv, lidx},
+			{q.x1, q.y1, 0_cv, lidx},
+			{q.x0, q.y1, 0_cv, lidx}
 		});
 
 		colors->append_n<4>({layer.color.r, layer.color.g, layer.color.b, layer.color.a});
@@ -106,10 +118,10 @@ void ShapeDrawable::compile() {
 		const auto emY1 = shape->bearingY + expand;
 
 		emCoords->append_range({
-			{emX0, emY0},
-			{emX1, emY0},
-			{emX1, emY1},
-			{emX0, emY1}
+			{emX0, emY0, 0_cv, 0_cv},
+			{emX1, emY0, 1_cv, 0_cv},
+			{emX1, emY1, 1_cv, 1_cv},
+			{emX0, emY1, 0_cv, 1_cv}
 		});
 
 		bandXform->append_n<4>({
@@ -126,7 +138,7 @@ void ShapeDrawable::compile() {
 			cv(shape->bandMaxY)
 		});
 
-		effectIds->append_n<4>(cv(layer.effectId));
+		effectData->append_n<4>(osg::Vec4(cv(layer.effectId), cv(shape->originX), cv(shape->originY), 0_cv));
 
 		const auto [gmeta, gxform] = buildGradientData(*_atlas, layer);
 
@@ -139,6 +151,7 @@ void ShapeDrawable::compile() {
 		});
 
 		base += 4;
+		++layerIdx;
 	}
 
 	// TODO: Why JUST test `vertices`? Shouldn't we test them ALL!?
@@ -159,7 +172,7 @@ void ShapeDrawable::compile() {
 	setVertexAttribArray(4, shapeData);
 	setVertexAttribBinding(4, osg::Geometry::BIND_PER_VERTEX);
 
-	setVertexAttribArray(5, effectIds);
+	setVertexAttribArray(5, effectData);
 	setVertexAttribBinding(5, osg::Geometry::BIND_PER_VERTEX);
 
 	setVertexAttribArray(6, gradientMeta);
@@ -176,12 +189,12 @@ void BoxDrawable::compile() {
 
 	if(!atlas || !atlas->isBuilt() || _layers.empty()) return;
 
-	auto vertices = osgx::make_ref<osgx::Vec3Array>();
+	auto vertices = osgx::make_ref<osgx::Vec4Array>();
 	auto colors = osgx::make_ref<osgx::Vec4Array>();
-	auto emCoords = osgx::make_ref<osgx::Vec2Array>();
+	auto emCoords = osgx::make_ref<osgx::Vec4Array>();
 	auto bandXform = osgx::make_ref<osgx::Vec4Array>();
 	auto shapeData = osgx::make_ref<osgx::Vec4Array>();
-	auto effectIds = osgx::make_ref<osgx::FloatArray>();
+	auto effectData = osgx::make_ref<osgx::Vec4Array>();
 	auto gradientMeta = osgx::make_ref<osgx::Vec4Array>();
 	auto gradientXforms = osgx::make_ref<osgx::Vec4Array>();
 	// auto indices = osgx::make_ref<osgx::DrawElementsUShort>(osg::PrimitiveSet::TRIANGLES);
@@ -210,7 +223,8 @@ void BoxDrawable::compile() {
 		);
 
 		const Vec4 color(layer.color.r, layer.color.g, layer.color.b, layer.color.a);
-		const auto eid = cv(layer.effectId);
+		const osg::Vec4 eid(cv(layer.effectId), cv(shape->originX), cv(shape->originY), 0_cv);
+		const slug_t lidx = static_cast<slug_t>(layerIdx + 1);
 
 		const auto [gmeta, gxform] = buildGradientData(*_atlas, layer);
 
@@ -221,16 +235,16 @@ void BoxDrawable::compile() {
 		slug_t uvs[4][2] = {{0, 0}, {1, 0}, {1, 1}, {0, 1}};
 
 		for(size_t i = 0; i < 4; i++) {
-			vertices->push_back(ps[i]);
+			vertices->push_back(osg::Vec4(ps[i].x(), ps[i].y(), ps[i].z(), lidx));
 
 			slug_t emX = emX0 + uvs[i][0] * (emX1 - emX0);
 			slug_t emY = emY0 + uvs[i][1] * (emY1 - emY0);
 
-			emCoords->push_back({emX, emY});
+			emCoords->push_back({emX, emY, uvs[i][0], uvs[i][1]});
 			colors->push_back(color);
 			bandXform->push_back(bx);
 			shapeData->push_back(sd);
-			effectIds->push_back(eid);
+			effectData->push_back(eid);
 			gradientMeta->push_back(gmeta);
 			gradientXforms->push_back(gxform);
 		}
@@ -266,7 +280,7 @@ void BoxDrawable::compile() {
 	setVertexAttribArray(4, shapeData);
 	setVertexAttribBinding(4, osg::Geometry::BIND_PER_VERTEX);
 
-	setVertexAttribArray(5, effectIds);
+	setVertexAttribArray(5, effectData);
 	setVertexAttribBinding(5, osg::Geometry::BIND_PER_VERTEX);
 
 	setVertexAttribArray(6, gradientMeta);
@@ -289,12 +303,12 @@ void SubdividedDrawable::compile() {
 
 	if(!shape) return;
 
-	auto vertices = osgx::make_ref<osgx::Vec3Array>();
+	auto vertices = osgx::make_ref<osgx::Vec4Array>();
 	auto colors = osgx::make_ref<osgx::Vec4Array>();
-	auto emCoords = osgx::make_ref<osgx::Vec2Array>();
+	auto emCoords = osgx::make_ref<osgx::Vec4Array>();
 	auto bandXform = osgx::make_ref<osgx::Vec4Array>();
 	auto shapeData = osgx::make_ref<osgx::Vec4Array>();
-	auto effectIds = osgx::make_ref<osgx::FloatArray>();
+	auto effectData = osgx::make_ref<osgx::Vec4Array>();
 	auto gradientMeta = osgx::make_ref<osgx::Vec4Array>();
 	auto gradientXforms = osgx::make_ref<osgx::Vec4Array>();
 	auto indices = osgx::make_ref<osgx::DrawElementsUShort>();
@@ -321,7 +335,7 @@ void SubdividedDrawable::compile() {
 		_layers[0].color.b, _layers[0].color.a
 	);
 
-	const slug_t eid = static_cast<slug_t>(_layers[0].effectId);
+	const osg::Vec4 eid(cv(_layers[0].effectId), cv(shape->originX), cv(shape->originY), 0_cv);
 	const auto [gmeta, gxform] = buildGradientData(*_atlas, _layers[0]);
 
 	// Vertex grid: (_stepsV + 1) rows x (_stepsU + 1) cols
@@ -331,18 +345,21 @@ void SubdividedDrawable::compile() {
 		for(size_t su = 0; su <= _stepsU; su++) {
 			const slug_t u = static_cast<slug_t>(su) / static_cast<slug_t>(_stepsU);
 
-			vertices->push_back(_positionCallback(u, v));
+			const auto p = _positionCallback(u, v);
+			vertices->push_back(osg::Vec4(p.x(), p.y(), p.z(), 1_cv));
 
-			// u,v map linearly into em bounding box
+			// u,v map linearly into em bounding box; true UV in .zw
 			emCoords->push_back({
 				emX0 + u * (emX1 - emX0),
-				emY0 + v * (emY1 - emY0)
+				emY0 + v * (emY1 - emY0),
+				u,
+				v
 			});
 
 			colors->push_back(color);
 			bandXform->push_back(bx);
 			shapeData->push_back(sd);
-			effectIds->push_back(eid);
+			effectData->push_back(eid);
 			gradientMeta->push_back(gmeta);
 			gradientXforms->push_back(gxform);
 		}
@@ -392,7 +409,7 @@ void SubdividedDrawable::compile() {
 	setVertexAttribArray(4, shapeData);
 	setVertexAttribBinding(4, osg::Geometry::BIND_PER_VERTEX);
 
-	setVertexAttribArray(5, effectIds);
+	setVertexAttribArray(5, effectData);
 	setVertexAttribBinding(5, osg::Geometry::BIND_PER_VERTEX);
 
 	setVertexAttribArray(6, gradientMeta);

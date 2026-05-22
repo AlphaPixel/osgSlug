@@ -42,6 +42,8 @@ public:
 
 	virtual void compile();
 
+	osg::BoundingBox computeBoundingBox() const override;
+
 protected:
 	osg::ref_ptr<Atlas> _atlas = nullptr;
 

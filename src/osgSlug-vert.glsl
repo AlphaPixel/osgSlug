@@ -1,11 +1,16 @@
 #version 330 core
 
-layout(location = 0) in vec3 a_position;
+layout(location = 0) in vec4 a_position;
 layout(location = 1) in vec4 a_color;
-layout(location = 2) in vec2 a_emCoord;
+layout(location = 2) in vec4 a_emCoord;
 layout(location = 3) in vec4 a_bandXform;
 layout(location = 4) in vec4 a_shapeData;
-layout(location = 5) in float a_effectId;
+
+// .x = effectId (integer packed as float)
+// .yz = worldOrigin (shape.originX, shape.originY) — the shape's reference point in world space
+// .w = spare animation parameter (speed multiplier, phase offset, etc.)
+layout(location = 5) in vec4 a_effectData;
+
 layout(location = 6) in vec4 a_gradientMeta;
 layout(location = 7) in vec4 a_gradientXform;
 
@@ -13,7 +18,9 @@ uniform mat4 osg_ModelViewProjectionMatrix;
 uniform float osg_SimulationTime;
 
 out vec2 v_emCoord;
+out vec2 v_uv;
 out vec4 v_color;
+out float v_layerIndex;
 
 flat out vec4 v_bandXform;
 flat out vec4 v_shapeData;
@@ -23,9 +30,9 @@ out vec4 v_gradientMeta;
 out vec4 v_gradientXform;
 
 void main() {
-	vec3 pos = a_position;
+	vec3 pos = a_position.xyz;
 	float t = osg_SimulationTime;
-	int eid = int(a_effectId + 0.5);
+	int eid = int(a_effectData.x + 0.5);
 	int gid = int(a_gradientMeta.x + 0.5);
 	int mode = eid / 100;
 	int index = eid % 100;
@@ -69,17 +76,17 @@ void main() {
 	}
 
 	// Clock hand rotation: forward-rotates the quad around the world pivot, inverse-rotates.
-	// TODO: How do we avoid having to hard-code `worldPivot`? What happens when we DON'T use it?
 	if(eid == 8) {
 		float c = cos(t), s = sin(t);
-		mat2 R = mat2(c, s, -s, c); // CCW forward rotation
-		mat2 Rinv = mat2(c, -s, s, c); // inverse (transpose of orthogonal)
-		vec2 worldPivot = vec2(0.5, 0.5);
+		mat2 R = mat2(c, s, -s, c);
+		vec2 worldOrigin = pos.xy - a_emCoord.xy + a_effectData.yz;
 
-		pos.xy = R * (pos.xy - worldPivot) + worldPivot;
+		pos.xy = R * (pos.xy - worldOrigin) + worldOrigin;
 	}
 
-	v_emCoord = a_emCoord;
+	v_emCoord = a_emCoord.xy;
+	v_uv = a_emCoord.zw;
+	v_layerIndex = a_position.w;
 	v_bandXform = a_bandXform;
 	v_shapeData = a_shapeData;
 	v_color = a_color;

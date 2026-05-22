@@ -20,7 +20,7 @@ int main(int argc, char** argv) {
 
 	slughorn::canvas::Canvas canvas(*atlas);
 
-#if 0
+#if 1
 	// Draw the "pill" shape, but cheat a little bit...
 	canvas.beginPath();
 	canvas.roundedRect(0.1_cv, 0.1_cv, 0.8_cv, 0.1_cv, 0.1_cv);
@@ -42,6 +42,7 @@ int main(int argc, char** argv) {
 	atlas->addCompositeShape("audio_bars", compositeShape);
 #endif
 
+#if 0
 	canvas.rect(0.05_cv, 0.05_cv, 0.9_cv, 0.9_cv);
 	canvas.fill({0.5_cv, 0_cv, 0_cv, 1_cv});
 
@@ -51,8 +52,8 @@ int main(int argc, char** argv) {
 	canvas.roundedRect(0.25_cv, 0.25_cv, 0.5_cv, 0.5_cv, 0.08_cv);
 	canvas.fill({0_cv, 0_cv, 0.5_cv, 1_cv});
 
-	// canvas.finalize(Key("three_layer"));
 	auto compositeShape = canvas.finalize();
+#endif
 
 	atlas->build();
 	atlas->packTextures();
@@ -63,10 +64,14 @@ int main(int argc, char** argv) {
 
 	sd->setAtlas(atlas);
 	sd->addCompositeShape(compositeShape);
-	/* sd->setInitialBound(osg::BoundingBox(
+	// Expand the initials bound so rotation doesn't "clip" our scene.
+	// TODO: This is a total HACK! We need some ... "official" way ... of telling OSG the shape
+	// needs more room; it currently uses the literal vertex values, but if we're CHANGING them on
+	// the GPU, OSG has no easy of knowing (and happily clips and/or sets the near/far clip)!
+	sd->setInitialBound(osg::BoundingBox(
 		-1.25f, -1.25f, -1.25f,
 		 1.25f, 1.25f, 1.25f
-	)); */
+	));
 	sd->compile();
 
 	auto sdg = osgx::make_ref<osg::Geode>();

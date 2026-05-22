@@ -1,7 +1,9 @@
 #version 330 core
 
 in vec2 v_emCoord;
+in vec2 v_uv;
 in vec4 v_color;
+in float v_layerIndex;
 
 flat in vec4 v_bandXform;
 flat in vec4 v_shapeData;
@@ -21,6 +23,9 @@ uniform int osgSlug_debugMode;
 uniform bool osgSlug_textMode; // enables MSAA, stem darkening, and gamma for text layers
 uniform bool osgSlug_stemDarken; // requires osgSlug_textMode; true = apply stem darkening to edge
 uniform float osgSlug_gamma; // 1.0 = off, 2.2 = dark-on-light, ~0.454 = light-on-dark
+// Bitmask controlling which layers are visible. Each bit corresponds to a 1-based layer index.
+// 0 (default) = all layers visible. Non-zero = apply filter; discard if bit (1 << layerIndex) is clear.
+uniform int osgSlug_layerMask;
 
 out vec4 color;
 
@@ -377,10 +382,10 @@ vec4 slug_ApplyEffect(
 		// ----------------------------------------------------------------------------------------
 		// Effect 3: texture fill.
 		//
-		// slug_EmToUV() gives a true 0..1 UV across the shape's bounding box. The texture is
-		// sampled directly; bind any osg::Texture2D to unit 2 via the state set.
+		// v_uv holds exact [0,1] UV coords baked per-vertex in Drawable::compile(). The texture
+		// is sampled directly; bind any osg::Texture2D to unit 2 via the state set.
 		// ----------------------------------------------------------------------------------------
-		vec2 uv01 = slug_EmToUV(emCoord, bandXform);
+		vec2 uv01 = v_uv;
 		vec4 s = texture(osgSlug_effectTexture, uv01);
 
 		vec3 blended = mix(layerColor.rgb, s.rgb, s.a);
@@ -388,7 +393,7 @@ vec4 slug_ApplyEffect(
 	}
 
 	if(effectId == 4) {
-		vec2 uv01 = slug_EmToUV(emCoord, bandXform);
+		vec2 uv01 = v_uv;
 
 		// Scroll right-to-left by offsetting X with time
 		float scrolled = uv01.x + float(osg_SimulationTime) * 0.3; // speed
@@ -413,7 +418,7 @@ vec4 slug_ApplyEffect(
 
 	// A kind of "paper burning away" effect; very cool. :)
 	if(effectId == 5) {
-		vec2 uv01 = slug_EmToUV(emCoord, bandXform);
+		vec2 uv01 = v_uv;
 
 		float t = osg_SimulationTime;
 
@@ -504,14 +509,14 @@ vec4 slug_ApplyDebug(
 	float fracY = fract(bandCoord.y);
 	float dY	= fwidth(bandCoord.y);
 	float edgeY = 0.0;
-	if(bandIdx.y != bY_prev) edgeY = max(edgeY, 1.0 - smoothstep(0.0, dY * 2.0, fracY));
-	if(bandIdx.y != bY_next) edgeY = max(edgeY, 1.0 - smoothstep(0.0, dY * 2.0, 1.0 - fracY));
+	if(bandIdx.y != bY_prev) edgeY = max(edgeY, 1.0 - smoothstep(0.0, dY, fracY));
+	if(bandIdx.y != bY_next) edgeY = max(edgeY, 1.0 - smoothstep(0.0, dY, 1.0 - fracY));
 
 	float fracX = fract(bandCoord.x);
 	float dX	= fwidth(bandCoord.x);
 	float edgeX = 0.0;
-	if(bandIdx.x != bX_prev) edgeX = max(edgeX, 1.0 - smoothstep(0.0, dX * 2.0, fracX));
-	if(bandIdx.x != bX_next) edgeX = max(edgeX, 1.0 - smoothstep(0.0, dX * 2.0, 1.0 - fracX));
+	if(bandIdx.x != bX_prev) edgeX = max(edgeX, 1.0 - smoothstep(0.0, dX, fracX));
+	if(bandIdx.x != bX_next) edgeX = max(edgeX, 1.0 - smoothstep(0.0, dX, 1.0 - fracX));
 
 	float atEdge = max(edgeY, edgeX);
 
@@ -563,6 +568,10 @@ float slug_StemDarken(float coverage, float brightness, float ppem) {
 }
 
 void main() {
+	// Layer mask: 0 = all visible (default). Non-zero: discard if the layer's bit is clear.
+	// Decode 1-based layer index (packed as float in a_position.w by Drawable::compile()).
+	if(osgSlug_layerMask != 0 && (osgSlug_layerMask & (1 << int(v_layerIndex + 0.5))) == 0) discard;
+
 	ivec2 glyphLoc = ivec2(v_shapeData.xy);
 	ivec2 bandMax = ivec2(v_shapeData.zw);
 
@@ -630,12 +639,9 @@ void main() {
 		effectiveColor = vec4(gc.rgb, gc.a * v_color.a);
 	}
 
-	// Draws a border around the quad; however, because `slug_EmToUV` returns the "metrics-based"
-	// size--and due to the mandatory "expand" value used in order to allow antialiasing--it's
-	// impossible to get a CONSISTENTLY-sized "1 pixel" border. To do that, we'd need the
-	// actual/traditional UV values in the range 0-1.
+	// Draws a pixel-perfect border around the quad using true [0,1] UV coords from v_uv.
 	if(osgSlug_debugMode == 3) {
-		vec2 uv = slug_EmToUV(v_emCoord, v_bandXform);
+		vec2 uv = v_uv;
 
 		vec2 distToEdge = min(uv, 1.0 - uv);
 		float dist = min(distToEdge.x, distToEdge.y);

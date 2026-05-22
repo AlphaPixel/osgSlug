@@ -219,7 +219,7 @@ pybind11_add_module(osgSlug_python "ext/osgSlug-python.cpp")
 
 set_target_properties(osgSlug_python PROPERTIES OUTPUT_NAME "osgSlug")
 target_include_directories(osgSlug_python PRIVATE
-	"/home/cubicool/dev/OpenSceneGraph.py/src"
+	"/home/cubicool/dev/OpenSceneGraph.py"
 	"/home/cubicool/dev/OpenSceneGraph.py/etc"
 )
 target_link_libraries(osgSlug_python PRIVATE osgSlug pybind11::module)

@@ -104,6 +104,25 @@ int main(int argc, char** argv) {
 	sdg->addDrawable(sd);
 	sdg->setStateSet(atlas->createDefaultStateSet());
 	sdg->setName("sdg");
+	// sdg->getOrCreateStateSet()->addUniform(new osg::Uniform("osgSlug_layerMask", 2));
+
+	auto* lu = new osg::Uniform("osgSlug_layerMask", 0);
+
+	sdg->getOrCreateStateSet()->addUniform(lu);
+
+	viewer.addEventHandler(new osgx::LambdaKeyHandler('n', [&lu](auto& ea, auto& aa) {
+		int luv = 0;
+
+		lu->get(luv);
+
+		constexpr int maxBits = 30; // avoid signed int sign bit
+
+		if(luv != ((1 << maxBits) - 1)) luv = (luv << 1) | 1;
+
+		lu->set(luv);
+
+		return true;
+	}));
 
 	return example::run(viewer, args, sdg);
 }
