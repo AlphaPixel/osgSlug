@@ -1,5 +1,8 @@
 #include "osgSlug/Drawable.hpp"
 
+#include <osg/BufferObject>
+#include <osg/BufferIndexBinding>
+
 namespace osgSlug {
 
 namespace {
@@ -452,6 +455,228 @@ void SubdividedDrawable::compile() {
 	setVertexAttribBinding(7, osg::Geometry::BIND_PER_VERTEX);
 
 	addPrimitiveSet(indices);
+}
+
+void SSBOShapeDrawable::compile() {
+	if(!_atlas || !_atlas->isBuilt() || _layers.empty()) return;
+
+	auto vertices = osgx::make_ref<osgx::Vec4Array>();
+	auto emCoords = osgx::make_ref<osgx::Vec4Array>();
+	auto indices  = osgx::make_ref<osgx::DrawElementsUShort>();
+
+	// One osg::Vec4Array used as the SSBO backing store. Each shape occupies 6
+	// consecutive vec4 entries matching the ShapeData struct in the SSBO vert shader:
+	//   [0] color  [1] bandXform  [2] shapeData  [3] effectData
+	//   [4] gradientMeta  [5] gradientXform
+	// All vec4 fields, std430 packing — no padding required.
+	auto shapeBuffer = osgx::make_ref<osgx::Vec4Array>();
+
+	index_element_type base = 0;
+	size_t index = 0;
+
+	for(const auto& layer : _layers) {
+		const auto* shape = _atlas->getShape(layer.key);
+
+		if(!shape) { index++; continue; }
+
+		const slug_t expand = 0.01_cv;
+		const auto q = shape->computeQuad(layer.transform, layer.scale, expand);
+		const slug_t lidx = cv(index + 1);
+
+		vertices->append_range({
+			{q.x0, q.y0, 0_cv, lidx},
+			{q.x1, q.y0, 0_cv, lidx},
+			{q.x1, q.y1, 0_cv, lidx},
+			{q.x0, q.y1, 0_cv, lidx}
+		});
+
+		const auto emX0 = shape->bearingX - expand;
+		const auto emY0 = (shape->bearingY - shape->height) - expand;
+		const auto emX1 = (shape->bearingX + shape->width) + expand;
+		const auto emY1 = shape->bearingY + expand;
+
+		emCoords->append_range({
+			{emX0, emY0, 0_cv, 0_cv},
+			{emX1, emY0, 1_cv, 0_cv},
+			{emX1, emY1, 1_cv, 1_cv},
+			{emX0, emY1, 0_cv, 1_cv}
+		});
+
+		const auto [gmeta, gxform] = buildGradientData(*_atlas, layer);
+
+		shapeBuffer->push_back({layer.color.r, layer.color.g, layer.color.b, layer.color.a});
+		shapeBuffer->push_back({shape->bandScaleX, shape->bandScaleY, shape->bandOffsetX, shape->bandOffsetY});
+		shapeBuffer->push_back({cv(shape->bandTexX), cv(shape->bandTexY), cv(shape->bandMaxX), cv(shape->bandMaxY)});
+		shapeBuffer->push_back({cv(layer.effectId), cv(shape->originX), cv(shape->originY), 0_cv});
+		shapeBuffer->push_back(gmeta);
+		shapeBuffer->push_back(gxform);
+
+		indices->append_range({
+			base, index_element_type(base + 1), index_element_type(base + 2),
+			base, index_element_type(base + 2), index_element_type(base + 3)
+		});
+
+		base += 4;
+		index++;
+	}
+
+	if(vertices->empty()) return;
+
+	setVertexAttribArray(0, vertices);
+	setVertexAttribBinding(0, osg::Geometry::BIND_PER_VERTEX);
+
+	setVertexAttribArray(1, emCoords);
+	setVertexAttribBinding(1, osg::Geometry::BIND_PER_VERTEX);
+
+	addPrimitiveSet(indices);
+
+	// TODO: THIS IS TEMPORARY!
+	auto* ssbo = new osg::ShaderStorageBufferObject();
+
+	shapeBuffer->setBufferObject(ssbo);
+
+	auto* binding = new osg::ShaderStorageBufferBinding(
+		0,
+		shapeBuffer,
+		0,
+		shapeBuffer->getTotalDataSize()
+	);
+
+	auto* program = new osg::Program();
+
+	program->addShader(osg::Shader::readShaderFile(osg::Shader::VERTEX,   "../src/osgSlug-ssbo-vert.glsl"));
+	program->addShader(osg::Shader::readShaderFile(osg::Shader::FRAGMENT, "../src/osgSlug-frag.glsl"));
+
+	auto* ss = getOrCreateStateSet();
+
+	ss->setAttributeAndModes(program, osg::StateAttribute::ON | osg::StateAttribute::OVERRIDE);
+	ss->setAttributeAndModes(binding, osg::StateAttribute::ON);
+}
+
+void SSBOSubdividedDrawable::compile() {
+	auto* atlas = getAtlas();
+
+	if(!atlas || !atlas->isBuilt() || _layers.empty()) return;
+
+	auto vertices    = osgx::make_ref<osgx::Vec4Array>();
+	auto emCoords    = osgx::make_ref<osgx::Vec4Array>();
+	auto shapeBuffer = osgx::make_ref<osgx::Vec4Array>();
+	auto indices     = osgx::make_ref<osgx::DrawElementsUShort>();
+
+	static constexpr slug_t SLUG_EXPAND = 0.01_cv;
+
+	index_element_type base = 0;
+	size_t index = 0;
+
+	for(const auto& layer : _layers) {
+		const auto* shape = atlas->getShape(layer.key);
+
+		if(!shape) { index++; continue; }
+
+		const auto q = shape->computeQuad(layer.transform, layer.scale, SLUG_EXPAND);
+
+		PositionCallback posFn = _positionCallback
+			? _positionCallback
+			: PositionCallback([q](slug_t u, slug_t v) -> Vec3 {
+				return {q.x0 + u * (q.x1 - q.x0), q.y0 + v * (q.y1 - q.y0), 0_cv};
+			})
+		;
+
+		const auto emX0 = shape->bearingX - SLUG_EXPAND;
+		const auto emY0 = (shape->bearingY - shape->height) - SLUG_EXPAND;
+		const auto emX1 = (shape->bearingX + shape->width) + SLUG_EXPAND;
+		const auto emY1 = shape->bearingY + SLUG_EXPAND;
+
+		const slug_t lidx = cv(index + 1);
+
+		const size_t ni =
+			static_cast<size_t>(_stepsU + 1) * static_cast<size_t>(_stepsV + 1)
+		;
+
+		if(
+			static_cast<size_t>(base) + ni >
+			static_cast<size_t>(std::numeric_limits<index_element_type>::max()) + 1
+		) {
+			throw std::runtime_error("SSBOSubdividedDrawable: mesh exceeds index capacity");
+		}
+
+		for(index_element_type sv = 0; sv <= _stepsV; sv++) {
+			const slug_t v = cv(sv) / cv(_stepsV);
+
+			for(index_element_type su = 0; su <= _stepsU; su++) {
+				const slug_t u = cv(su) / cv(_stepsU);
+				const auto p = posFn(u, v);
+
+				vertices->push_back({p.x(), p.y(), p.z(), lidx});
+				emCoords->push_back({
+					emX0 + u * (emX1 - emX0),
+					emY0 + v * (emY1 - emY0),
+					u, v
+				});
+			}
+		}
+
+		const auto [gmeta, gxform] = buildGradientData(*atlas, layer);
+
+		// effectData.w carries world width for 9-slice vertex shader effects.
+		shapeBuffer->push_back({layer.color.r, layer.color.g, layer.color.b, layer.color.a});
+		shapeBuffer->push_back({shape->bandScaleX, shape->bandScaleY, shape->bandOffsetX, shape->bandOffsetY});
+		shapeBuffer->push_back({cv(shape->bandTexX), cv(shape->bandTexY), cv(shape->bandMaxX), cv(shape->bandMaxY)});
+		shapeBuffer->push_back({cv(layer.effectId), cv(shape->originX), cv(shape->originY), q.x1 - q.x0});
+		shapeBuffer->push_back(gmeta);
+		shapeBuffer->push_back(gxform);
+
+		const index_element_type layerBase = base;
+
+		for(index_element_type sv = 0; sv < _stepsV; sv++) {
+			for(index_element_type su = 0; su < _stepsU; su++) {
+				const auto row0 = static_cast<index_element_type>(layerBase + sv * (_stepsU + 1));
+				const auto row1 = static_cast<index_element_type>(layerBase + (sv + 1) * (_stepsU + 1));
+				const auto bl = static_cast<index_element_type>(row0 + su);
+				const auto br = static_cast<index_element_type>(row0 + su + 1);
+				const auto tl = static_cast<index_element_type>(row1 + su);
+				const auto tr = static_cast<index_element_type>(row1 + su + 1);
+
+				if(!((su + sv) & 1)) indices->append_range({bl, br, tl, br, tr, tl});
+				else                 indices->append_range({bl, br, tr, bl, tr, tl});
+			}
+		}
+
+		base += static_cast<index_element_type>(ni);
+		index++;
+	}
+
+	if(vertices->empty()) return;
+
+	setVertexAttribArray(0, vertices);
+	setVertexAttribBinding(0, osg::Geometry::BIND_PER_VERTEX);
+
+	setVertexAttribArray(1, emCoords);
+	setVertexAttribBinding(1, osg::Geometry::BIND_PER_VERTEX);
+
+	addPrimitiveSet(indices);
+
+	// TODO: THIS IS TEMPORARY!
+	auto* ssbo = new osg::ShaderStorageBufferObject();
+
+	shapeBuffer->setBufferObject(ssbo);
+
+	auto* binding = new osg::ShaderStorageBufferBinding(
+		0,
+		shapeBuffer,
+		0,
+		shapeBuffer->getTotalDataSize()
+	);
+
+	auto* program = new osg::Program();
+
+	program->addShader(osg::Shader::readShaderFile(osg::Shader::VERTEX,   "../src/osgSlug-ssbo-vert.glsl"));
+	program->addShader(osg::Shader::readShaderFile(osg::Shader::FRAGMENT, "../src/osgSlug-frag.glsl"));
+
+	auto* ss = getOrCreateStateSet();
+
+	ss->setAttributeAndModes(program, osg::StateAttribute::ON | osg::StateAttribute::OVERRIDE);
+	ss->setAttributeAndModes(binding, osg::StateAttribute::ON);
 }
 
 }

@@ -106,6 +106,31 @@ protected:
 };
 
 // ------------------------------------------------------------------------------------------------
+// SSBOShapeDrawable / SSBOSubdividedDrawable
+//
+// SSBO-backed variants of ShapeDrawable and SubdividedDrawable. compile() emits only two
+// vertex attribute arrays (a_position at loc 0, a_emCoord at loc 1) and packs all per-shape
+// data into a GL_SHADER_STORAGE_BUFFER indexed by a_position.w.
+//
+// Requires GL 4.3+ and the osgSlug-ssbo-{vert,frag}.glsl shaders.
+// The drawable sets its own program via getOrCreateStateSet(); textures and uniforms are
+// still inherited from the geode's state set (createDefaultStateSet()) as normal.
+// ------------------------------------------------------------------------------------------------
+class SSBOShapeDrawable : public ShapeDrawable {
+public:
+	SSBOShapeDrawable() = default;
+
+	void compile() override;
+};
+
+class SSBOSubdividedDrawable : public SubdividedDrawable {
+public:
+	SSBOSubdividedDrawable() = default;
+
+	void compile() override;
+};
+
+// ------------------------------------------------------------------------------------------------
 // HalfCylinderDrawable
 //
 // Inside surface of a partial cylinder; a "curved monitor". The arc sweeps arcAngle radians
