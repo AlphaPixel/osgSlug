@@ -84,7 +84,8 @@ void ShapeDrawable::compile() {
 	// now since compile() is only called once.
 
 	index_element_type base = 0;
-	int layerIdx = 0;
+
+	size_t index = 0;
 
 	for(const auto& layer : _layers) {
 		const auto* shape = _atlas->getShape(layer.key);
@@ -99,7 +100,7 @@ void ShapeDrawable::compile() {
 		// Scene placement is the caller's responsibility (MatrixTransform).
 		// const slughorn::Quad q = shape->computeQuad(layer.transform, layer.scale, cv(expand));
 		const auto q = shape->computeQuad(layer.transform, layer.scale, expand);
-		const slug_t lidx = static_cast<slug_t>(layerIdx + 1);
+		const slug_t lidx = cv(index + 1);
 
 		vertices->append_range({
 			{q.x0, q.y0, 0_cv, lidx},
@@ -151,7 +152,8 @@ void ShapeDrawable::compile() {
 		});
 
 		base += 4;
-		++layerIdx;
+
+		index++;
 	}
 
 	// TODO: Why JUST test `vertices`? Shouldn't we test them ALL!?
@@ -200,8 +202,8 @@ void BoxDrawable::compile() {
 	// auto indices = osgx::make_ref<osgx::DrawElementsUShort>(osg::PrimitiveSet::TRIANGLES);
 	auto indices = osgx::make_ref<osgx::DrawElementsUShort>();
 
-	auto addFace = [&](Vec3 p0, Vec3 p1, Vec3 p2, Vec3 p3, size_t layerIdx) {
-		const auto& layer = _layers[layerIdx];
+	auto addFace = [&](Vec3 p0, Vec3 p1, Vec3 p2, Vec3 p3, size_t index) {
+		const auto& layer = _layers[index];
 		const auto* shape = atlas->getShape(layer.key);
 
 		if(!shape) return;
@@ -224,7 +226,7 @@ void BoxDrawable::compile() {
 
 		const Vec4 color(layer.color.r, layer.color.g, layer.color.b, layer.color.a);
 		const osg::Vec4 eid(cv(layer.effectId), cv(shape->originX), cv(shape->originY), 0_cv);
-		const slug_t lidx = static_cast<slug_t>(layerIdx + 1);
+		const slug_t lidx = cv(index + 1);
 
 		const auto [gmeta, gxform] = buildGradientData(*_atlas, layer);
 
@@ -297,12 +299,6 @@ void SubdividedDrawable::compile() {
 
 	if(!atlas || !atlas->isBuilt() || _layers.empty()) return;
 
-	if(!_positionCallback) return;
-
-	const auto* shape = atlas->getShape(_layers[0].key);
-
-	if(!shape) return;
-
 	auto vertices = osgx::make_ref<osgx::Vec4Array>();
 	auto colors = osgx::make_ref<osgx::Vec4Array>();
 	auto emCoords = osgx::make_ref<osgx::Vec4Array>();
@@ -315,84 +311,121 @@ void SubdividedDrawable::compile() {
 
 	static constexpr slug_t SLUG_EXPAND = 0.01_cv;
 
-	const slug_t emX0 = shape->bearingX - SLUG_EXPAND;
-	const slug_t emY0 = (shape->bearingY - shape->height) - SLUG_EXPAND;
-	const slug_t emX1 = (shape->bearingX + shape->width) + SLUG_EXPAND;
-	const slug_t emY1 = shape->bearingY + SLUG_EXPAND;
+	index_element_type base = 0;
 
-	const Vec4 bx(
-		shape->bandScaleX, shape->bandScaleY,
-		shape->bandOffsetX, shape->bandOffsetY
-	);
+	size_t index = 0;
 
-	const Vec4 sd(
-		static_cast<slug_t>(shape->bandTexX), static_cast<slug_t>(shape->bandTexY),
-		static_cast<slug_t>(shape->bandMaxX), static_cast<slug_t>(shape->bandMaxY)
-	);
+	for(const auto& layer : _layers) {
+		const auto* shape = atlas->getShape(layer.key);
 
-	const Vec4 color(
-		_layers[0].color.r, _layers[0].color.g,
-		_layers[0].color.b, _layers[0].color.a
-	);
+		if(!shape) { index++; continue; }
 
-	const osg::Vec4 eid(cv(_layers[0].effectId), cv(shape->originX), cv(shape->originY), 0_cv);
-	const auto [gmeta, gxform] = buildGradientData(*_atlas, _layers[0]);
+		const auto q = shape->computeQuad(layer.transform, layer.scale, SLUG_EXPAND);
 
-	// Vertex grid: (_stepsV + 1) rows x (_stepsU + 1) cols
-	for(size_t sv = 0; sv <= _stepsV; sv++) {
-		const slug_t v = static_cast<slug_t>(sv) / static_cast<slug_t>(_stepsV);
+		// If no position callback is set, default to a flat quad covering the world-space
+		// bounds computed above. This makes SubdividedDrawable usable as a drop-in
+		// replacement for ShapeDrawable when denser geometry is needed (e.g. 9-slice
+		// animation), without requiring a custom callback for every layer.
+		PositionCallback posFn = _positionCallback
+			? _positionCallback
+			: PositionCallback([q](slug_t u, slug_t v) -> Vec3 {
+				return {q.x0 + u * (q.x1 - q.x0), q.y0 + v * (q.y1 - q.y0), 0_cv};
+			})
+		;
 
-		for(size_t su = 0; su <= _stepsU; su++) {
-			const slug_t u = static_cast<slug_t>(su) / static_cast<slug_t>(_stepsU);
+		const slug_t emX0 = shape->bearingX - SLUG_EXPAND;
+		const slug_t emY0 = (shape->bearingY - shape->height) - SLUG_EXPAND;
+		const slug_t emX1 = (shape->bearingX + shape->width) + SLUG_EXPAND;
+		const slug_t emY1 = shape->bearingY + SLUG_EXPAND;
 
-			const auto p = _positionCallback(u, v);
-			vertices->push_back(osg::Vec4(p.x(), p.y(), p.z(), 1_cv));
+		const Vec4 bx(
+			shape->bandScaleX, shape->bandScaleY,
+			shape->bandOffsetX, shape->bandOffsetY
+		);
 
-			// u,v map linearly into em bounding box; true UV in .zw
-			emCoords->push_back({
-				emX0 + u * (emX1 - emX0),
-				emY0 + v * (emY1 - emY0),
-				u,
-				v
-			});
+		const Vec4 sd(
+			cv(shape->bandTexX), cv(shape->bandTexY),
+			cv(shape->bandMaxX), cv(shape->bandMaxY)
+		);
 
-			colors->push_back(color);
-			bandXform->push_back(bx);
-			shapeData->push_back(sd);
-			effectData->push_back(eid);
-			gradientMeta->push_back(gmeta);
-			gradientXforms->push_back(gxform);
+		const Vec4 color(layer.color.r, layer.color.g, layer.color.b, layer.color.a);
+
+		// Pack the world-space width of this layer's quad into .w so the vertex shader
+		// can recover the left edge (leftX = pos.x - uv.x * W) and implement effects
+		// like 9-slice scaling without any additional uniforms.
+		const osg::Vec4 eid(cv(layer.effectId), cv(shape->originX), cv(shape->originY), q.x1 - q.x0);
+
+		const slug_t lidx = cv(index + 1);
+		const auto [gmeta, gxform] = buildGradientData(*_atlas, layer);
+
+		// Guard against the running total exceeding the uint16 index range.
+		const size_t ni =
+			static_cast<size_t>(_stepsU + 1) * static_cast<size_t>(_stepsV + 1)
+		;
+
+		if(
+			static_cast<size_t>(base) + ni >
+			static_cast<size_t>(std::numeric_limits<index_element_type>::max()) + 1
+		) {
+			throw std::runtime_error("SubdividedDrawable: mesh exceeds index capacity");
 		}
-	}
 
-	// Ensure we don't have TOO MANY indices!
-	// TODO: We need more checks like this, as well as our own exceptions!
-	if(
-		(static_cast<std::size_t>(_stepsU + 1) * static_cast<std::size_t>(_stepsV + 1)) >
-		static_cast<std::size_t>(std::numeric_limits<index_element_type>::max()) + 1
-	) {
-		throw std::runtime_error("Subdivided mesh exceeds index capacity");
-	}
+		// Vertex grid: (_stepsV + 1) rows x (_stepsU + 1) cols.
+		// em-coords are computed purely from (u,v), independent of the position callback.
+		// This means the position callback can distort world-space geometry freely (cylinder,
+		// sphere, 9-slice remap) without affecting the em-coord/Slug coverage mapping.
+		for(index_element_type sv = 0; sv <= _stepsV; sv++) {
+			const slug_t v = cv(sv) / cv(_stepsV);
 
-	// Index stitching; identical pattern for every subdivided mesh
-	for(index_element_type sv = 0; sv < _stepsV; sv++) {
-		for(index_element_type su = 0; su < _stepsU; su++) {
-			const auto row0 = static_cast<index_element_type>(sv * (_stepsU + 1));
-			const auto row1 = static_cast<index_element_type>((sv + 1) * (_stepsU + 1));
-			const auto bl = static_cast<index_element_type>(row0 + su);
-			const auto br = static_cast<index_element_type>(row0 + su + 1);
-			const auto tl = static_cast<index_element_type>(row1 + su);
-			const auto tr = static_cast<index_element_type>(row1 + su + 1);
+			for(index_element_type su = 0; su <= _stepsU; su++) {
+				const slug_t u = cv(su) / cv(_stepsU);
 
-			// TODO: Both approaches have polar artifacts; why!?
-			// indices->append_range({bl, br, tl, br, tr, tl});
+				const auto p = posFn(u, v);
+				vertices->push_back(osg::Vec4(p.x(), p.y(), p.z(), lidx));
 
-			if(!((su + sv) & 1)) indices->append_range({bl, br, tl, br, tr, tl});
+				emCoords->push_back({
+					emX0 + u * (emX1 - emX0),
+					emY0 + v * (emY1 - emY0),
+					u,
+					v
+				});
 
-			else indices->append_range({bl, br, tr, bl, tr, tl});
-
+				colors->push_back(color);
+				bandXform->push_back(bx);
+				shapeData->push_back(sd);
+				effectData->push_back(eid);
+				gradientMeta->push_back(gmeta);
+				gradientXforms->push_back(gxform);
+			}
 		}
+
+		// Index stitching - offset by layerBase so all layers share one index buffer.
+		const index_element_type layerBase = base;
+
+		for(index_element_type sv = 0; sv < _stepsV; sv++) {
+			for(index_element_type su = 0; su < _stepsU; su++) {
+				const auto row0 = static_cast<index_element_type>(layerBase + sv * (_stepsU + 1));
+				const auto row1 = static_cast<index_element_type>(layerBase + (sv + 1) * (_stepsU + 1));
+				const auto bl = static_cast<index_element_type>(row0 + su);
+				const auto br = static_cast<index_element_type>(row0 + su + 1);
+				const auto tl = static_cast<index_element_type>(row1 + su);
+				const auto tr = static_cast<index_element_type>(row1 + su + 1);
+
+				// TODO: Both approaches have polar artifacts; why!?
+				// indices->append_range({bl, br, tl, br, tr, tl});
+
+				if(!((su + sv) & 1)) indices->append_range({bl, br, tl, br, tr, tl});
+
+				else indices->append_range({bl, br, tr, bl, tr, tl});
+			}
+		}
+
+		base += static_cast<index_element_type>(ni);
+
+		index++;
 	}
+
+	if(vertices->empty()) return;
 
 	setVertexAttribArray(0, vertices);
 	setVertexAttribBinding(0, osg::Geometry::BIND_PER_VERTEX);

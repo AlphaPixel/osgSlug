@@ -176,7 +176,8 @@ inline auto run(
 	else viewer.setSceneData(sceneData);
 
 	if(args.read("--profile")) {
-		auto dv = osgDebug::DrawVisitor<120, 60>();
+		// auto dv = osgDebug::DrawVisitor<120, 60>();
+		auto dv = osgDebug::DrawVisitor();
 
 		// Adds the osgDebug::DrawCallback to every detected `Drawable` in the subgraph.
 		sceneData->accept(dv);
@@ -184,6 +185,8 @@ inline auto run(
 		// auto debugSupported = osgx::make_ref<osgDebug::GraphicsOperation>();
 		// viewer.setRealizeOperation(debugSupported);
 		// viewer.realize();
+
+		viewer.getCamera()->setFinalDrawCallback(new osgDebug::FinalDrawCallback());
 	}
 
 	viewer.addEventHandler(new osgViewer::StatsHandler());

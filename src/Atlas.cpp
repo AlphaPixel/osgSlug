@@ -38,6 +38,11 @@ osg::ref_ptr<Atlas> Atlas::read(std::ifstream& ifs) {
 void Atlas::packTextures() {
 	if(_curveTexture.valid()) return;
 
+	if(
+		!getCurveTextureData().bytes.size() ||
+		!getBandTextureData().bytes.size()
+	) throw std::runtime_error("Atlas::build() must be called before Atlas::packTextures()");
+
 	_curveTexture = _makeTexture(getCurveTextureData());
 	_bandTexture = _makeTexture(getBandTextureData());
 
@@ -55,12 +60,16 @@ osg::ref_ptr<osg::Texture2D> Atlas::_makeTexture(const slughorn::Atlas::TextureD
 	if(data.format == slughorn::Atlas::TextureData::Format::RGBA32F) {
 		img->allocateImage(width, height, 1, GL_RGBA, GL_FLOAT);
 		img->setInternalTextureFormat(GL_RGBA32F_ARB);
-	} else if(data.format == slughorn::Atlas::TextureData::Format::RGBA16UI) {
+	}
+
+	else if(data.format == slughorn::Atlas::TextureData::Format::RGBA16UI) {
 		img->allocateImage(width, height, 1, GL_RGBA, GL_UNSIGNED_SHORT);
 		img->setInternalTextureFormat(GL_RGBA16UI);
 		img->setPixelFormat(GL_RGBA_INTEGER);
-	} else {
-		// RGBA8 — gradient atlas
+	}
+
+	else {
+		// RGBA8 (gradient data)
 		img->allocateImage(width, height, 1, GL_RGBA, GL_UNSIGNED_BYTE);
 		img->setInternalTextureFormat(GL_RGBA8);
 	}
@@ -94,6 +103,7 @@ osg::StateSet* Atlas::createDefaultStateSet() const {
 	ss->addUniform(new osg::Uniform("osgSlug_curveTexture", 0));
 	ss->addUniform(new osg::Uniform("osgSlug_bandTexture", 1));
 	ss->addUniform(new osg::Uniform("osgSlug_effectTexture", 2));
+	// TODO: Why do these use `slug_` instead of `osgSlug_`!? Gah!
 	ss->addUniform(new osg::Uniform("slug_gradientTexture", 3));
 	ss->addUniform(new osg::Uniform("slug_gradientCount", static_cast<int>(getGradients().size())));
 	ss->setTextureAttributeAndModes(0, _curveTexture, osg::StateAttribute::ON);

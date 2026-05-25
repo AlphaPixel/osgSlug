@@ -7,7 +7,7 @@ layout(location = 3) in vec4 a_bandXform;
 layout(location = 4) in vec4 a_shapeData;
 
 // .x = effectId (integer packed as float)
-// .yz = worldOrigin (shape.originX, shape.originY) — the shape's reference point in world space
+// .yz = origin (shape.originX, shape.originY); the shape's origin/anchor/pivot/etc
 // .w = spare animation parameter (speed multiplier, phase offset, etc.)
 layout(location = 5) in vec4 a_effectData;
 
@@ -64,24 +64,50 @@ void main() {
 		pos.x += cx * sin(osg_SimulationTime) * 0.3;
 	}
 
-	// Stretches the quad towards the right; used by 'osgslug-compositeshape-canvas`, but stretches
-	// the shape uniformly (which is the easy/naive approach). Will be fixed later.
+	// 9-slice pill animation: caps stay round, only the body stretches.
+	// Requires SubdividedDrawable (denser vertex grid so each vertex knows its UV position).
+	// a_effectData.w = total world width of this layer's quad, baked at compile time.
+	// leftX = pos.x - uv.x * W recovers the left edge at any vertex without cross-vertex comm.
 	if(mode == 7) {
 		float i = float(index);
-		float t = osg_SimulationTime;
 		float amp = 0.5 + 0.5 * sin(t * 4.0 + i * 0.7);
-		float sx = 0.3 + amp * 1.4;
+		float sx = 0.15 + amp * 0.85;
 
-		pos.x = (pos.x - 0.0) * sx + 0.0;
+		float uv_x = a_emCoord.z;
+		float W = a_effectData.w;
+		float leftX = pos.x - uv_x * W;
+
+		// capFrac: cap width as a fraction of the total quad UV range.
+		// For roundedRect(0.1, 0.1, 0.8, 0.1, 0.1) with expand=0.01:
+		// emRange = 0.82, radius = 0.1 => capFrac = 0.1 / 0.82 ~= 0.122
+		const float capFrac = 0.122;
+		float capW = capFrac * W;
+		float bodyW = (1.0 - 2.0 * capFrac) * W;
+
+		if(uv_x > (1.0 - capFrac)) {
+			// Right cap: translate to the animated right end.
+			float localT = (uv_x - (1.0 - capFrac)) / capFrac;
+
+			pos.x = leftX + capW + sx * bodyW + localT * capW;
+		}
+
+		else if(uv_x > capFrac) {
+			// Body: stretch between the two fixed-size caps.
+			float bodyT = (uv_x - capFrac) / (1.0 - 2.0 * capFrac);
+
+			pos.x = leftX + capW + bodyT * sx * bodyW;
+		}
+
+		// Left cap (uv_x <= capFrac): pos.x unchanged; anchored at the left edge.
 	}
 
 	// Clock hand rotation: forward-rotates the quad around the world pivot, inverse-rotates.
 	if(eid == 8) {
 		float c = cos(t), s = sin(t);
 		mat2 R = mat2(c, s, -s, c);
-		vec2 worldOrigin = pos.xy - a_emCoord.xy + a_effectData.yz;
+		vec2 origin = pos.xy - a_emCoord.xy + a_effectData.yz;
 
-		pos.xy = R * (pos.xy - worldOrigin) + worldOrigin;
+		pos.xy = R * (pos.xy - origin) + origin;
 	}
 
 	v_emCoord = a_emCoord.xy;
