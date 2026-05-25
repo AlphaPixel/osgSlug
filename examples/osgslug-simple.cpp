@@ -157,7 +157,7 @@ int main(int argc, char** argv) {
 	sd->compile(); */
 
 	auto mat = osgx::make_ref<osg::MatrixTransform>();
-	auto matsd = osgx::make_ref<osgSlug::ShapeDrawable>();
+	auto matsd = osgx::make_ref<osgSlug::SSBOShapeDrawable>();
 	auto matsdg = osgx::make_ref<osg::Geode>();
 
 	matsd->addLayer({'F', {1_cv, 1_cv, 0_cv, 0.5_cv}, slughorn::Matrix::identity(), 100_cv});

@@ -115,6 +115,11 @@ inline bool setupArguments(
 		"Applies an osgDebug::DrawVisitor for profiling"
 	);
 
+	args.getApplicationUsage()->addCommandLineOption(
+		"--gl3",
+		"Use GL3ShapeDrawable instead of the default SSBOShapeDrawable"
+	);
+
 	for(const auto& a : extraArgs) args.getApplicationUsage()->addCommandLineOption(
 		a.first,
 		a.second
@@ -124,6 +129,13 @@ inline bool setupArguments(
 		fail(args);
 
 		return false;
+	}
+
+	if(args.read("--gl3")) {
+		// TODO: If we detect `--gl3`, we need to ensure that the example in question uses
+		// `osgSlug::GL3ShapeDrawable` _and_ passes `true` to `atlas->createDefaultStateSet()`; BUT
+		// HOW DO WE DO THIS!? Could we have some kind of static `bool example::USE_GL3`, and then
+		// add 2 additional helpers like `example::make_{shape,state}`?
 	}
 
 	return true;

@@ -4,7 +4,7 @@ namespace osgSlug {
 
 Text::Text() {
 	_geode = new osg::Geode();
-	_drawable = new ShapeDrawable();
+	_drawable = new SSBOShapeDrawable();
 
 	_geode->addDrawable(_drawable);
 
@@ -15,7 +15,7 @@ Text::Text(Atlas* atlas, slug_t fontSize):
 _fontSize(fontSize),
 _atlas(atlas) {
 	_geode = new osg::Geode();
-	_drawable = new ShapeDrawable();
+	_drawable = new SSBOShapeDrawable();
 
 	_drawable->setAtlas(_atlas);
 	_drawable->setName(getName());

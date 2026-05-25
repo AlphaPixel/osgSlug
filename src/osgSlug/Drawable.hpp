@@ -40,7 +40,7 @@ public:
 
 	void clear() { _layers.clear(); }
 
-	virtual void compile();
+	virtual void compile() = 0;
 
 	osg::BoundingBox computeBoundingBox() const override;
 
@@ -48,6 +48,14 @@ protected:
 	osg::ref_ptr<Atlas> _atlas = nullptr;
 
 	std::vector<slughorn::Layer> _layers;
+};
+
+// GL3ShapeDrawable: 8-attribute vertex path, GL 3.x compatible, explicit opt-in.
+class GL3ShapeDrawable: public ShapeDrawable {
+public:
+	GL3ShapeDrawable() = default;
+
+	void compile() override;
 };
 
 class BoxDrawable: public ShapeDrawable {
@@ -96,13 +104,19 @@ public:
 	// Set the position callback; called once per vertex with u,v in [0, 1].
 	void setPositionCallback(PositionCallback cb) { _positionCallback = std::move(cb); }
 
-	void compile();
-
 protected:
 	index_element_type _stepsU = 64;
 	index_element_type _stepsV = 64;
 
 	PositionCallback _positionCallback;
+};
+
+// GL3SubdividedDrawable: 8-attribute vertex path for subdivided meshes, GL 3.x compatible.
+class GL3SubdividedDrawable: public SubdividedDrawable {
+public:
+	GL3SubdividedDrawable() = default;
+
+	void compile() override;
 };
 
 // ------------------------------------------------------------------------------------------------
@@ -137,7 +151,7 @@ public:
 // centred on the Z axis (viewer looks in -Z). Y is linear. UV maps naturally: u along arc, v along
 // height.
 // ------------------------------------------------------------------------------------------------
-class HalfCylinderDrawable: public SubdividedDrawable {
+class HalfCylinderDrawable: public SSBOSubdividedDrawable {
 public:
 	HalfCylinderDrawable(
 		slug_t radius=2.0_cv,
@@ -165,7 +179,7 @@ public:
 // ------------------------------------------------------------------------------------------------
 // SphereDrawable (reimplemented as SubdividedDrawable)
 // ------------------------------------------------------------------------------------------------
-class SphereDrawable : public SubdividedDrawable {
+class SphereDrawable : public SSBOSubdividedDrawable {
 public:
 	SphereDrawable(
 		slug_t radius=1.0_cv,

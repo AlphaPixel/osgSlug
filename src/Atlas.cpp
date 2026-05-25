@@ -92,20 +92,26 @@ osg::ref_ptr<osg::Texture2D> Atlas::_makeTexture(const slughorn::Atlas::TextureD
 	return tex;
 }
 
-osg::StateSet* Atlas::createDefaultStateSet() const {
+osg::StateSet* Atlas::createDefaultStateSet(bool useGL3) const {
 	auto* ss = new osg::StateSet();
 	auto* program = new osg::Program();
 
-	program->addShader(osg::Shader::readShaderFile(osg::Shader::VERTEX, "../src/osgSlug-vert.glsl"));
-	program->addShader(osg::Shader::readShaderFile(osg::Shader::FRAGMENT, "../src/osgSlug-frag.glsl"));
+	program->addShader(osg::Shader::readShaderFile(
+		osg::Shader::VERTEX,
+		useGL3 ? "../src/osgSlug-gl3-vert.glsl" : "../src/osgSlug-vert.glsl"
+	));
+
+	program->addShader(osg::Shader::readShaderFile(
+		osg::Shader::FRAGMENT,
+		"../src/osgSlug-frag.glsl"
+	));
 
 	ss->setAttributeAndModes(program, osg::StateAttribute::ON);
 	ss->addUniform(new osg::Uniform("osgSlug_curveTexture", 0));
 	ss->addUniform(new osg::Uniform("osgSlug_bandTexture", 1));
 	ss->addUniform(new osg::Uniform("osgSlug_effectTexture", 2));
-	// TODO: Why do these use `slug_` instead of `osgSlug_`!? Gah!
-	ss->addUniform(new osg::Uniform("slug_gradientTexture", 3));
-	ss->addUniform(new osg::Uniform("slug_gradientCount", static_cast<int>(getGradients().size())));
+	ss->addUniform(new osg::Uniform("osgSlug_gradientTexture", 3));
+	ss->addUniform(new osg::Uniform("osgSlug_gradientCount", static_cast<int>(getGradients().size())));
 	ss->setTextureAttributeAndModes(0, _curveTexture, osg::StateAttribute::ON);
 	ss->setTextureAttributeAndModes(1, _bandTexture, osg::StateAttribute::ON);
 

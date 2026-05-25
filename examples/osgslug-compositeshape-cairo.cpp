@@ -314,7 +314,7 @@ int main(int argc, char** argv) {
 		if(s) std::cout << layer << std::endl << " " << *s << std::endl;
 	}
 
-	auto sd = osgx::make_ref<osgSlug::ShapeDrawable>();
+	auto sd = osgx::make_ref<osgSlug::SSBOShapeDrawable>();
 
 	sd->setAtlas(atlas);
 	sd->addCompositeShape(

@@ -125,7 +125,7 @@ int main(int argc, char** argv) {
 	// Render
 	// ============================================================================================
 
-	auto sd = osgx::make_ref<osgSlug::ShapeDrawable>();
+	auto sd = osgx::make_ref<osgSlug::SSBOShapeDrawable>();
 
 	sd->setAtlas(atlas);
 	sd->addCompositeShape(clock);

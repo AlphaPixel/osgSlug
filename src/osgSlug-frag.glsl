@@ -17,8 +17,8 @@ uniform float osg_SimulationTime;
 uniform sampler2D osgSlug_curveTexture;
 uniform usampler2D osgSlug_bandTexture;
 uniform sampler2D osgSlug_effectTexture;
-uniform sampler2D slug_gradientTexture;
-uniform int slug_gradientCount;
+uniform sampler2D osgSlug_gradientTexture;
+uniform int osgSlug_gradientCount;
 uniform int osgSlug_debugMode;
 uniform bool osgSlug_textMode; // enables MSAA, stem darkening, and gamma for text layers
 uniform bool osgSlug_stemDarken; // requires osgSlug_textMode; true = apply stem darkening to edge
@@ -595,18 +595,18 @@ void main() {
 
 		if (osgSlug_stemDarken) {
 			float brightness = dot(v_color.rgb, vec3(0.299, 0.587, 0.114));
+
 			adj = slug_StemDarken(adj, brightness, ppem);
 		}
 
-		if (osgSlug_gamma != 1.0)
-			adj = pow(adj, osgSlug_gamma);
+		if(osgSlug_gamma != 1.0) adj = pow(adj, osgSlug_gamma);
 
 		fill = adj;
 	}
 
 	vec4 effectiveColor = v_color;
 
-	if(v_gradientId > 0 && slug_gradientCount > 0) {
+	if(v_gradientId > 0 && osgSlug_gradientCount > 0) {
 		float t;
 
 		if(v_gradientXform.w == 0.0) {
@@ -620,6 +620,7 @@ void main() {
 			// For circular: B = invDR * I (degenerate ellipse); for affine: full 2x2.
 			vec2 d = v_emCoord - v_gradientMeta.yz;
 			mat2 B = mat2(v_gradientXform);
+
 			t = length(B * d) - v_gradientMeta.w;
 		}
 
@@ -634,8 +635,10 @@ void main() {
 		}
 
 		t = clamp(t, 0.0, 1.0);
-		float gv = (float(v_gradientId) - 0.5) / float(slug_gradientCount);
-		vec4 gc = texture(slug_gradientTexture, vec2(t, gv));
+
+		float gv = (float(v_gradientId) - 0.5) / float(osgSlug_gradientCount);
+		vec4 gc = texture(osgSlug_gradientTexture, vec2(t, gv));
+
 		effectiveColor = vec4(gc.rgb, gc.a * v_color.a);
 	}
 

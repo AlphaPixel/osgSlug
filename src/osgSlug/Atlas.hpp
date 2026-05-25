@@ -48,7 +48,7 @@ public:
 	osg::Texture2D* getBandTexture() const { return _bandTexture.get(); }
 	osg::Texture2D* getGradientTexture() const { return _gradientTexture.get(); }
 
-	osg::StateSet* createDefaultStateSet() const;
+	osg::StateSet* createDefaultStateSet(bool useGL3=false) const;
 
 	static osg::ref_ptr<Atlas> fromAtlas(const slughorn::Atlas& src) {
 		osg::ref_ptr<Atlas> atlas = new osgSlug::Atlas();

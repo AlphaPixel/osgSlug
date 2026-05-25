@@ -55,7 +55,7 @@ int main(int argc, char** argv) {
 		<< atlas->getCompositeShapes().size() << " composites" << std::endl
 	;
 
-	auto sd = osgx::make_ref<osgSlug::ShapeDrawable>();
+	auto sd = osgx::make_ref<osgSlug::SSBOShapeDrawable>();
 
 	if(shape.size()) {
 		const slughorn::Atlas::Shape* s = atlas->getShape(key);

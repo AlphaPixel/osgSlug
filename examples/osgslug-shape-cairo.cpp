@@ -710,7 +710,7 @@ int main(int argc, char** argv) {
         ;
     }
 
-    auto sd = osgx::make_ref<osgSlug::ShapeDrawable>();
+    auto sd = osgx::make_ref<osgSlug::SSBOShapeDrawable>();
 
     sd->setAtlas(atlas);
     // sd->addLayer({PIECE_KEY, {0.2_cv, 0.8_cv, 0.4_cv, 1.0_cv}, slughorn::Matrix::identity(), 200_cv});

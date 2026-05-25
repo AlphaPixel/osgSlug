@@ -64,7 +64,7 @@ int main(int argc, char** argv) {
 	atlas->build();
 	atlas->packTextures();
 
-	auto sd = osgx::make_ref<osgSlug::ShapeDrawable>();
+	auto sd = osgx::make_ref<osgSlug::SSBOShapeDrawable>();
 
 	const osgSlug::Font::ColorGlyph* dragon = font->getColorGlyph(emojiCodepoint);
 

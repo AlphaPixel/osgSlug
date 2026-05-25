@@ -493,7 +493,7 @@ int main(int argc, char** argv) {
 	// atlas->build();
 	// atlas->packTextures();
 
-	auto sd = osgx::make_ref<osgSlug::ShapeDrawable>();
+	auto sd = osgx::make_ref<osgSlug::SSBOShapeDrawable>();
 
 	sd->setAtlas(atlas);
 	// sd->addLayer({KEY, {0.2_cv, 0.8_cv, 0.4_cv, 1.0_cv}, slughorn::Matrix::identity(), 300_cv});

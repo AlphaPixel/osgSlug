@@ -185,7 +185,7 @@ int main(int argc, char** argv) {
 		;
 	}
 
-	auto sd = osgx::make_ref<osgSlug::ShapeDrawable>();
+	auto sd = osgx::make_ref<osgSlug::SSBOShapeDrawable>();
 
 	sd->setAtlas(atlas);
 	// sd->addShape({PIECE_KEY, {250,0}, osg::Vec4(1.0f, 0.5f, 0.0f, 1.0f), 200.0f});

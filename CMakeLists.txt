@@ -170,6 +170,7 @@ if(OSGSLUG_BUILD_EXAMPLES)
 		)
 	endfunction()
 
+	osgslug_example(osgslug-ssbo SOURCES "examples/osgslug-ssbo.cpp")
 	osgslug_example(osgslug-tmp SOURCES "examples/osgslug-tmp.cpp")
 	osgslug_example(osgslug-serial SOURCES "examples/osgslug-serial.cpp")
 	osgslug_example(osgslug-text SOURCES "examples/osgslug-text.cpp")

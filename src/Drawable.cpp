@@ -70,7 +70,7 @@ osg::BoundingBox ShapeDrawable::computeBoundingBox() const {
 	return bb;
 }
 
-void ShapeDrawable::compile() {
+void GL3ShapeDrawable::compile() {
 	if(!_atlas || !_atlas->isBuilt() || _layers.empty()) return;
 
 	auto vertices = osgx::make_ref<osgx::Vec4Array>();
@@ -297,7 +297,7 @@ void BoxDrawable::compile() {
 	addPrimitiveSet(indices);
 }
 
-void SubdividedDrawable::compile() {
+void GL3SubdividedDrawable::compile() {
 	auto* atlas = getAtlas();
 
 	if(!atlas || !atlas->isBuilt() || _layers.empty()) return;
@@ -530,27 +530,12 @@ void SSBOShapeDrawable::compile() {
 
 	addPrimitiveSet(indices);
 
-	// TODO: THIS IS TEMPORARY!
-	auto* ssbo = new osg::ShaderStorageBufferObject();
+	shapeBuffer->setBufferObject(new osg::ShaderStorageBufferObject());
 
-	shapeBuffer->setBufferObject(ssbo);
-
-	auto* binding = new osg::ShaderStorageBufferBinding(
-		0,
-		shapeBuffer,
-		0,
-		shapeBuffer->getTotalDataSize()
+	getOrCreateStateSet()->setAttributeAndModes(
+		new osg::ShaderStorageBufferBinding(0, shapeBuffer, 0, shapeBuffer->getTotalDataSize()),
+		osg::StateAttribute::ON
 	);
-
-	auto* program = new osg::Program();
-
-	program->addShader(osg::Shader::readShaderFile(osg::Shader::VERTEX,   "../src/osgSlug-ssbo-vert.glsl"));
-	program->addShader(osg::Shader::readShaderFile(osg::Shader::FRAGMENT, "../src/osgSlug-frag.glsl"));
-
-	auto* ss = getOrCreateStateSet();
-
-	ss->setAttributeAndModes(program, osg::StateAttribute::ON | osg::StateAttribute::OVERRIDE);
-	ss->setAttributeAndModes(binding, osg::StateAttribute::ON);
 }
 
 void SSBOSubdividedDrawable::compile() {
@@ -656,27 +641,12 @@ void SSBOSubdividedDrawable::compile() {
 
 	addPrimitiveSet(indices);
 
-	// TODO: THIS IS TEMPORARY!
-	auto* ssbo = new osg::ShaderStorageBufferObject();
+	shapeBuffer->setBufferObject(new osg::ShaderStorageBufferObject());
 
-	shapeBuffer->setBufferObject(ssbo);
-
-	auto* binding = new osg::ShaderStorageBufferBinding(
-		0,
-		shapeBuffer,
-		0,
-		shapeBuffer->getTotalDataSize()
+	getOrCreateStateSet()->setAttributeAndModes(
+		new osg::ShaderStorageBufferBinding(0, shapeBuffer, 0, shapeBuffer->getTotalDataSize()),
+		osg::StateAttribute::ON
 	);
-
-	auto* program = new osg::Program();
-
-	program->addShader(osg::Shader::readShaderFile(osg::Shader::VERTEX,   "../src/osgSlug-ssbo-vert.glsl"));
-	program->addShader(osg::Shader::readShaderFile(osg::Shader::FRAGMENT, "../src/osgSlug-frag.glsl"));
-
-	auto* ss = getOrCreateStateSet();
-
-	ss->setAttributeAndModes(program, osg::StateAttribute::ON | osg::StateAttribute::OVERRIDE);
-	ss->setAttributeAndModes(binding, osg::StateAttribute::ON);
 }
 
 }

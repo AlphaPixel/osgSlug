@@ -270,7 +270,7 @@ int main(int argc, char** argv) {
 
 	// slughorn::serial::write(*atlas, "offending_shape.slugb");
 
-	auto sd = osgx::make_ref<osgSlug::ShapeDrawable>();
+	auto sd = osgx::make_ref<osgSlug::SSBOShapeDrawable>();
 
 	sd->setAtlas(atlas);
 	// sd->addCompositeShape(logo, { 0.0f, 0.0f }, 300.0f);
@@ -294,5 +294,5 @@ int main(int argc, char** argv) {
 	geode->addDrawable(sd);
 	geode->setStateSet(ss);
 
-	return example::run(viewer, args, geode, false);
+	return example::run(viewer, args, geode);
 }

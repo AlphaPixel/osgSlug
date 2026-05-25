@@ -32,7 +32,7 @@ int main(int argc, char** argv) {
 	atlas->build();
 	atlas->packTextures();
 
-	auto sd = osgx::make_ref<osgSlug::ShapeDrawable>();
+	auto sd = osgx::make_ref<osgSlug::SSBOShapeDrawable>();
 	auto sdg = osgx::make_ref<osg::Geode>();
 
 	sd->addLayer({
