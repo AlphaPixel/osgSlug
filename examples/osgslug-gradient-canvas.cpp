@@ -219,7 +219,7 @@ int main(int argc, char** argv) {
 	atlas->build();
 	atlas->packTextures();
 
-	auto sd = osgx::make_ref<osgSlug::SSBOShapeDrawable>();
+	auto sd = example::makeShapeDrawable();
 
 	sd->setAtlas(atlas);
 	// sd->addLayer(slughorn::Layer{key, slughorn::Color{1_cv, 1_cv, 1_cv, 1_cv}});
@@ -229,7 +229,7 @@ int main(int argc, char** argv) {
 	auto sdg = osgx::make_ref<osg::Geode>();
 
 	sdg->addDrawable(sd);
-	sdg->setStateSet(atlas->createDefaultStateSet());
+	sdg->setStateSet(atlas->createDefaultStateSet(example::USE_GL3));
 
 	auto mat = osgx::make_ref<osg::MatrixTransform>();
 

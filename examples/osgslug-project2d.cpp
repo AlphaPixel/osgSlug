@@ -493,7 +493,7 @@ int main(int argc, char** argv) {
 	// atlas->build();
 	// atlas->packTextures();
 
-	auto sd = osgx::make_ref<osgSlug::SSBOShapeDrawable>();
+	auto sd = example::makeShapeDrawable();
 
 	sd->setAtlas(atlas);
 	// sd->addLayer({KEY, {0.2_cv, 0.8_cv, 0.4_cv, 1.0_cv}, slughorn::Matrix::identity(), 300_cv});
@@ -518,7 +518,7 @@ int main(int argc, char** argv) {
 
 	sdg->addDrawable(grid);
 	sdg->addDrawable(sd);
-	sdg->setStateSet(atlas->createDefaultStateSet());
+	sdg->setStateSet(atlas->createDefaultStateSet(example::USE_GL3));
 
 	auto mat = osgx::make_ref<osg::MatrixTransform>();
 

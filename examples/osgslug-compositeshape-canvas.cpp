@@ -63,7 +63,7 @@ int main(int argc, char** argv) {
 	// SubdividedDrawable with stepsU=8 gives a 9-column vertex grid per bar.
 	// No position callback needed — the default flat-quad path uses computeQuad() bounds
 	// and bakes the world width into a_effectData.w for the vertex shader's 9-slice math.
-	auto sd = osgx::make_ref<osgSlug::SSBOSubdividedDrawable>();
+	auto sd = example::makeSubdividedDrawable();
 
 	sd->setStepsU(8);
 	sd->setStepsV(1);
@@ -82,7 +82,7 @@ int main(int argc, char** argv) {
 	auto sdg = osgx::make_ref<osg::Geode>();
 
 	sdg->addDrawable(sd);
-	sdg->setStateSet(atlas->createDefaultStateSet());
+	sdg->setStateSet(atlas->createDefaultStateSet(example::USE_GL3));
 
 	return example::run(viewer, args, sdg);
 }

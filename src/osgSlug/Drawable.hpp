@@ -42,6 +42,11 @@ public:
 
 	virtual void compile() = 0;
 
+	virtual void setLayerColor(size_t index, const slughorn::Color& color) {}
+	virtual void setLayerEffectId(size_t index, uint32_t effectId) {}
+	virtual void updateLayer(size_t index, const slughorn::Layer& layer) {}
+	virtual void dirtyLayers() {}
+
 	osg::BoundingBox computeBoundingBox() const override;
 
 protected:
@@ -56,6 +61,11 @@ public:
 	GL3ShapeDrawable() = default;
 
 	void compile() override;
+
+	void setLayerColor(size_t index, const slughorn::Color& color) override;
+	void setLayerEffectId(size_t index, uint32_t effectId) override;
+	void updateLayer(size_t index, const slughorn::Layer& layer) override;
+	void dirtyLayers() override;
 };
 
 class BoxDrawable: public ShapeDrawable {
@@ -138,15 +148,15 @@ public:
 
 	// Fine-grained mutation; write the relevant SSBO slot(s) and keep _layers in sync.
 	// Call dirtyLayers() once after all mutations in a frame.
-	void setLayerColor(size_t index, const slughorn::Color& color);
-	void setLayerEffectId(size_t index, uint32_t effectId);
+	void setLayerColor(size_t index, const slughorn::Color& color) override;
+	void setLayerEffectId(size_t index, uint32_t effectId) override;
 
 	// Full re-pack from a Layer struct. Re-runs gradient packing internally.
 	// Preserves worldWidth in effectData.w (geometry, not layer state).
-	void updateLayer(size_t index, const slughorn::Layer& layer);
+	void updateLayer(size_t index, const slughorn::Layer& layer) override;
 
 	// Flush all accumulated writes to the GPU.
-	void dirtyLayers();
+	void dirtyLayers() override;
 
 	// Layer SSBO (binding 1). Valid after compile(); null before first compile().
 	osgx::Vec4Array* getLayerBuffer() const { return _layerBuffer.get(); }
@@ -161,10 +171,10 @@ public:
 
 	void compile() override;
 
-	void setLayerColor(size_t index, const slughorn::Color& color);
-	void setLayerEffectId(size_t index, uint32_t effectId);
-	void updateLayer(size_t index, const slughorn::Layer& layer);
-	void dirtyLayers();
+	void setLayerColor(size_t index, const slughorn::Color& color) override;
+	void setLayerEffectId(size_t index, uint32_t effectId) override;
+	void updateLayer(size_t index, const slughorn::Layer& layer) override;
+	void dirtyLayers() override;
 
 	osgx::Vec4Array* getLayerBuffer() const { return _layerBuffer.get(); }
 

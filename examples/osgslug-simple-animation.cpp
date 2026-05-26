@@ -32,7 +32,7 @@ int main(int argc, char** argv) {
 	atlas->build();
 	atlas->packTextures();
 
-	auto sd = osgx::make_ref<osgSlug::SSBOShapeDrawable>();
+	auto sd = example::makeShapeDrawable();
 	auto sdg = osgx::make_ref<osg::Geode>();
 
 	sd->addLayer({
@@ -80,7 +80,7 @@ int main(int argc, char** argv) {
 	sd->compile();
 
 	sdg->addDrawable(sd);
-	sdg->setStateSet(atlas->createDefaultStateSet());
+	sdg->setStateSet(atlas->createDefaultStateSet(example::USE_GL3));
 
 	return example::run(viewer, args, sdg);
 }

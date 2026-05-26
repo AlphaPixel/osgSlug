@@ -314,7 +314,7 @@ int main(int argc, char** argv) {
 		if(s) std::cout << layer << std::endl << " " << *s << std::endl;
 	}
 
-	auto sd = osgx::make_ref<osgSlug::SSBOShapeDrawable>();
+	auto sd = example::makeShapeDrawable();
 
 	sd->setAtlas(atlas);
 	sd->addCompositeShape(
@@ -327,7 +327,7 @@ int main(int argc, char** argv) {
 	auto geode = osgx::make_ref<osg::Geode>();
 
 	geode->addDrawable(sd);
-	geode->setStateSet(atlas->createDefaultStateSet());
+	geode->setStateSet(atlas->createDefaultStateSet(example::USE_GL3));
 
 	auto root = osgx::make_ref<osg::MatrixTransform>();
 

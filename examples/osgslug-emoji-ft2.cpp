@@ -64,7 +64,7 @@ int main(int argc, char** argv) {
 	atlas->build();
 	atlas->packTextures();
 
-	auto sd = osgx::make_ref<osgSlug::SSBOShapeDrawable>();
+	auto sd = example::makeShapeDrawable();
 
 	const osgSlug::Font::ColorGlyph* dragon = font->getColorGlyph(emojiCodepoint);
 
@@ -102,7 +102,7 @@ int main(int argc, char** argv) {
 	auto sdg = osgx::make_ref<osg::Geode>();
 
 	sdg->addDrawable(sd);
-	sdg->setStateSet(atlas->createDefaultStateSet());
+	sdg->setStateSet(atlas->createDefaultStateSet(example::USE_GL3));
 	sdg->setName("sdg");
 	// sdg->getOrCreateStateSet()->addUniform(new osg::Uniform("osgSlug_layerMask", 2));
 

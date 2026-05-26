@@ -55,7 +55,7 @@ int main(int argc, char** argv) {
 		<< atlas->getCompositeShapes().size() << " composites" << std::endl
 	;
 
-	auto sd = osgx::make_ref<osgSlug::SSBOShapeDrawable>();
+	auto sd = example::makeShapeDrawable();
 
 	if(shape.size()) {
 		const slughorn::Atlas::Shape* s = atlas->getShape(key);
@@ -91,7 +91,7 @@ int main(int argc, char** argv) {
 	auto sdg = osgx::make_ref<osg::Geode>();
 
 	sdg->addDrawable(sd);
-	sdg->setStateSet(atlas->createDefaultStateSet());
+	sdg->setStateSet(atlas->createDefaultStateSet(example::USE_GL3));
 
 	return example::run(viewer, args, sdg);
 }

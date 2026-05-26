@@ -53,6 +53,26 @@ GradientData buildGradientData(const Atlas& atlas, const slughorn::Layer& layer)
 	return data;
 }
 
+// ------------------------------------------------------------------------------------------------
+// SSBO mutation helpers — shared by SSBOShapeDrawable and SSBOSubdividedDrawable.
+// ------------------------------------------------------------------------------------------------
+
+static void ssboSetLayerColor(
+	osgx::Vec4Array* buf, std::vector<slughorn::Layer>& layers,
+	size_t index, const slughorn::Color& color
+) {
+	layers[index].color = color;
+	(*buf)[index * 4 + 0] = Vec4(color.r, color.g, color.b, color.a);
+}
+
+static void ssboSetLayerEffectId(
+	osgx::Vec4Array* buf, std::vector<slughorn::Layer>& layers,
+	size_t index, uint32_t effectId
+) {
+	layers[index].effectId = effectId;
+	(*buf)[index * 4 + 3].x() = cv(effectId);
+}
+
 }
 
 ShapeDrawable::ShapeDrawable() {
@@ -187,6 +207,65 @@ void GL3ShapeDrawable::compile() {
 	setVertexAttribBinding(7, osg::Geometry::BIND_PER_VERTEX);
 
 	addPrimitiveSet(indices);
+}
+
+void GL3ShapeDrawable::setLayerColor(size_t index, const slughorn::Color& color) {
+	if(index >= _layers.size()) return;
+
+	auto* arr = static_cast<osgx::Vec4Array*>(getVertexAttribArray(1));
+
+	if(!arr || (index + 1) * 4 > arr->size()) return;
+
+	_layers[index].color = color;
+
+	const Vec4 c(color.r, color.g, color.b, color.a);
+
+	for(size_t v = 0; v < 4; v++) (*arr)[index * 4 + v] = c;
+}
+
+void GL3ShapeDrawable::setLayerEffectId(size_t index, uint32_t effectId) {
+	if(index >= _layers.size()) return;
+
+	auto* arr = static_cast<osgx::Vec4Array*>(getVertexAttribArray(5));
+
+	if(!arr || (index + 1) * 4 > arr->size()) return;
+
+	_layers[index].effectId = effectId;
+
+	for(size_t v = 0; v < 4; v++) (*arr)[index * 4 + v].x() = cv(effectId);
+}
+
+void GL3ShapeDrawable::updateLayer(size_t index, const slughorn::Layer& layer) {
+	if(index >= _layers.size() || !_atlas) return;
+
+	auto* colors      = static_cast<osgx::Vec4Array*>(getVertexAttribArray(1));
+	auto* effectData  = static_cast<osgx::Vec4Array*>(getVertexAttribArray(5));
+	auto* gradMeta    = static_cast<osgx::Vec4Array*>(getVertexAttribArray(6));
+	auto* gradXforms  = static_cast<osgx::Vec4Array*>(getVertexAttribArray(7));
+
+	if(!colors || !effectData || !gradMeta || !gradXforms) return;
+	if((index + 1) * 4 > colors->size()) return;
+
+	_layers[index] = layer;
+
+	const auto* shape = _atlas->getShape(layer.key);
+	const auto [gmeta, gxform] = buildGradientData(*_atlas, layer);
+
+	const Vec4 c(layer.color.r, layer.color.g, layer.color.b, layer.color.a);
+	const Vec4 eid(cv(layer.effectId), shape ? cv(shape->originX) : 0_cv, shape ? cv(shape->originY) : 0_cv, 0_cv);
+
+	for(size_t v = 0; v < 4; v++) {
+		(*colors)[index * 4 + v]     = c;
+		(*effectData)[index * 4 + v] = eid;
+		(*gradMeta)[index * 4 + v]   = gmeta;
+		(*gradXforms)[index * 4 + v] = gxform;
+	}
+}
+
+void GL3ShapeDrawable::dirtyLayers() {
+	for(unsigned slot : {1u, 5u, 6u, 7u}) {
+		if(auto* arr = getVertexAttribArray(slot)) arr->dirty();
+	}
 }
 
 void BoxDrawable::compile() {
@@ -543,15 +622,13 @@ void SSBOShapeDrawable::compile() {
 void SSBOShapeDrawable::setLayerColor(size_t index, const slughorn::Color& color) {
 	if(!_layerBuffer || index >= _layers.size()) return;
 
-	_layers[index].color = color;
-	(*_layerBuffer)[index * 4 + 0] = Vec4(color.r, color.g, color.b, color.a);
+	ssboSetLayerColor(_layerBuffer.get(), _layers, index, color);
 }
 
 void SSBOShapeDrawable::setLayerEffectId(size_t index, uint32_t effectId) {
 	if(!_layerBuffer || index >= _layers.size()) return;
 
-	_layers[index].effectId = effectId;
-	(*_layerBuffer)[index * 4 + 3].x() = cv(effectId);
+	ssboSetLayerEffectId(_layerBuffer.get(), _layers, index, effectId);
 }
 
 void SSBOShapeDrawable::updateLayer(size_t index, const slughorn::Layer& layer) {
@@ -687,15 +764,13 @@ void SSBOSubdividedDrawable::compile() {
 void SSBOSubdividedDrawable::setLayerColor(size_t index, const slughorn::Color& color) {
 	if(!_layerBuffer || index >= _layers.size()) return;
 
-	_layers[index].color = color;
-	(*_layerBuffer)[index * 4 + 0] = Vec4(color.r, color.g, color.b, color.a);
+	ssboSetLayerColor(_layerBuffer.get(), _layers, index, color);
 }
 
 void SSBOSubdividedDrawable::setLayerEffectId(size_t index, uint32_t effectId) {
 	if(!_layerBuffer || index >= _layers.size()) return;
 
-	_layers[index].effectId = effectId;
-	(*_layerBuffer)[index * 4 + 3].x() = cv(effectId);
+	ssboSetLayerEffectId(_layerBuffer.get(), _layers, index, effectId);
 }
 
 void SSBOSubdividedDrawable::updateLayer(size_t index, const slughorn::Layer& layer) {

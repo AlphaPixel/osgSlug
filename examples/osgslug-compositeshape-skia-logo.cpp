@@ -270,7 +270,7 @@ int main(int argc, char** argv) {
 
 	// slughorn::serial::write(*atlas, "offending_shape.slugb");
 
-	auto sd = osgx::make_ref<osgSlug::SSBOShapeDrawable>();
+	auto sd = example::makeShapeDrawable();
 
 	sd->setAtlas(atlas);
 	// sd->addCompositeShape(logo, { 0.0f, 0.0f }, 300.0f);
@@ -285,7 +285,7 @@ int main(int argc, char** argv) {
 	tex->setFilter(osg::Texture::MIN_FILTER, osg::Texture::LINEAR);
 	tex->setFilter(osg::Texture::MAG_FILTER, osg::Texture::LINEAR);
 
-	auto* ss = atlas->createDefaultStateSet();
+	auto* ss = atlas->createDefaultStateSet(example::USE_GL3);
 
 	ss->setTextureAttributeAndModes(2, tex, osg::StateAttribute::ON);
 

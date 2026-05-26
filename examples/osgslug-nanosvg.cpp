@@ -60,8 +60,7 @@ int main(int argc, char** argv) {
 		if(s) OSG_NOTICE << layer << std::endl << " " << *s << std::endl;
 	}
 
-	// auto sd = osgx::make_nref<osgSlug::SSBOShapeDrawable>(svgFile);
-	auto sd = osgx::make_nref<osgSlug::GL3ShapeDrawable>(svgFile);
+	auto sd = example::makeShapeDrawable();
 
 	sd->setAtlas(atlas);
 	sd->addCompositeShape(logo);
@@ -70,8 +69,7 @@ int main(int argc, char** argv) {
 	auto geode = osgx::make_ref<osg::Geode>();
 
 	geode->addDrawable(sd);
-	// geode->setStateSet(atlas->createDefaultStateSet());
-	geode->setStateSet(atlas->createDefaultStateSet(true));
+	geode->setStateSet(atlas->createDefaultStateSet(example::USE_GL3));
 
 	auto root = osgx::make_ref<osg::MatrixTransform>();
 

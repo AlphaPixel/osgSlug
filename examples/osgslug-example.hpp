@@ -19,6 +19,18 @@ OSGSLUG_ENABLE_WARNINGS
 
 namespace example {
 
+inline bool USE_GL3 = false;
+
+inline osg::ref_ptr<osgSlug::ShapeDrawable> makeShapeDrawable() {
+	if(USE_GL3) return osgx::make_ref<osgSlug::GL3ShapeDrawable>();
+	return osgx::make_ref<osgSlug::SSBOShapeDrawable>();
+}
+
+inline osg::ref_ptr<osgSlug::SubdividedDrawable> makeSubdividedDrawable() {
+	if(USE_GL3) return osgx::make_ref<osgSlug::GL3SubdividedDrawable>();
+	return osgx::make_ref<osgSlug::SSBOSubdividedDrawable>();
+}
+
 inline int fail(osg::ArgumentParser& args, int r=0, const std::string& err="") {
 	if(err.size()) {
 		args.reportError(err);
@@ -131,12 +143,7 @@ inline bool setupArguments(
 		return false;
 	}
 
-	if(args.read("--gl3")) {
-		// TODO: If we detect `--gl3`, we need to ensure that the example in question uses
-		// `osgSlug::GL3ShapeDrawable` _and_ passes `true` to `atlas->createDefaultStateSet()`; BUT
-		// HOW DO WE DO THIS!? Could we have some kind of static `bool example::USE_GL3`, and then
-		// add 2 additional helpers like `example::make_{shape,state}`?
-	}
+	USE_GL3 = args.read("--gl3");
 
 	return true;
 }

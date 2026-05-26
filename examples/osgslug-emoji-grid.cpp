@@ -85,7 +85,7 @@ else {
 	atlas->build();
 	atlas->packTextures();
 
-	auto stateSet = atlas->createDefaultStateSet();
+	auto stateSet = atlas->createDefaultStateSet(example::USE_GL3);
 
 	// Grid layout: square-ish, 1.2-unit spacing, centered at origin.
 	const int cols    = static_cast<int>(std::ceil(std::sqrt(static_cast<double>(codepoints.size()))));
@@ -106,7 +106,7 @@ else {
 			continue;
 		}
 
-		auto sd = osgx::make_ref<osgSlug::SSBOShapeDrawable>();
+		auto sd = example::makeShapeDrawable();
 
 		sd->setAtlas(atlas);
 		sd->addCompositeShape(*glyph);
