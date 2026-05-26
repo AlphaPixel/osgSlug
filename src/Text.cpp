@@ -77,17 +77,18 @@ void Text::compile() {
 	slug_t cursorX = 0_cv;
 	slug_t cursorY = 0_cv; // -cv(_fontSize); // 0_cv;
 
-	const auto tpa = osgSlug::getEnv<bool>("TEXT_PIXEL_ALIGN", false);
+	const auto tpa = osgSlug::getEnv<int>("TEXT_PIXEL_ALIGN", 0);
 
 	for(const auto& run : _runs) {
 		for(char ch : run.text) {
 			if(ch == '\n') {
 				cursorX = 0_cv;
 
-				// Use font's recommended line gap; fall back to CSS-standard 1.2× when absent.
+				// Use font's recommended line gap; fall back to CSS-standard 1.2x when absent.
 				const slug_t leading = _metrics.lineGapRatio > 0_cv
-				    ? _fontSize * (1.0_cv + _metrics.lineGapRatio)
-				    : _fontSize * 1.2_cv;
+					? _fontSize * (1.0_cv + _metrics.lineGapRatio)
+					: _fontSize * 1.2_cv
+				;
 
 				cursorY -= leading;
 
@@ -119,7 +120,9 @@ void Text::compile() {
 
 			cursorX += shape->advance * _fontSize;
 
-			if(tpa) cursorX = std::round(cursorX);
+			if(tpa == 1) cursorX = std::round(cursorX);
+
+			else if(tpa == 2) cursorX = std::round(cursorX) + 0.5_cv;
 		}
 	}
 

@@ -170,11 +170,12 @@ if(OSGSLUG_BUILD_EXAMPLES)
 		)
 	endfunction()
 
-	osgslug_example(osgslug-ssbo SOURCES "examples/osgslug-ssbo.cpp")
 	osgslug_example(osgslug-tmp SOURCES "examples/osgslug-tmp.cpp")
+	osgslug_example(osgslug-ssbo SOURCES "examples/osgslug-ssbo.cpp")
 	osgslug_example(osgslug-serial SOURCES "examples/osgslug-serial.cpp")
 	osgslug_example(osgslug-text SOURCES "examples/osgslug-text.cpp")
 	osgslug_example(osgslug-clock SOURCES "examples/osgslug-clock.cpp")
+	osgslug_example(osgslug-compute SOURCES "examples/osgslug-compute.cpp")
 	osgslug_example(osgslug-gradient-canvas SOURCES "examples/osgslug-gradient-canvas.cpp")
 	osgslug_example(osgslug-simple SOURCES "examples/osgslug-simple.cpp")
 	osgslug_example(osgslug-simple-3d SOURCES "examples/osgslug-simple-3d.cpp")
@@ -213,6 +214,9 @@ if(OSGSLUG_BUILD_EXAMPLES)
 	osgslug_example(osgslug-project2d
 		SOURCES "examples/osgslug-project2d.cpp"
 		LIBS "PkgConfig::CAIRO"
+	)
+	osgslug_example(osgslug-compositeshape-mixed
+		SOURCES "examples/osgslug-compositeshape-mixed.cpp"
 	)
 endif()
 

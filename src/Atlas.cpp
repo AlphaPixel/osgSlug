@@ -4,6 +4,7 @@
 
 #include <osg/Image>
 #include <osg/BlendFunc>
+#include <stdexcept>
 
 // TODO: Remove these!
 #ifndef GL_RGBA_INTEGER
@@ -49,6 +50,29 @@ void Atlas::packTextures() {
 	if(!getGradientTextureData().bytes.empty()) {
 		_gradientTexture = _makeTexture(getGradientTextureData());
 	}
+
+	// Build the atlas-level shape SSBO (binding 0). One entry per unique shape;
+	// 3 vec4s = 48 bytes per entry: bandXform, shapeData, originData.
+	_shapeBuffer = osgx::make_ref<osgx::Vec4Array>();
+	uint32_t idx = 0;
+
+	for(const auto& [key, shape] : getShapes()) {
+		_shapeIndex[key] = idx++;
+
+		_shapeBuffer->push_back({shape.bandScaleX, shape.bandScaleY, shape.bandOffsetX, shape.bandOffsetY});
+		_shapeBuffer->push_back({cv(shape.bandTexX), cv(shape.bandTexY), cv(shape.bandMaxX), cv(shape.bandMaxY)});
+		_shapeBuffer->push_back({cv(shape.originX), cv(shape.originY), 0.0f, 0.0f});
+	}
+
+	_shapeBuffer->setBufferObject(new osg::ShaderStorageBufferObject());
+}
+
+uint32_t Atlas::getShapeIndex(const slughorn::Key& key) const {
+	auto it = _shapeIndex.find(key);
+
+	if(it == _shapeIndex.end()) throw std::runtime_error("Atlas::getShapeIndex: key not found");
+
+	return it->second;
 }
 
 osg::ref_ptr<osg::Texture2D> Atlas::_makeTexture(const slughorn::Atlas::TextureData& data) {
@@ -118,6 +142,13 @@ osg::StateSet* Atlas::createDefaultStateSet(bool useGL3) const {
 	if(_gradientTexture.valid()) {
 		ss->setTextureAttributeAndModes(3, _gradientTexture, osg::StateAttribute::ON);
 	}
+	if(_shapeBuffer.valid()) {
+		ss->setAttributeAndModes(
+			new osg::ShaderStorageBufferBinding(0, _shapeBuffer, 0, _shapeBuffer->getTotalDataSize()),
+			osg::StateAttribute::ON
+		);
+	}
+
 	ss->setMode(GL_BLEND, osg::StateAttribute::ON);
 	ss->setAttributeAndModes(new osg::BlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA));
 	// TODO: This is premultiplied alpha, and needs to be synchronized with the shader!

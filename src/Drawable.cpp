@@ -462,14 +462,17 @@ void SSBOShapeDrawable::compile() {
 
 	auto vertices = osgx::make_ref<osgx::Vec4Array>();
 	auto emCoords = osgx::make_ref<osgx::Vec4Array>();
-	auto indices  = osgx::make_ref<osgx::DrawElementsUShort>();
+	auto indices = osgx::make_ref<osgx::DrawElementsUShort>();
 
-	// One osg::Vec4Array used as the SSBO backing store. Each shape occupies 6
-	// consecutive vec4 entries matching the ShapeData struct in the SSBO vert shader:
-	//   [0] color  [1] bandXform  [2] shapeData  [3] effectData
-	//   [4] gradientMeta  [5] gradientXform
-	// All vec4 fields, std430 packing — no padding required.
-	auto shapeBuffer = osgx::make_ref<osgx::Vec4Array>();
+	// Layer SSBO (binding 1): 4 vec4s per layer; slughorn contract first, osgSlug machinery last.
+	//
+	// [0] color: RGBA
+	// [1] gradientMeta: x=gradientId, yz=center, w=r0_norm
+	// [2] gradientXform
+	// [3] effectData: x=effectId, y=shapeIndex, z=unused, w=worldWidth (0 for ShapeDrawable)
+	//
+	// Static shape data (bandXform, shapeData, originData) lives in the atlas SSBO at binding 0.
+	_layerBuffer = osgx::make_ref<osgx::Vec4Array>();
 
 	index_element_type base = 0;
 	size_t index = 0;
@@ -503,13 +506,12 @@ void SSBOShapeDrawable::compile() {
 		});
 
 		const auto [gmeta, gxform] = buildGradientData(*_atlas, layer);
+		const slug_t shapeIdx = cv(_atlas->getShapeIndex(layer.key));
 
-		shapeBuffer->push_back({layer.color.r, layer.color.g, layer.color.b, layer.color.a});
-		shapeBuffer->push_back({shape->bandScaleX, shape->bandScaleY, shape->bandOffsetX, shape->bandOffsetY});
-		shapeBuffer->push_back({cv(shape->bandTexX), cv(shape->bandTexY), cv(shape->bandMaxX), cv(shape->bandMaxY)});
-		shapeBuffer->push_back({cv(layer.effectId), cv(shape->originX), cv(shape->originY), 0_cv});
-		shapeBuffer->push_back(gmeta);
-		shapeBuffer->push_back(gxform);
+		_layerBuffer->push_back({layer.color.r, layer.color.g, layer.color.b, layer.color.a});
+		_layerBuffer->push_back(gmeta);
+		_layerBuffer->push_back(gxform);
+		_layerBuffer->push_back({cv(layer.effectId), shapeIdx, 0_cv, 0_cv});
 
 		indices->append_range({
 			base, index_element_type(base + 1), index_element_type(base + 2),
@@ -530,12 +532,44 @@ void SSBOShapeDrawable::compile() {
 
 	addPrimitiveSet(indices);
 
-	shapeBuffer->setBufferObject(new osg::ShaderStorageBufferObject());
+	_layerBuffer->setBufferObject(new osg::ShaderStorageBufferObject());
 
 	getOrCreateStateSet()->setAttributeAndModes(
-		new osg::ShaderStorageBufferBinding(0, shapeBuffer, 0, shapeBuffer->getTotalDataSize()),
+		new osg::ShaderStorageBufferBinding(1, _layerBuffer, 0, _layerBuffer->getTotalDataSize()),
 		osg::StateAttribute::ON
 	);
+}
+
+void SSBOShapeDrawable::setLayerColor(size_t index, const slughorn::Color& color) {
+	if(!_layerBuffer || index >= _layers.size()) return;
+
+	_layers[index].color = color;
+	(*_layerBuffer)[index * 4 + 0] = Vec4(color.r, color.g, color.b, color.a);
+}
+
+void SSBOShapeDrawable::setLayerEffectId(size_t index, uint32_t effectId) {
+	if(!_layerBuffer || index >= _layers.size()) return;
+
+	_layers[index].effectId = effectId;
+	(*_layerBuffer)[index * 4 + 3].x() = cv(effectId);
+}
+
+void SSBOShapeDrawable::updateLayer(size_t index, const slughorn::Layer& layer) {
+	if(!_layerBuffer || index >= _layers.size() || !_atlas) return;
+
+	_layers[index] = layer;
+
+	const auto [gmeta, gxform] = buildGradientData(*_atlas, layer);
+	const slug_t shapeIdx = cv(_atlas->getShapeIndex(layer.key));
+
+	(*_layerBuffer)[index * 4 + 0] = Vec4(layer.color.r, layer.color.g, layer.color.b, layer.color.a);
+	(*_layerBuffer)[index * 4 + 1] = gmeta;
+	(*_layerBuffer)[index * 4 + 2] = gxform;
+	(*_layerBuffer)[index * 4 + 3] = Vec4(cv(layer.effectId), shapeIdx, 0_cv, 0_cv);
+}
+
+void SSBOShapeDrawable::dirtyLayers() {
+	if(_layerBuffer) _layerBuffer->dirty();
 }
 
 void SSBOSubdividedDrawable::compile() {
@@ -543,10 +577,11 @@ void SSBOSubdividedDrawable::compile() {
 
 	if(!atlas || !atlas->isBuilt() || _layers.empty()) return;
 
-	auto vertices    = osgx::make_ref<osgx::Vec4Array>();
-	auto emCoords    = osgx::make_ref<osgx::Vec4Array>();
-	auto shapeBuffer = osgx::make_ref<osgx::Vec4Array>();
-	auto indices     = osgx::make_ref<osgx::DrawElementsUShort>();
+	auto vertices = osgx::make_ref<osgx::Vec4Array>();
+	auto emCoords = osgx::make_ref<osgx::Vec4Array>();
+	auto indices = osgx::make_ref<osgx::DrawElementsUShort>();
+
+	_layerBuffer = osgx::make_ref<osgx::Vec4Array>();
 
 	static constexpr slug_t SLUG_EXPAND = 0.01_cv;
 
@@ -602,14 +637,13 @@ void SSBOSubdividedDrawable::compile() {
 		}
 
 		const auto [gmeta, gxform] = buildGradientData(*atlas, layer);
+		const slug_t shapeIdx = cv(atlas->getShapeIndex(layer.key));
 
+		_layerBuffer->push_back({layer.color.r, layer.color.g, layer.color.b, layer.color.a});
+		_layerBuffer->push_back(gmeta);
+		_layerBuffer->push_back(gxform);
 		// effectData.w carries world width for 9-slice vertex shader effects.
-		shapeBuffer->push_back({layer.color.r, layer.color.g, layer.color.b, layer.color.a});
-		shapeBuffer->push_back({shape->bandScaleX, shape->bandScaleY, shape->bandOffsetX, shape->bandOffsetY});
-		shapeBuffer->push_back({cv(shape->bandTexX), cv(shape->bandTexY), cv(shape->bandMaxX), cv(shape->bandMaxY)});
-		shapeBuffer->push_back({cv(layer.effectId), cv(shape->originX), cv(shape->originY), q.x1 - q.x0});
-		shapeBuffer->push_back(gmeta);
-		shapeBuffer->push_back(gxform);
+		_layerBuffer->push_back({cv(layer.effectId), shapeIdx, 0_cv, q.x1 - q.x0});
 
 		const index_element_type layerBase = base;
 
@@ -623,7 +657,8 @@ void SSBOSubdividedDrawable::compile() {
 				const auto tr = static_cast<index_element_type>(row1 + su + 1);
 
 				if(!((su + sv) & 1)) indices->append_range({bl, br, tl, br, tr, tl});
-				else                 indices->append_range({bl, br, tr, bl, tr, tl});
+
+				else indices->append_range({bl, br, tr, bl, tr, tl});
 			}
 		}
 
@@ -641,12 +676,46 @@ void SSBOSubdividedDrawable::compile() {
 
 	addPrimitiveSet(indices);
 
-	shapeBuffer->setBufferObject(new osg::ShaderStorageBufferObject());
+	_layerBuffer->setBufferObject(new osg::ShaderStorageBufferObject());
 
 	getOrCreateStateSet()->setAttributeAndModes(
-		new osg::ShaderStorageBufferBinding(0, shapeBuffer, 0, shapeBuffer->getTotalDataSize()),
+		new osg::ShaderStorageBufferBinding(1, _layerBuffer, 0, _layerBuffer->getTotalDataSize()),
 		osg::StateAttribute::ON
 	);
+}
+
+void SSBOSubdividedDrawable::setLayerColor(size_t index, const slughorn::Color& color) {
+	if(!_layerBuffer || index >= _layers.size()) return;
+
+	_layers[index].color = color;
+	(*_layerBuffer)[index * 4 + 0] = Vec4(color.r, color.g, color.b, color.a);
+}
+
+void SSBOSubdividedDrawable::setLayerEffectId(size_t index, uint32_t effectId) {
+	if(!_layerBuffer || index >= _layers.size()) return;
+
+	_layers[index].effectId = effectId;
+	(*_layerBuffer)[index * 4 + 3].x() = cv(effectId);
+}
+
+void SSBOSubdividedDrawable::updateLayer(size_t index, const slughorn::Layer& layer) {
+	if(!_layerBuffer || index >= _layers.size() || !_atlas) return;
+
+	_layers[index] = layer;
+
+	const auto [gmeta, gxform] = buildGradientData(*_atlas, layer);
+	const slug_t shapeIdx = cv(_atlas->getShapeIndex(layer.key));
+	// worldWidth is geometry, not layer state; preserve whatever compile() baked in.
+	const slug_t worldWidth = (*_layerBuffer)[index * 4 + 3].w();
+
+	(*_layerBuffer)[index * 4 + 0] = Vec4(layer.color.r, layer.color.g, layer.color.b, layer.color.a);
+	(*_layerBuffer)[index * 4 + 1] = gmeta;
+	(*_layerBuffer)[index * 4 + 2] = gxform;
+	(*_layerBuffer)[index * 4 + 3] = Vec4(cv(layer.effectId), shapeIdx, 0_cv, worldWidth);
+}
+
+void SSBOSubdividedDrawable::dirtyLayers() {
+	if(_layerBuffer) _layerBuffer->dirty();
 }
 
 }

@@ -8,10 +8,13 @@ OSGSLUG_DISABLE_WARNINGS
 
 #include <osg/Referenced>
 #include <osg/Texture2D>
+#include <osg/BufferObject>
+#include <osg/BufferIndexBinding>
 
 OSGSLUG_ENABLE_WARNINGS
 
 #include <filesystem>
+#include <unordered_map>
 
 namespace osgSlug {
 
@@ -48,6 +51,11 @@ public:
 	osg::Texture2D* getBandTexture() const { return _bandTexture.get(); }
 	osg::Texture2D* getGradientTexture() const { return _gradientTexture.get(); }
 
+	// Atlas-level shape SSBO (binding 0). Valid after packTextures().
+	// Returns the 0-based index of key in the shape buffer, or throws if not found.
+	uint32_t getShapeIndex(const slughorn::Key& key) const;
+	osgx::Vec4Array* getShapeBuffer() const { return _shapeBuffer.get(); }
+
 	osg::StateSet* createDefaultStateSet(bool useGL3=false) const;
 
 	static osg::ref_ptr<Atlas> fromAtlas(const slughorn::Atlas& src) {
@@ -74,6 +82,9 @@ private:
 	osg::ref_ptr<osg::Texture2D> _curveTexture;
 	osg::ref_ptr<osg::Texture2D> _bandTexture;
 	osg::ref_ptr<osg::Texture2D> _gradientTexture;  // null when no gradients registered
+
+	osg::ref_ptr<osgx::Vec4Array> _shapeBuffer;     // atlas shape SSBO, binding 0
+	std::unordered_map<slughorn::Key, uint32_t, slughorn::KeyHash> _shapeIndex;
 };
 
 }

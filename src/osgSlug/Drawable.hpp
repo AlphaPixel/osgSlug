@@ -135,6 +135,24 @@ public:
 	SSBOShapeDrawable() = default;
 
 	void compile() override;
+
+	// Fine-grained mutation; write the relevant SSBO slot(s) and keep _layers in sync.
+	// Call dirtyLayers() once after all mutations in a frame.
+	void setLayerColor(size_t index, const slughorn::Color& color);
+	void setLayerEffectId(size_t index, uint32_t effectId);
+
+	// Full re-pack from a Layer struct. Re-runs gradient packing internally.
+	// Preserves worldWidth in effectData.w (geometry, not layer state).
+	void updateLayer(size_t index, const slughorn::Layer& layer);
+
+	// Flush all accumulated writes to the GPU.
+	void dirtyLayers();
+
+	// Layer SSBO (binding 1). Valid after compile(); null before first compile().
+	osgx::Vec4Array* getLayerBuffer() const { return _layerBuffer.get(); }
+
+private:
+	osg::ref_ptr<osgx::Vec4Array> _layerBuffer;
 };
 
 class SSBOSubdividedDrawable : public SubdividedDrawable {
@@ -142,6 +160,16 @@ public:
 	SSBOSubdividedDrawable() = default;
 
 	void compile() override;
+
+	void setLayerColor(size_t index, const slughorn::Color& color);
+	void setLayerEffectId(size_t index, uint32_t effectId);
+	void updateLayer(size_t index, const slughorn::Layer& layer);
+	void dirtyLayers();
+
+	osgx::Vec4Array* getLayerBuffer() const { return _layerBuffer.get(); }
+
+private:
+	osg::ref_ptr<osgx::Vec4Array> _layerBuffer;
 };
 
 // ------------------------------------------------------------------------------------------------
