@@ -75,7 +75,7 @@ public:
 
 	bool loaded() const { return _loaded; }
 
-	const slughorn::freetype::FontMetrics& metrics() const { return _metrics; }
+	const slughorn::FontMetrics& metrics() const { return _metrics; }
 
 	// Convenience: map a Unicode codepoint to its atlas key.
 	static uint32_t keyFor(uint32_t codepoint) { return codepoint; }
@@ -112,7 +112,7 @@ private:
 
 	bool _loaded = false;
 
-	slughorn::freetype::FontMetrics _metrics;
+	slughorn::FontMetrics _metrics;
 	std::map<uint32_t, ColorGlyph> _colorGlyphs;
 };
 

@@ -52,8 +52,8 @@ public:
 
 	slug_t getFontSize() const { return _fontSize; }
 
-	void setFontMetrics(const slughorn::freetype::FontMetrics& m) { _metrics = m; }
-	const slughorn::freetype::FontMetrics& getFontMetrics() const { return _metrics; }
+	void setFontMetrics(const slughorn::FontMetrics& m) { _metrics = m; }
+	const slughorn::FontMetrics& getFontMetrics() const { return _metrics; }
 
 	void setDpi(slug_t dpi) { _dpi = dpi; }
 	slug_t getDpi() const { return _dpi; }
@@ -118,7 +118,7 @@ private:
 	slug_t _dpi = 96_cv;
 	bool _autoScaleToScreen = false;
 
-	slughorn::freetype::FontMetrics _metrics;
+	slughorn::FontMetrics _metrics;
 
 	osg::ref_ptr<Atlas> _atlas;
 	osg::ref_ptr<osg::Geode> _geode;
