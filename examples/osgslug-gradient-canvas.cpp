@@ -4,6 +4,9 @@
 
 #include "slughorn/canvas.hpp"
 
+using slughorn::PI_CV;
+using slughorn::PI_2_CV;
+
 int main(int argc, char** argv) {
 	osg::ArgumentParser args(&argc, argv);
 
@@ -146,11 +149,9 @@ int main(int argc, char** argv) {
 
 	else if(gradient == "sweep-0") {
 		// Full-circle colour wheel: red -> yellow -> green -> cyan -> blue -> magenta -> red.
-		const auto PI = cv(M_PI);
-
 		auto grad = canvas.createSweepGradient(
 			0.5_cv, 0.5_cv, // center
-			-PI, PI, // full circle, seam at -a/+a (left edge)
+			-PI_CV, PI_CV, // full circle, seam at -a/+a (left edge)
 			{
 				{0.000_cv, {1_cv, 0_cv, 0_cv, 1_cv}}, // red
 				{0.167_cv, {1_cv, 1_cv, 0_cv, 1_cv}}, // yellow
@@ -169,11 +170,9 @@ int main(int argc, char** argv) {
 	}
 
 	else if(gradient == "sweep-1") {
-		const auto PI = cv(M_PI);
-
 		auto grad = canvas.createSweepGradient(
 			0.5_cv, 0.5_cv,
-			-PI * 0.75_cv, PI * 0.75_cv,
+			-PI_CV * 0.75_cv, PI_CV * 0.75_cv,
 			{
 				{0.0_cv, {1_cv, 1_cv, 1_cv, 1_cv}}, // green
 				{1.0_cv, {1_cv, 1_cv, 1_cv, 0_cv}} // red

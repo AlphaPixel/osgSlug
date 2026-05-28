@@ -90,7 +90,11 @@ int main(int argc, char** argv) {
 	sd->compile();
 
 	// Grab the layer SSBO handle after compile(); the compute shader writes into this buffer!
-	auto* layerBuf = sd->getLayerBuffer();
+	// Layer 0 anchors the binding; totalSize covers the full contiguous buffer.
+	auto* layerBuf = sd->getLayerBuffer(0);
+	const auto layerTotalSize = static_cast<GLsizeiptr>(
+		sd->getLayers().size() * 4 * sizeof(osg::Vec4)
+	);
 	auto computeProgram = osgx::make_ref<osg::Program>();
 
 	computeProgram->addShader(new osg::Shader(osg::Shader::COMPUTE, COMPUTE_SHADER));
@@ -101,7 +105,7 @@ int main(int argc, char** argv) {
 
 	dss->setAttributeAndModes(computeProgram, osg::StateAttribute::ON);
 	dss->setAttributeAndModes(
-		new osg::ShaderStorageBufferBinding(1, layerBuf, 0, layerBuf->getTotalDataSize()),
+		new osg::ShaderStorageBufferBinding(1, layerBuf, 0, layerTotalSize),
 		osg::StateAttribute::ON
 	);
 

@@ -1,6 +1,7 @@
 //vimrun! ./osgslug-clock --clear-color 0.2,0.2,0.3,1.0
 
 #include "osgslug-example.hpp"
+
 #include "slughorn/canvas.hpp"
 
 int main(int argc, char** argv) {
@@ -50,10 +51,10 @@ int main(int argc, char** argv) {
 
 	canvas.beginPath();
 
-	for(int i = 0; i < 12; i++) {
+	for(size_t i = 0; i < 12; i++) {
 		canvas.save();
 		canvas.translate(CX, CY);
-		canvas.rotate(cv(i * 2.0 * M_PI / 12.0));
+		canvas.rotate(cv(i) * 2_cv * slughorn::PI_CV / 12_cv);
 		canvas.moveTo(0_cv, TICK_INNER);
 		canvas.lineTo(0_cv, TICK_OUTER);
 		canvas.strokePath(TICK_WIDTH);

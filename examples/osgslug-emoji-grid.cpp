@@ -88,8 +88,8 @@ else {
 	auto stateSet = atlas->createDefaultStateSet(example::USE_GL3);
 
 	// Grid layout: square-ish, 1.2-unit spacing, centered at origin.
-	const int cols    = static_cast<int>(std::ceil(std::sqrt(static_cast<double>(codepoints.size()))));
-	const int rows    = static_cast<int>(std::ceil(static_cast<double>(codepoints.size()) / cols));
+	const size_t cols = static_cast<size_t>(std::ceil(std::sqrt(static_cast<double>(codepoints.size()))));
+	const size_t rows = static_cast<size_t>(std::ceil(static_cast<double>(codepoints.size()) / static_cast<double>(cols)));
 	const float step  = 1.2f;
 	const float ox    = -step * static_cast<float>(cols - 1) / 2.0f;
 	const float oy    =  step * static_cast<float>(rows - 1) / 2.0f;
@@ -117,15 +117,15 @@ else {
 		geode->addDrawable(sd);
 		geode->setStateSet(stateSet);
 
-		const float col = static_cast<float>(static_cast<int>(idx) % cols);
-		const float row = static_cast<float>(static_cast<int>(idx) / cols);
+		const float col = static_cast<float>(idx % cols);
+		const float row = static_cast<float>(idx / cols);
 
 		auto xform = osgx::make_ref<osg::MatrixTransform>();
 
-		xform->setMatrix(osg::Matrix::translate(
+		xform->setMatrix(osgSlug::Matrix::translate(
 			ox + col * step,
 			oy - row * step,
-			0.0
+			0.0_cv
 		));
 
 		xform->addChild(geode);

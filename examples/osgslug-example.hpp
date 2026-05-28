@@ -22,12 +22,21 @@ namespace example {
 inline bool USE_GL3 = false;
 
 inline osg::ref_ptr<osgSlug::ShapeDrawable> makeShapeDrawable() {
-	if(USE_GL3) return osgx::make_ref<osgSlug::GL3ShapeDrawable>();
-	return osgx::make_ref<osgSlug::SSBOShapeDrawable>();
+	auto sd = osgx::make_ref<osgSlug::ShapeDrawable>(nullptr);
+
+	if(USE_GL3) sd = new osgSlug::GL3ShapeDrawable();
+
+	else sd = new osgSlug::SSBOShapeDrawable();
+
+	// TODO: Add some common stuff to help with the `--profile` option!
+	// sd->setName("osgSlug::ShapeDrawable");
+
+	return sd;
 }
 
 inline osg::ref_ptr<osgSlug::SubdividedDrawable> makeSubdividedDrawable() {
 	if(USE_GL3) return osgx::make_ref<osgSlug::GL3SubdividedDrawable>();
+
 	return osgx::make_ref<osgSlug::SSBOSubdividedDrawable>();
 }
 
@@ -162,7 +171,7 @@ inline bool setupArguments(
 	if(rot90x) {
 		auto root = osgx::make_ref<osg::MatrixTransform>();
 
-		root->setMatrix(osg::Matrix::rotate(osg::DegreesToRadians(90.0), osg::Vec3(1, 0, 0)));
+		root->setMatrix(osgSlug::Matrix::rotate(osg::DegreesToRadians(90.0f), osgSlug::Vec3(1.0_cv, 0.0_cv, 0.0_cv)));
 		root->addChild(sceneData);
 
 		viewer.setSceneData(root);
@@ -186,7 +195,7 @@ inline auto run(
 	if(rot90x) {
 		auto root = osgx::make_ref<osg::MatrixTransform>();
 
-		root->setMatrix(osg::Matrix::rotate(osg::DegreesToRadians(90.0), osg::Vec3(1, 0, 0)));
+		root->setMatrix(osgSlug::Matrix::rotate(osg::DegreesToRadians(90.0f), osgSlug::Vec3(1.0_cv, 0.0_cv, 0.0_cv)));
 		root->addChild(sceneData);
 
 		viewer.setSceneData(root);

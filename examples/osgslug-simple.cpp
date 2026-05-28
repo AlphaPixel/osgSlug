@@ -12,7 +12,7 @@ OSGSLUG_DISABLE_WARNINGS
 OSGSLUG_ENABLE_WARNINGS
 
 struct SpinCallback: public osg::NodeCallback {
-	osg::Vec3 _center;
+	osgSlug::Vec3 _center;
 
 	bool _initialized = false;
 
@@ -52,13 +52,13 @@ struct SpinCallback: public osg::NodeCallback {
 
 		float angle = static_cast<float>(t); // radians/sec (adjust speed as needed)
 
-		osg::Matrix R =
-			osg::Matrix::translate(_center) *
-			osg::Matrix::rotate(angle, osg::Vec3(0,0,1)) *
-			osg::Matrix::translate(-_center)
+		osgSlug::Matrix R =
+			osgSlug::Matrix::translate(_center) *
+			osgSlug::Matrix::rotate(angle, osgSlug::Vec3(0.0_cv, 0.0_cv, 1.0_cv)) *
+			osgSlug::Matrix::translate(-_center)
 		;
 
-		R *= osg::Matrix::translate(osg::Vec3(726, 0, 1));
+		R *= osgSlug::Matrix::translate(osgSlug::Vec3(726.0_cv, 0.0_cv, 1.0_cv));
 
 		mt->setMatrix(R);
 
@@ -175,7 +175,7 @@ int main(int argc, char** argv) {
 
 	auto root = osgx::make_ref<osg::MatrixTransform>();
 
-	root->setMatrix(osg::Matrix::rotate(osg::DegreesToRadians(90.0), osg::Vec3(1, 0, 0)));
+	root->setMatrix(osgSlug::Matrix::rotate(osg::DegreesToRadians(90.0f), osgSlug::Vec3(1.0_cv, 0.0_cv, 0.0_cv)));
 
 	// root->addChild(sdg);
 	root->addChild(mat);

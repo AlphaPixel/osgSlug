@@ -11,6 +11,9 @@
 #include <algorithm>
 #include <cmath>
 
+using slughorn::PI_CV;
+using slughorn::PI_2_CV;
+
 // =============================================================================
 // buildJigsawPiecePath (Cairo version)
 //
@@ -160,19 +163,19 @@ void buildRoundedRectPath(
 
     // Bottom edge -> bottom-right corner
     cairo_line_to(cr, x1 - r, y0);
-    cairo_arc(cr, x1 - r, y0 + r, r, -0.5 * M_PI, 0.0);
+    cairo_arc(cr, x1 - r, y0 + r, r, -PI_2_CV, 0.0);
 
     // Right edge -> top-right corner
     cairo_line_to(cr, x1, y1 - r);
-    cairo_arc(cr, x1 - r, y1 - r, r, 0.0, 0.5 * M_PI);
+    cairo_arc(cr, x1 - r, y1 - r, r, 0.0, PI_2_CV);
 
     // Top edge -> top-left corner
     cairo_line_to(cr, x0 + r, y1);
-    cairo_arc(cr, x0 + r, y1 - r, r, 0.5 * M_PI, M_PI);
+    cairo_arc(cr, x0 + r, y1 - r, r, PI_2_CV, PI_CV);
 
     // Left edge -> bottom-left corner
     cairo_line_to(cr, x0, y0 + r);
-    cairo_arc(cr, x0 + r, y0 + r, r, M_PI, 1.5 * M_PI);
+    cairo_arc(cr, x0 + r, y0 + r, r, PI_CV, 3_cv * PI_2_CV);
 
     cairo_close_path(cr);
 }
@@ -222,32 +225,32 @@ void buildPseudostrokeRoundedRectPath(
     cairo_move_to(cr, ox0 + orr, oy0);
 
     cairo_line_to(cr, ox1 - orr, oy0);
-    cairo_arc(cr, ox1 - orr, oy0 + orr, orr, -0.5 * M_PI, 0.0);
+    cairo_arc(cr, ox1 - orr, oy0 + orr, orr, -PI_2_CV, 0.0);
 
     cairo_line_to(cr, ox1, oy1 - orr);
-    cairo_arc(cr, ox1 - orr, oy1 - orr, orr, 0.0, 0.5 * M_PI);
+    cairo_arc(cr, ox1 - orr, oy1 - orr, orr, 0.0, PI_2_CV);
 
     cairo_line_to(cr, ox0 + orr, oy1);
-    cairo_arc(cr, ox0 + orr, oy1 - orr, orr, 0.5 * M_PI, M_PI);
+    cairo_arc(cr, ox0 + orr, oy1 - orr, orr, PI_2_CV, PI_CV);
 
     cairo_line_to(cr, ox0, oy0 + orr);
-    cairo_arc(cr, ox0 + orr, oy0 + orr, orr, M_PI, 1.5 * M_PI);
+    cairo_arc(cr, ox0 + orr, oy0 + orr, orr, PI_CV, 3_cv * PI_2_CV);
 
     // Bridge inward at the same seam region.
     cairo_line_to(cr, ix0 + irr, iy0);
 
     // ---- Inner contour, CW ----
     cairo_line_to(cr, ix0, iy0 + irr);
-    cairo_arc_negative(cr, ix0 + irr, iy0 + irr, irr, M_PI, 0.5 * M_PI);
+    cairo_arc_negative(cr, ix0 + irr, iy0 + irr, irr, PI_CV, PI_2_CV);
 
     cairo_line_to(cr, ix1 - irr, iy1);
-    cairo_arc_negative(cr, ix1 - irr, iy1 - irr, irr, 0.5 * M_PI, 0.0);
+    cairo_arc_negative(cr, ix1 - irr, iy1 - irr, irr, PI_2_CV, 0.0);
 
     cairo_line_to(cr, ix1, iy0 + irr);
-    cairo_arc_negative(cr, ix1 - irr, iy0 + irr, irr, 0.0, -0.5 * M_PI);
+    cairo_arc_negative(cr, ix1 - irr, iy0 + irr, irr, 0.0, -PI_2_CV);
 
     cairo_line_to(cr, ix0 + irr, iy0);
-    cairo_arc_negative(cr, ix0 + irr, iy0 + irr, irr, -0.5 * M_PI, -M_PI);
+    cairo_arc_negative(cr, ix0 + irr, iy0 + irr, irr, -PI_2_CV, -PI_CV);
 
     cairo_close_path(cr);
 }
@@ -273,16 +276,16 @@ void buildRoundedRectPath(
     cairo_move_to(cr, x0 + r, y0);
 
     cairo_line_to(cr, x1 - r, y0);
-    cairo_arc(cr, x1 - r, y0 + r, r, -M_PI_2, 0.0);
+    cairo_arc(cr, x1 - r, y0 + r, r, -PI_2_CV, 0.0);
 
     cairo_line_to(cr, x1, y1 - r);
-    cairo_arc(cr, x1 - r, y1 - r, r, 0.0, M_PI_2);
+    cairo_arc(cr, x1 - r, y1 - r, r, 0.0, PI_2_CV);
 
     cairo_line_to(cr, x0 + r, y1);
-    cairo_arc(cr, x0 + r, y1 - r, r, M_PI_2, M_PI);
+    cairo_arc(cr, x0 + r, y1 - r, r, PI_2_CV, PI_CV);
 
     cairo_line_to(cr, x0, y0 + r);
-    cairo_arc(cr, x0 + r, y0 + r, r, M_PI, 3.0 * M_PI_2);
+    cairo_arc(cr, x0 + r, y0 + r, r, PI_CV, 3_cv * PI_2_CV);
 
     cairo_close_path(cr);
 }
@@ -324,16 +327,16 @@ void buildPseudostrokeRoundedRectPath(
 
     // ---- Outer contour (CCW) ----
     cairo_line_to(cr, ox1 - ro, oy0);
-    cairo_arc(cr, ox1 - ro, oy0 + ro, ro, -M_PI_2, 0.0);
+    cairo_arc(cr, ox1 - ro, oy0 + ro, ro, -PI_2_CV, 0.0);
 
     cairo_line_to(cr, ox1, oy1 - ro);
-    cairo_arc(cr, ox1 - ro, oy1 - ro, ro, 0.0, M_PI_2);
+    cairo_arc(cr, ox1 - ro, oy1 - ro, ro, 0.0, PI_2_CV);
 
     cairo_line_to(cr, ox0 + ro, oy1);
-    cairo_arc(cr, ox0 + ro, oy1 - ro, ro, M_PI_2, M_PI);
+    cairo_arc(cr, ox0 + ro, oy1 - ro, ro, PI_2_CV, PI_CV);
 
     cairo_line_to(cr, ox0, oy0 + ro);
-    cairo_arc(cr, ox0 + ro, oy0 + ro, ro, M_PI, 3.0 * M_PI_2);
+    cairo_arc(cr, ox0 + ro, oy0 + ro, ro, PI_CV, 3_cv * PI_2_CV);
 
     // ---- Radial bridge inward at same seam direction ----
     cairo_line_to(cr, ix0 + ri, iy0);
@@ -341,16 +344,16 @@ void buildPseudostrokeRoundedRectPath(
     // ---- Inner contour (CW) ----
     // Walk the inner contour in reverse.
     cairo_line_to(cr, ix0, iy0 + ri);
-    cairo_arc_negative(cr, ix0 + ri, iy0 + ri, ri, M_PI, M_PI_2);
+    cairo_arc_negative(cr, ix0 + ri, iy0 + ri, ri, PI_CV, PI_2_CV);
 
     cairo_line_to(cr, ix0 + ri, iy1);
-    cairo_arc_negative(cr, ix0 + ri, iy1 - ri, ri, M_PI_2, 0.0);
+    cairo_arc_negative(cr, ix0 + ri, iy1 - ri, ri, PI_2_CV, 0.0);
 
     cairo_line_to(cr, ix1, iy1 - ri);
-    cairo_arc_negative(cr, ix1 - ri, iy1 - ri, ri, 0.0, -M_PI_2);
+    cairo_arc_negative(cr, ix1 - ri, iy1 - ri, ri, 0.0, -PI_2_CV);
 
     cairo_line_to(cr, ix1 - ri, iy0);
-    cairo_arc_negative(cr, ix1 - ri, iy0 + ri, ri, -M_PI_2, -M_PI);
+    cairo_arc_negative(cr, ix1 - ri, iy0 + ri, ri, -PI_2_CV, -PI_CV);
 
     cairo_close_path(cr);
 }
@@ -368,16 +371,16 @@ static void appendRoundedRectCCW(
     cairo_move_to(cr, x0 + r, y0);
 
     cairo_line_to(cr, x1 - r, y0);
-    cairo_arc(cr, x1 - r, y0 + r, r, -M_PI_2, 0.0);
+    cairo_arc(cr, x1 - r, y0 + r, r, -PI_2_CV, 0.0);
 
     cairo_line_to(cr, x1, y1 - r);
-    cairo_arc(cr, x1 - r, y1 - r, r, 0.0, M_PI_2);
+    cairo_arc(cr, x1 - r, y1 - r, r, 0.0, PI_2_CV);
 
     cairo_line_to(cr, x0 + r, y1);
-    cairo_arc(cr, x0 + r, y1 - r, r, M_PI_2, M_PI);
+    cairo_arc(cr, x0 + r, y1 - r, r, PI_2_CV, PI_CV);
 
     cairo_line_to(cr, x0, y0 + r);
-    cairo_arc(cr, x0 + r, y0 + r, r, M_PI, 3.0 * M_PI_2);
+    cairo_arc(cr, x0 + r, y0 + r, r, PI_CV, 3_cv * PI_2_CV);
 }
 
 static void appendRoundedRectCW(
@@ -391,16 +394,16 @@ static void appendRoundedRectCW(
     cairo_move_to(cr, x0 + r, y0);
 
     cairo_line_to(cr, x0, y0 + r);
-    cairo_arc_negative(cr, x0 + r, y0 + r, r, M_PI, M_PI_2);
+    cairo_arc_negative(cr, x0 + r, y0 + r, r, PI_CV, PI_2_CV);
 
     cairo_line_to(cr, x0 + r, y1);
-    cairo_arc_negative(cr, x0 + r, y1 - r, r, M_PI_2, 0.0);
+    cairo_arc_negative(cr, x0 + r, y1 - r, r, PI_2_CV, 0.0);
 
     cairo_line_to(cr, x1, y1 - r);
-    cairo_arc_negative(cr, x1 - r, y1 - r, r, 0.0, -M_PI_2);
+    cairo_arc_negative(cr, x1 - r, y1 - r, r, 0.0, -PI_2_CV);
 
     cairo_line_to(cr, x1 - r, y0);
-    cairo_arc_negative(cr, x1 - r, y0 + r, r, -M_PI_2, -M_PI);
+    cairo_arc_negative(cr, x1 - r, y0 + r, r, -PI_2_CV, -PI_CV);
 }
 
 void buildPseudostrokeRoundedRectPath(cairo_t* cr) {

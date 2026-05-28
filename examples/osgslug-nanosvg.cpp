@@ -30,8 +30,9 @@ int main(int argc, char** argv) {
 
 	auto atlas = osgx::make_ref<osgSlug::Atlas>();
 
-	// TODO: Change this to `KeyIterator` instead (in slughorn/nanosvg.hpp).
-	uint32_t baseKey = 0xD0000;
+	slughorn::KeyIterator baseKey{};
+	// uint32_t baseKey = 0x0;
+
 	auto logo = slughorn::nanosvg::loadFile(svgFile, *atlas, baseKey);
 
 	if(logo.layers.empty()) {
@@ -42,8 +43,8 @@ int main(int argc, char** argv) {
 
 	OSG_NOTICE
 		<< "Loaded '" << svgFile << "': "
-		<< logo.layers.size() << " layers, "
-		<< "keys 0xD0000-0x" << std::hex << (baseKey - 1) << std::dec
+		<< logo.layers.size() << " layers"
+		// << "keys 0xD0000-0x" << std::hex << (baseKey - 1) << std::dec
 		<< std::endl
 	;
 
@@ -74,7 +75,7 @@ int main(int argc, char** argv) {
 	auto root = osgx::make_ref<osg::MatrixTransform>();
 
 	root->setMatrix(
-		osg::Matrix::scale(1.0, -1.0, 1.0)
+		osgSlug::Matrix::scale(1.0_cv, -1.0_cv, 1.0_cv)
 		// osg::Matrix::rotate(osg::DegreesToRadians(90.0), osg::Vec3(1, 0, 0))
 	);
 	root->addChild(geode);

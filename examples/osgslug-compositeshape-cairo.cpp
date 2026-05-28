@@ -32,6 +32,8 @@
 #include <vector>
 #include <iostream>
 
+using slughorn::PI_CV;
+
 static constexpr double W = 600.0;
 // static constexpr double H = 480.0;
 static constexpr slug_t SCALE = 1.0_cv / static_cast<slug_t>(W);
@@ -44,13 +46,13 @@ static void pathBodyOutline(cairo_t* cr) {
 	cairo_save(cr);
 	cairo_translate(cr, 310, 195);
 	cairo_scale(cr, 155, 95);
-	cairo_arc(cr, 0, 0, 1, 0, 2 * M_PI);
+	cairo_arc(cr, 0, 0, 1, 0, 2_cv * PI_CV);
 	cairo_restore(cr);
 	cairo_new_sub_path(cr);
 	cairo_save(cr);
 	cairo_translate(cr, 195, 235);
 	cairo_scale(cr, 80, 68);
-	cairo_arc(cr, 0, 0, 1, 0, 2 * M_PI);
+	cairo_arc(cr, 0, 0, 1, 0, 2_cv * PI_CV);
 	cairo_restore(cr);
 	cairo_new_sub_path(cr);
 	cairo_move_to(cr, 440, 205);
@@ -64,7 +66,7 @@ static void pathBodyOutline(cairo_t* cr) {
 		cairo_save(cr);
 		cairo_translate(cr, l[0], l[1]);
 		cairo_scale(cr, 28, 44);
-		cairo_arc(cr, 0, 0, 1, 0, 2 * M_PI);
+		cairo_arc(cr, 0, 0, 1, 0, 2_cv * PI_CV);
 		cairo_restore(cr);
 	}
 }
@@ -73,13 +75,13 @@ static void pathBody(cairo_t* cr) {
 	cairo_save(cr);
 	cairo_translate(cr, 310, 195);
 	cairo_scale(cr, 148, 88);
-	cairo_arc(cr, 0, 0, 1, 0, 2 * M_PI);
+	cairo_arc(cr, 0, 0, 1, 0, 2_cv * PI_CV);
 	cairo_restore(cr);
 	cairo_new_sub_path(cr);
 	cairo_save(cr);
 	cairo_translate(cr, 196, 236);
 	cairo_scale(cr, 73, 62);
-	cairo_arc(cr, 0, 0, 1, 0, 2 * M_PI);
+	cairo_arc(cr, 0, 0, 1, 0, 2_cv * PI_CV);
 	cairo_restore(cr);
 	cairo_new_sub_path(cr);
 	cairo_move_to(cr, 438, 207);
@@ -93,13 +95,13 @@ static void pathBelly(cairo_t* cr) {
 	cairo_save(cr);
 	cairo_translate(cr, 310, 188);
 	cairo_scale(cr, 110, 62);
-	cairo_arc(cr, 0, 0, 1, 0, 2 * M_PI);
+	cairo_arc(cr, 0, 0, 1, 0, 2_cv * PI_CV);
 	cairo_restore(cr);
 	cairo_new_sub_path(cr);
 	cairo_save(cr);
 	cairo_translate(cr, 205, 226);
 	cairo_scale(cr, 50, 42);
-	cairo_arc(cr, 0, 0, 1, 0, 2 * M_PI);
+	cairo_arc(cr, 0, 0, 1, 0, 2_cv * PI_CV);
 	cairo_restore(cr);
 }
 
@@ -110,7 +112,7 @@ static void pathLegs(cairo_t* cr) {
 		cairo_save(cr);
 		cairo_translate(cr, l[0], l[1]);
 		cairo_scale(cr, 22, 38);
-		cairo_arc(cr, 0, 0, 1, 0, 2 * M_PI);
+		cairo_arc(cr, 0, 0, 1, 0, 2_cv * PI_CV);
 		cairo_restore(cr);
 	}
 }
@@ -158,19 +160,19 @@ static void pathGillPlumes(cairo_t* cr) {
 		cairo_new_sub_path(cr);
 		cairo_save(cr);
 		cairo_translate(cr, p.cx, p.cy);
-		cairo_rotate(cr, p.angle * M_PI / 180.0);
+		cairo_rotate(cr, p.angle * PI_CV / 180.0_cv);
 		cairo_scale(cr, p.rx, p.ry);
-		cairo_arc(cr, 0, 0, 1, 0, 2 * M_PI);
+		cairo_arc(cr, 0, 0, 1, 0, 2_cv * PI_CV);
 		cairo_restore(cr);
 	}
 }
 
 static void pathEyeBlack(cairo_t* cr) {
-	cairo_arc(cr, 172, 258, 12, 0, 2 * M_PI);
+	cairo_arc(cr, 172, 258, 12, 0, 2_cv * PI_CV);
 }
 
 static void pathEyeWhite(cairo_t* cr) {
-	cairo_arc(cr, 175, 261, 4, 0, 2 * M_PI);
+	cairo_arc(cr, 175, 261, 4, 0, 2_cv * PI_CV);
 }
 
 static void pathSmile(cairo_t* cr) {
@@ -335,7 +337,7 @@ int main(int argc, char** argv) {
 	// invert/flip the Y axis.
 	root->setMatrix(
 		// osg::Matrix::scale(1.0, -1.0, 1.0) *
-		osg::Matrix::rotate(osg::DegreesToRadians(90.0), osg::Vec3(1, 0, 0))
+		osgSlug::Matrix::rotate(osg::DegreesToRadians(90.0f), osgSlug::Vec3(1.0_cv, 0.0_cv, 0.0_cv))
 	);
 	root->addChild(geode);
 

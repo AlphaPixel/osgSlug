@@ -317,9 +317,9 @@ osg::Camera* createOrthoCamera(slug_t width, slug_t height) {
 		osg::StateAttribute::PROTECTED | osg::StateAttribute::OFF
 	);
 
-	camera->setProjectionMatrix(osg::Matrix::ortho2D(0_cv, width, 0_cv, height));
+	camera->setProjectionMatrix(osgSlug::Matrix::ortho2D(0_cv, width, 0_cv, height));
 	camera->setReferenceFrame(osg::Transform::ABSOLUTE_RF);
-	camera->setViewMatrix(osg::Matrix::identity());
+	camera->setViewMatrix(osgSlug::Matrix::identity());
 	camera->setViewport(new osg::Viewport(0, 0, static_cast<int>(width), static_cast<int>(height)));
 	camera->setClearMask(GL_DEPTH_BUFFER_BIT);
 	camera->setRenderOrder(osg::Camera::POST_RENDER);
@@ -523,7 +523,7 @@ int main(int argc, char** argv) {
 	auto mat = osgx::make_ref<osg::MatrixTransform>();
 
 	mat->addChild(sdg);
-	mat->setMatrix(osg::Matrix::translate(osg::Vec3(400, 300, 0)));
+	mat->setMatrix(osgSlug::Matrix::translate(osgSlug::Vec3(400.0_cv, 300.0_cv, 0.0_cv)));
 
 	// If the user wants to view the scene in typical 3D...
 	if(args.read("--perspective")) return example::run(viewer, args, mat);

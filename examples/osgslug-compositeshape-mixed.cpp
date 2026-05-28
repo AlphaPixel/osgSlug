@@ -243,39 +243,26 @@ int main(int argc, char** argv) {
 	sd->setAtlas(atlas);
 	// sd->addCompositeShape(cardShape);
 	// sd->addCompositeShape(compositeShape);
+	// Place "AXO" centered in the bottom region of the card.
+	// canvas.text() handles em-space conversion, centering, and Layer accumulation.
+	const slug_t fontSize = 70_cv;
+	const slug_t baseline = 55_cv;
+
+	canvas.text(
+		"AXO",
+		fontSize,
+		180_cv, baseline,
+		{1.0_cv, 1.0_cv, 1.0_cv, 1.0_cv},
+		font->metrics(),
+		slughorn::canvas::TextAnchorY::Baseline,
+		slughorn::canvas::TextAlignX::Center
+	);
+
+	canvas.finalize("text");
+
 	sd->addCompositeShape(*atlas->getCompositeShape("cardShape"));
 	sd->addCompositeShape(*atlas->getCompositeShape("axolotl"));
-
-	// Place "AXO" centered in the bottom region of the card.
-	// Glyphs are Y-up (same as our flipped canvas space).
-	// scale=70 → ~70 canvas units tall; baseline at dy=55 (from card bottom).
-	const slughorn::Color white = {1.0_cv, 1.0_cv, 1.0_cv, 1.0_cv};
-	const slug_t fontSize  = 70_cv;
-	const slug_t baseline  = 55_cv;
-	const slug_t cardCenterX = 180_cv;
-
-	const uint32_t glyphs[] = {(uint32_t)'A', (uint32_t)'X', (uint32_t)'O'};
-
-	// Glyph placement is in em-space; dx/dy must be divided by fontSize.
-	// Pass 1: measure total advance in em units
-	slug_t totalWidth = 0_cv;
-
-	for(uint32_t cp : glyphs) {
-		const auto* shape = atlas->getShape(cp);
-
-		totalWidth += shape ? shape->advance : 0.6_cv;
-	}
-
-	// Pass 2: emit layers centered on the card, baseline near the bottom
-	slug_t x = (cardCenterX / fontSize) - (totalWidth * 0.5_cv);
-
-	for(uint32_t cp : glyphs) {
-		const auto* shape = atlas->getShape(cp);
-
-		sd->addLayer({cp, white, slughorn::Matrix{.dx=x, .dy=baseline / fontSize}, fontSize});
-
-		x += shape ? shape->advance : 0.6_cv;
-	}
+	sd->addCompositeShape(*atlas->getCompositeShape("text"));
 
 	sd->compile();
 
