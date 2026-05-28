@@ -54,23 +54,28 @@ GradientData buildGradientData(const Atlas& atlas, const slughorn::Layer& layer)
 }
 
 // ------------------------------------------------------------------------------------------------
-// SSBO mutation helpers — shared by SSBOShapeDrawable and SSBOSubdividedDrawable.
+// SSBO mutation helpers; shared by SSBOShapeDrawable and SSBOSubdividedDrawable.
 // ------------------------------------------------------------------------------------------------
 
+// buf is the per-layer Vec4Array (4 elements); index is used only to sync _layers.
 static void ssboSetLayerColor(
-	osgx::Vec4Array* buf, std::vector<slughorn::Layer>& layers,
-	size_t index, const slughorn::Color& color
+	osgx::Vec4Array* buf,
+	std::vector<slughorn::Layer>& layers,
+	size_t index,
+	const slughorn::Color& color
 ) {
 	layers[index].color = color;
-	(*buf)[index * 4 + 0] = Vec4(color.r, color.g, color.b, color.a);
+	(*buf)[0] = Vec4(color.r, color.g, color.b, color.a);
 }
 
 static void ssboSetLayerEffectId(
-	osgx::Vec4Array* buf, std::vector<slughorn::Layer>& layers,
-	size_t index, uint32_t effectId
+	osgx::Vec4Array* buf,
+	std::vector<slughorn::Layer>& layers,
+	size_t index,
+	uint32_t effectId
 ) {
 	layers[index].effectId = effectId;
-	(*buf)[index * 4 + 3].x() = cv(effectId);
+	(*buf)[3].x() = cv(effectId);
 }
 
 }
@@ -238,11 +243,12 @@ void GL3ShapeDrawable::setLayerEffectId(size_t index, uint32_t effectId) {
 void GL3ShapeDrawable::updateLayer(size_t index, const slughorn::Layer& layer) {
 	if(index >= _layers.size() || !_atlas) return;
 
-	auto* colors      = static_cast<osgx::Vec4Array*>(getVertexAttribArray(1));
-	auto* effectData  = static_cast<osgx::Vec4Array*>(getVertexAttribArray(5));
-	auto* gradMeta    = static_cast<osgx::Vec4Array*>(getVertexAttribArray(6));
-	auto* gradXforms  = static_cast<osgx::Vec4Array*>(getVertexAttribArray(7));
+	auto* colors = static_cast<osgx::Vec4Array*>(getVertexAttribArray(1));
+	auto* effectData = static_cast<osgx::Vec4Array*>(getVertexAttribArray(5));
+	auto* gradMeta = static_cast<osgx::Vec4Array*>(getVertexAttribArray(6));
+	auto* gradXforms = static_cast<osgx::Vec4Array*>(getVertexAttribArray(7));
 
+	// Can't these just be COMBINED? Who did this? :)
 	if(!colors || !effectData || !gradMeta || !gradXforms) return;
 	if((index + 1) * 4 > colors->size()) return;
 
@@ -255,9 +261,9 @@ void GL3ShapeDrawable::updateLayer(size_t index, const slughorn::Layer& layer) {
 	const Vec4 eid(cv(layer.effectId), shape ? cv(shape->originX) : 0_cv, shape ? cv(shape->originY) : 0_cv, 0_cv);
 
 	for(size_t v = 0; v < 4; v++) {
-		(*colors)[index * 4 + v]     = c;
+		(*colors)[index * 4 + v] = c;
 		(*effectData)[index * 4 + v] = eid;
-		(*gradMeta)[index * 4 + v]   = gmeta;
+		(*gradMeta)[index * 4 + v] = gmeta;
 		(*gradXforms)[index * 4 + v] = gxform;
 	}
 }
@@ -543,15 +549,17 @@ void SSBOShapeDrawable::compile() {
 	auto emCoords = osgx::make_ref<osgx::Vec4Array>();
 	auto indices = osgx::make_ref<osgx::DrawElementsUShort>();
 
-	// Layer SSBO (binding 1): 4 vec4s per layer; slughorn contract first, osgSlug machinery last.
+	// Layer SSBO (binding 1): one Vec4Array per layer, each holding 4 vec4s.
+	// All arrays share a single ShaderStorageBufferObject so the GPU sees one contiguous buffer,
+	// but each array has its own modifiedCount, enabling per-layer dirty uploads.
 	//
 	// [0] color: RGBA
 	// [1] gradientMeta: x=gradientId, yz=center, w=r0_norm
 	// [2] gradientXform
 	// [3] effectData: x=effectId, y=shapeIndex, z=unused, w=worldWidth (0 for ShapeDrawable)
-	//
-	// Static shape data (bandXform, shapeData, originData) lives in the atlas SSBO at binding 0.
-	_layerBuffer = osgx::make_ref<osgx::Vec4Array>();
+	_layerBuffers.clear();
+
+	auto ssbo = osgx::make_ref<osg::ShaderStorageBufferObject>();
 
 	index_element_type base = 0;
 	size_t index = 0;
@@ -586,11 +594,15 @@ void SSBOShapeDrawable::compile() {
 
 		const auto [gmeta, gxform] = buildGradientData(*_atlas, layer);
 		const slug_t shapeIdx = cv(_atlas->getShapeIndex(layer.key));
+		auto layerBuf = osgx::make_ref<osgx::Vec4Array>();
 
-		_layerBuffer->push_back({layer.color.r, layer.color.g, layer.color.b, layer.color.a});
-		_layerBuffer->push_back(gmeta);
-		_layerBuffer->push_back(gxform);
-		_layerBuffer->push_back({cv(layer.effectId), shapeIdx, 0_cv, 0_cv});
+		layerBuf->push_back({layer.color.r, layer.color.g, layer.color.b, layer.color.a});
+		layerBuf->push_back(gmeta);
+		layerBuf->push_back(gxform);
+		layerBuf->push_back({cv(layer.effectId), shapeIdx, 0_cv, 0_cv});
+		layerBuf->setBufferObject(ssbo);
+
+		_layerBuffers.push_back(std::move(layerBuf));
 
 		indices->append_range({
 			base, index_element_type(base + 1), index_element_type(base + 2),
@@ -611,42 +623,48 @@ void SSBOShapeDrawable::compile() {
 
 	addPrimitiveSet(indices);
 
-	_layerBuffer->setBufferObject(new osg::ShaderStorageBufferObject());
+	const auto totalSize = static_cast<GLsizeiptr>(_layerBuffers.size() * 4 * sizeof(osg::Vec4));
 
 	getOrCreateStateSet()->setAttributeAndModes(
-		new osg::ShaderStorageBufferBinding(1, _layerBuffer, 0, _layerBuffer->getTotalDataSize()),
+		new osg::ShaderStorageBufferBinding(1, _layerBuffers[0], 0, totalSize),
 		osg::StateAttribute::ON
 	);
 }
 
 void SSBOShapeDrawable::setLayerColor(size_t index, const slughorn::Color& color) {
-	if(!_layerBuffer || index >= _layers.size()) return;
+	if(index >= _layerBuffers.size()) return;
 
-	ssboSetLayerColor(_layerBuffer.get(), _layers, index, color);
+	ssboSetLayerColor(_layerBuffers[index].get(), _layers, index, color);
 }
 
 void SSBOShapeDrawable::setLayerEffectId(size_t index, uint32_t effectId) {
-	if(!_layerBuffer || index >= _layers.size()) return;
+	if(index >= _layerBuffers.size()) return;
 
-	ssboSetLayerEffectId(_layerBuffer.get(), _layers, index, effectId);
+	ssboSetLayerEffectId(_layerBuffers[index].get(), _layers, index, effectId);
 }
 
 void SSBOShapeDrawable::updateLayer(size_t index, const slughorn::Layer& layer) {
-	if(!_layerBuffer || index >= _layers.size() || !_atlas) return;
+	if(index >= _layerBuffers.size() || !_atlas) return;
 
 	_layers[index] = layer;
 
 	const auto [gmeta, gxform] = buildGradientData(*_atlas, layer);
 	const slug_t shapeIdx = cv(_atlas->getShapeIndex(layer.key));
 
-	(*_layerBuffer)[index * 4 + 0] = Vec4(layer.color.r, layer.color.g, layer.color.b, layer.color.a);
-	(*_layerBuffer)[index * 4 + 1] = gmeta;
-	(*_layerBuffer)[index * 4 + 2] = gxform;
-	(*_layerBuffer)[index * 4 + 3] = Vec4(cv(layer.effectId), shapeIdx, 0_cv, 0_cv);
+	auto& buf = *_layerBuffers[index];
+
+	buf[0] = Vec4(layer.color.r, layer.color.g, layer.color.b, layer.color.a);
+	buf[1] = gmeta;
+	buf[2] = gxform;
+	buf[3] = Vec4(cv(layer.effectId), shapeIdx, 0_cv, 0_cv);
 }
 
 void SSBOShapeDrawable::dirtyLayers() {
-	if(_layerBuffer) _layerBuffer->dirty();
+	for(auto& buf : _layerBuffers) if(buf) buf->dirty();
+}
+
+void SSBOShapeDrawable::dirtyLayers(size_t index) {
+	if(index < _layerBuffers.size() && _layerBuffers[index]) _layerBuffers[index]->dirty();
 }
 
 void SSBOSubdividedDrawable::compile() {
@@ -658,7 +676,9 @@ void SSBOSubdividedDrawable::compile() {
 	auto emCoords = osgx::make_ref<osgx::Vec4Array>();
 	auto indices = osgx::make_ref<osgx::DrawElementsUShort>();
 
-	_layerBuffer = osgx::make_ref<osgx::Vec4Array>();
+	_layerBuffers.clear();
+
+	auto ssbo = osgx::make_ref<osg::ShaderStorageBufferObject>();
 
 	static constexpr slug_t SLUG_EXPAND = 0.01_cv;
 
@@ -715,12 +735,16 @@ void SSBOSubdividedDrawable::compile() {
 
 		const auto [gmeta, gxform] = buildGradientData(*atlas, layer);
 		const slug_t shapeIdx = cv(atlas->getShapeIndex(layer.key));
+		auto layerBuf = osgx::make_ref<osgx::Vec4Array>();
 
-		_layerBuffer->push_back({layer.color.r, layer.color.g, layer.color.b, layer.color.a});
-		_layerBuffer->push_back(gmeta);
-		_layerBuffer->push_back(gxform);
+		layerBuf->push_back({layer.color.r, layer.color.g, layer.color.b, layer.color.a});
+		layerBuf->push_back(gmeta);
+		layerBuf->push_back(gxform);
 		// effectData.w carries world width for 9-slice vertex shader effects.
-		_layerBuffer->push_back({cv(layer.effectId), shapeIdx, 0_cv, q.x1 - q.x0});
+		layerBuf->push_back({cv(layer.effectId), shapeIdx, 0_cv, q.x1 - q.x0});
+		layerBuf->setBufferObject(ssbo);
+
+		_layerBuffers.push_back(std::move(layerBuf));
 
 		const index_element_type layerBase = base;
 
@@ -753,44 +777,51 @@ void SSBOSubdividedDrawable::compile() {
 
 	addPrimitiveSet(indices);
 
-	_layerBuffer->setBufferObject(new osg::ShaderStorageBufferObject());
+	const auto totalSize = static_cast<GLsizeiptr>(_layerBuffers.size() * 4 * sizeof(osg::Vec4));
 
 	getOrCreateStateSet()->setAttributeAndModes(
-		new osg::ShaderStorageBufferBinding(1, _layerBuffer, 0, _layerBuffer->getTotalDataSize()),
+		new osg::ShaderStorageBufferBinding(1, _layerBuffers[0], 0, totalSize),
 		osg::StateAttribute::ON
 	);
 }
 
 void SSBOSubdividedDrawable::setLayerColor(size_t index, const slughorn::Color& color) {
-	if(!_layerBuffer || index >= _layers.size()) return;
+	if(index >= _layerBuffers.size()) return;
 
-	ssboSetLayerColor(_layerBuffer.get(), _layers, index, color);
+	ssboSetLayerColor(_layerBuffers[index].get(), _layers, index, color);
 }
 
 void SSBOSubdividedDrawable::setLayerEffectId(size_t index, uint32_t effectId) {
-	if(!_layerBuffer || index >= _layers.size()) return;
+	if(index >= _layerBuffers.size()) return;
 
-	ssboSetLayerEffectId(_layerBuffer.get(), _layers, index, effectId);
+	ssboSetLayerEffectId(_layerBuffers[index].get(), _layers, index, effectId);
 }
 
 void SSBOSubdividedDrawable::updateLayer(size_t index, const slughorn::Layer& layer) {
-	if(!_layerBuffer || index >= _layers.size() || !_atlas) return;
+	if(index >= _layerBuffers.size() || !_atlas) return;
 
 	_layers[index] = layer;
 
 	const auto [gmeta, gxform] = buildGradientData(*_atlas, layer);
 	const slug_t shapeIdx = cv(_atlas->getShapeIndex(layer.key));
-	// worldWidth is geometry, not layer state; preserve whatever compile() baked in.
-	const slug_t worldWidth = (*_layerBuffer)[index * 4 + 3].w();
 
-	(*_layerBuffer)[index * 4 + 0] = Vec4(layer.color.r, layer.color.g, layer.color.b, layer.color.a);
-	(*_layerBuffer)[index * 4 + 1] = gmeta;
-	(*_layerBuffer)[index * 4 + 2] = gxform;
-	(*_layerBuffer)[index * 4 + 3] = Vec4(cv(layer.effectId), shapeIdx, 0_cv, worldWidth);
+	auto& buf = *_layerBuffers[index];
+
+	// worldWidth is geometry, not layer state; preserve whatever compile() baked in.
+	const slug_t worldWidth = buf[3].w();
+
+	buf[0] = Vec4(layer.color.r, layer.color.g, layer.color.b, layer.color.a);
+	buf[1] = gmeta;
+	buf[2] = gxform;
+	buf[3] = Vec4(cv(layer.effectId), shapeIdx, 0_cv, worldWidth);
 }
 
 void SSBOSubdividedDrawable::dirtyLayers() {
-	if(_layerBuffer) _layerBuffer->dirty();
+	for(auto& buf : _layerBuffers) if(buf) buf->dirty();
+}
+
+void SSBOSubdividedDrawable::dirtyLayers(size_t index) {
+	if(index < _layerBuffers.size() && _layerBuffers[index]) _layerBuffers[index]->dirty();
 }
 
 }

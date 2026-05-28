@@ -8,6 +8,8 @@ OSGSLUG_DISABLE_WARNINGS
 
 OSGSLUG_ENABLE_WARNINGS
 
+#include <initializer_list>
+
 namespace osgSlug {
 
 // ShapeDrawable renders slughorn::Layer and slughorn::CompositeShape instances.
@@ -46,6 +48,11 @@ public:
 	virtual void setLayerEffectId(size_t index, uint32_t effectId) {}
 	virtual void updateLayer(size_t index, const slughorn::Layer& layer) {}
 	virtual void dirtyLayers() {}
+	virtual void dirtyLayers(size_t index) {}
+
+	void dirtyLayers(std::initializer_list<size_t> indices) {
+		for(size_t i : indices) dirtyLayers(i);
+	}
 
 	osg::BoundingBox computeBoundingBox() const override;
 
@@ -66,6 +73,9 @@ public:
 	void setLayerEffectId(size_t index, uint32_t effectId) override;
 	void updateLayer(size_t index, const slughorn::Layer& layer) override;
 	void dirtyLayers() override;
+	// GL3 stores per-layer data interleaved across 4 VBOs; range-dirty is not yet implemented.
+	// Fall back to full dirty so callers using the common dirtyLayers(i) API still work correctly.
+	void dirtyLayers(size_t) override { dirtyLayers(); }
 };
 
 class BoxDrawable: public ShapeDrawable {
@@ -155,14 +165,17 @@ public:
 	// Preserves worldWidth in effectData.w (geometry, not layer state).
 	void updateLayer(size_t index, const slughorn::Layer& layer) override;
 
-	// Flush all accumulated writes to the GPU.
+	// Flush all accumulated writes to the GPU — all layers or just one.
 	void dirtyLayers() override;
+	void dirtyLayers(size_t index) override;
 
-	// Layer SSBO (binding 1). Valid after compile(); null before first compile().
-	osgx::Vec4Array* getLayerBuffer() const { return _layerBuffer.get(); }
+	// Per-layer SSBO slice. Valid after compile(); nullptr if index is out of range.
+	osgx::Vec4Array* getLayerBuffer(size_t index) const {
+		return index < _layerBuffers.size() ? _layerBuffers[index].get() : nullptr;
+	}
 
 private:
-	osg::ref_ptr<osgx::Vec4Array> _layerBuffer;
+	std::vector<osg::ref_ptr<osgx::Vec4Array>> _layerBuffers;
 };
 
 class SSBOSubdividedDrawable : public SubdividedDrawable {
@@ -175,11 +188,14 @@ public:
 	void setLayerEffectId(size_t index, uint32_t effectId) override;
 	void updateLayer(size_t index, const slughorn::Layer& layer) override;
 	void dirtyLayers() override;
+	void dirtyLayers(size_t index) override;
 
-	osgx::Vec4Array* getLayerBuffer() const { return _layerBuffer.get(); }
+	osgx::Vec4Array* getLayerBuffer(size_t index) const {
+		return index < _layerBuffers.size() ? _layerBuffers[index].get() : nullptr;
+	}
 
 private:
-	osg::ref_ptr<osgx::Vec4Array> _layerBuffer;
+	std::vector<osg::ref_ptr<osgx::Vec4Array>> _layerBuffers;
 };
 
 // ------------------------------------------------------------------------------------------------
