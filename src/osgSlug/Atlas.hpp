@@ -56,7 +56,15 @@ public:
 	uint32_t getShapeIndex(const slughorn::Key& key) const;
 	osgx::Vec4Array* getShapeBuffer() const { return _shapeBuffer.get(); }
 
-	osg::StateSet* createDefaultStateSet(bool useGL3=false) const;
+	static const std::string SHADER_NOOP_VERTEX;
+	static const std::string SHADER_NOOP_FRAGMENT;
+	static const std::string SHADER_TYPES;
+
+	osg::StateSet* createDefaultStateSet(
+		bool useGL3=false,
+		const std::string& vertEffects=SHADER_NOOP_VERTEX,
+		const std::string& fragEffects=SHADER_NOOP_FRAGMENT
+	) const;
 
 	static osg::ref_ptr<Atlas> fromAtlas(const slughorn::Atlas& src) {
 		osg::ref_ptr<Atlas> atlas = new osgSlug::Atlas();

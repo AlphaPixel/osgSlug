@@ -9,6 +9,49 @@
 #include <algorithm>
 #include <cmath>
 
+static const std::string VERT_SHADER = R"(
+#version 430 core
+
+vec3 osgSlug_Vertex(
+	vec3 pos,
+	vec2 emCoord,
+	vec2 uv,
+	int effectId,
+	vec2 origin,
+	float effectParam,
+	float time
+) {
+	if(effectId == 1) {
+		// effectParam (effectData.w) carries the per-bar index set via setLayerEffectParam().
+		// The actual bar width is constant: roundedRect(0.1, 0.1, 0.8, ...) * scale=1 + expand*2.
+		float i = effectParam;
+		const float barWidth = 0.82;
+
+		float amp = 0.5 + 0.5 * sin(time * 4.0 + i * 0.7);
+		float sx = 0.15 + amp * 0.85;
+
+		float uv_x = uv.x;
+		float leftX = pos.x - uv_x * barWidth;
+
+		const float capFrac = 0.122;
+		float capW = capFrac * barWidth;
+		float bodyW = (1.0 - 2.0 * capFrac) * barWidth;
+
+		if(uv_x > (1.0 - capFrac)) {
+			float localT = (uv_x - (1.0 - capFrac)) / capFrac;
+			pos.x = leftX + capW + sx * bodyW + localT * capW;
+		}
+
+		else if(uv_x > capFrac) {
+			float bodyT = (uv_x - capFrac) / (1.0 - 2.0 * capFrac);
+			pos.x = leftX + capW + bodyT * sx * bodyW;
+		}
+	}
+
+	return pos;
+}
+)";
+
 int main(int argc, char** argv) {
 	osg::ArgumentParser args(&argc, argv);
 
@@ -30,11 +73,11 @@ int main(int argc, char** argv) {
 
 	for(size_t y = 0; y < 12; y++) {
 		compositeShape.layers.push_back({
-			"bar",
-			{1_cv, 1_cv, 1_cv, 1_cv},
-			slughorn::Matrix{.dx=0, .dy=(cv(y) * 0.15_cv)},
-			1_cv,
-			700 + static_cast<uint32_t>(y)
+			.key = "bar",
+			.color = {1_cv, 1_cv, 1_cv, 1_cv},
+			.transform = slughorn::Matrix{.dx=0, .dy=(cv(y) * 0.15_cv)},
+			.scale = 1_cv,
+			.effectId = 1u
 		});
 	}
 
@@ -79,10 +122,13 @@ int main(int argc, char** argv) {
 	));
 	sd->compile();
 
+	// TODO: This needs to be moved into a HELPER of some kind!
+	for(size_t i = 0; i < compositeShape.layers.size(); i++) sd->setLayerEffectParam(i, cv(i));
+
 	auto sdg = osgx::make_ref<osg::Geode>();
 
 	sdg->addDrawable(sd);
-	sdg->setStateSet(atlas->createDefaultStateSet(example::USE_GL3));
+	sdg->setStateSet(atlas->createDefaultStateSet(example::USE_GL3, VERT_SHADER));
 
 	return example::run(viewer, args, sdg);
 }

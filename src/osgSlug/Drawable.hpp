@@ -46,6 +46,7 @@ public:
 
 	virtual void setLayerColor(size_t index, const slughorn::Color& color) {}
 	virtual void setLayerEffectId(size_t index, uint32_t effectId) {}
+	virtual void setLayerEffectParam(size_t index, slug_t param) {}
 	virtual void updateLayer(size_t index, const slughorn::Layer& layer) {}
 	virtual void dirtyLayers() {}
 	virtual void dirtyLayers(size_t index) {}
@@ -71,6 +72,7 @@ public:
 
 	void setLayerColor(size_t index, const slughorn::Color& color) override;
 	void setLayerEffectId(size_t index, uint32_t effectId) override;
+	void setLayerEffectParam(size_t index, slug_t param) override;
 	void updateLayer(size_t index, const slughorn::Layer& layer) override;
 	void dirtyLayers() override;
 	// GL3 stores per-layer data interleaved across 4 VBOs; range-dirty is not yet implemented.
@@ -98,7 +100,7 @@ private:
 //
 // Subclasses (or direct users) supply a position function:
 //
-// (float u, float v) -> Vec3
+// (slug_t u, slug_t v) -> Vec3
 //
 // The subdivider handles em-coord mapping, index stitching, and vertex attribute binding. The slug
 // pipeline sees exactly the same data as ShapeDrawable, just with more triangles and non-flat
@@ -137,6 +139,7 @@ public:
 	GL3SubdividedDrawable() = default;
 
 	void compile() override;
+	void setLayerEffectParam(size_t index, slug_t param) override;
 };
 
 // ------------------------------------------------------------------------------------------------
@@ -160,9 +163,9 @@ public:
 	// Call dirtyLayers() once after all mutations in a frame.
 	void setLayerColor(size_t index, const slughorn::Color& color) override;
 	void setLayerEffectId(size_t index, uint32_t effectId) override;
+	void setLayerEffectParam(size_t index, slug_t param) override;
 
 	// Full re-pack from a Layer struct. Re-runs gradient packing internally.
-	// Preserves worldWidth in effectData.w (geometry, not layer state).
 	void updateLayer(size_t index, const slughorn::Layer& layer) override;
 
 	// Flush all accumulated writes to the GPU — all layers or just one.
@@ -186,6 +189,7 @@ public:
 
 	void setLayerColor(size_t index, const slughorn::Color& color) override;
 	void setLayerEffectId(size_t index, uint32_t effectId) override;
+	void setLayerEffectParam(size_t index, slug_t param) override;
 	void updateLayer(size_t index, const slughorn::Layer& layer) override;
 	void dirtyLayers() override;
 	void dirtyLayers(size_t index) override;

@@ -5,6 +5,28 @@
 #include "osgSlug/Font.hpp"
 #include "osgSlug/Text.hpp"
 
+static const std::string VERT_SHADER = R"(
+#version 430 core
+
+vec3 osgSlug_Vertex(
+	vec3 pos,
+	vec2 emCoord,
+	vec2 uv,
+	int effectId,
+	vec2 origin,
+	float effectParam,
+	float time
+) {
+	if(effectId == 1) {
+		// Each glyph sits at a different pos.x, so the sin phase shifts naturally
+		// across the string — letters ripple like a wave left to right.
+		pos.y += sin(pos.x * 2.0 + time * 4.0) * 0.1;
+	}
+
+	return pos;
+}
+)";
+
 int main(int argc, char** argv) {
 	osg::ArgumentParser args(&argc, argv);
 
@@ -26,15 +48,13 @@ int main(int argc, char** argv) {
 
 	const char str[] = "osgSlug";
 
-	// for(const auto& c : "HELLO") {
 	for(size_t i = 0; i < 7; i++) {
 		sd->addLayer({
 			static_cast<uint32_t>(str[i]),
 			{1_cv, 1_cv, 1_cv, 1_cv},
 			slughorn::Matrix{.dx=cv(i), .dy=0_cv},
 			1_cv,
-			// static_cast<uint32_t>(5 + (i % 2))
-			6
+			1u
 		});
 	}
 
@@ -43,7 +63,7 @@ int main(int argc, char** argv) {
 	auto sdg = osgx::make_ref<osg::Geode>();
 
 	sdg->addDrawable(sd);
-	sdg->setStateSet(atlas->createDefaultStateSet(example::USE_GL3));
+	sdg->setStateSet(atlas->createDefaultStateSet(example::USE_GL3, VERT_SHADER));
 
 	return example::run(viewer, args, sdg);
 }

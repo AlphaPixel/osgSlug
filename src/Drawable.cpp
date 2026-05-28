@@ -78,6 +78,10 @@ static void ssboSetLayerEffectId(
 	(*buf)[3].x() = cv(effectId);
 }
 
+static void ssboSetLayerEffectParam(osgx::Vec4Array* buf, slug_t param) {
+	(*buf)[3].w() = param;
+}
+
 }
 
 ShapeDrawable::ShapeDrawable() {
@@ -238,6 +242,16 @@ void GL3ShapeDrawable::setLayerEffectId(size_t index, uint32_t effectId) {
 	_layers[index].effectId = effectId;
 
 	for(size_t v = 0; v < 4; v++) (*arr)[index * 4 + v].x() = cv(effectId);
+}
+
+void GL3ShapeDrawable::setLayerEffectParam(size_t index, slug_t param) {
+	auto* arr = static_cast<osgx::Vec4Array*>(getVertexAttribArray(5));
+
+	if(!arr || (index + 1) * 4 > arr->size()) return;
+
+	for(size_t v = 0; v < 4; v++) (*arr)[index * 4 + v].w() = cv(param);
+
+	arr->dirty();
 }
 
 void GL3ShapeDrawable::updateLayer(size_t index, const slughorn::Layer& layer) {
@@ -542,6 +556,23 @@ void GL3SubdividedDrawable::compile() {
 	addPrimitiveSet(indices);
 }
 
+void GL3SubdividedDrawable::setLayerEffectParam(size_t index, slug_t param) {
+	auto* arr = static_cast<osgx::Vec4Array*>(getVertexAttribArray(5));
+
+	if(!arr) return;
+
+	const size_t stride =
+		static_cast<size_t>(_stepsU + 1) * static_cast<size_t>(_stepsV + 1)
+	;
+	const size_t start = index * stride;
+
+	if(start + stride > arr->size()) return;
+
+	for(size_t v = 0; v < stride; v++) (*arr)[start + v].w() = cv(param);
+
+	arr->dirty();
+}
+
 void SSBOShapeDrawable::compile() {
 	if(!_atlas || !_atlas->isBuilt() || _layers.empty()) return;
 
@@ -556,7 +587,7 @@ void SSBOShapeDrawable::compile() {
 	// [0] color: RGBA
 	// [1] gradientMeta: x=gradientId, yz=center, w=r0_norm
 	// [2] gradientXform
-	// [3] effectData: x=effectId, y=shapeIndex, z=unused, w=worldWidth (0 for ShapeDrawable)
+	// [3] effectData: x=effectId, y=shapeIndex, z=0, w=effectParam (0 for ShapeDrawable)
 	_layerBuffers.clear();
 
 	auto ssbo = osgx::make_ref<osg::ShaderStorageBufferObject>();
@@ -643,6 +674,12 @@ void SSBOShapeDrawable::setLayerEffectId(size_t index, uint32_t effectId) {
 	ssboSetLayerEffectId(_layerBuffers[index].get(), _layers, index, effectId);
 }
 
+void SSBOShapeDrawable::setLayerEffectParam(size_t index, slug_t param) {
+	if(index >= _layerBuffers.size()) return;
+
+	ssboSetLayerEffectParam(_layerBuffers[index].get(), param);
+}
+
 void SSBOShapeDrawable::updateLayer(size_t index, const slughorn::Layer& layer) {
 	if(index >= _layerBuffers.size() || !_atlas) return;
 
@@ -656,7 +693,7 @@ void SSBOShapeDrawable::updateLayer(size_t index, const slughorn::Layer& layer) 
 	buf[0] = Vec4(layer.color.r, layer.color.g, layer.color.b, layer.color.a);
 	buf[1] = gmeta;
 	buf[2] = gxform;
-	buf[3] = Vec4(cv(layer.effectId), shapeIdx, 0_cv, 0_cv);
+	buf[3] = Vec4(cv(layer.effectId), shapeIdx, 0_cv, buf[3].w());
 }
 
 void SSBOShapeDrawable::dirtyLayers() {
@@ -740,7 +777,6 @@ void SSBOSubdividedDrawable::compile() {
 		layerBuf->push_back({layer.color.r, layer.color.g, layer.color.b, layer.color.a});
 		layerBuf->push_back(gmeta);
 		layerBuf->push_back(gxform);
-		// effectData.w carries world width for 9-slice vertex shader effects.
 		layerBuf->push_back({cv(layer.effectId), shapeIdx, 0_cv, q.x1 - q.x0});
 		layerBuf->setBufferObject(ssbo);
 
@@ -797,6 +833,12 @@ void SSBOSubdividedDrawable::setLayerEffectId(size_t index, uint32_t effectId) {
 	ssboSetLayerEffectId(_layerBuffers[index].get(), _layers, index, effectId);
 }
 
+void SSBOSubdividedDrawable::setLayerEffectParam(size_t index, slug_t param) {
+	if(index >= _layerBuffers.size()) return;
+
+	ssboSetLayerEffectParam(_layerBuffers[index].get(), param);
+}
+
 void SSBOSubdividedDrawable::updateLayer(size_t index, const slughorn::Layer& layer) {
 	if(index >= _layerBuffers.size() || !_atlas) return;
 
@@ -807,13 +849,10 @@ void SSBOSubdividedDrawable::updateLayer(size_t index, const slughorn::Layer& la
 
 	auto& buf = *_layerBuffers[index];
 
-	// worldWidth is geometry, not layer state; preserve whatever compile() baked in.
-	const slug_t worldWidth = buf[3].w();
-
 	buf[0] = Vec4(layer.color.r, layer.color.g, layer.color.b, layer.color.a);
 	buf[1] = gmeta;
 	buf[2] = gxform;
-	buf[3] = Vec4(cv(layer.effectId), shapeIdx, 0_cv, worldWidth);
+	buf[3] = Vec4(cv(layer.effectId), shapeIdx, 0_cv, buf[3].w());
 }
 
 void SSBOSubdividedDrawable::dirtyLayers() {

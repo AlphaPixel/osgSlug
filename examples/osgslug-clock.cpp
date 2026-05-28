@@ -4,6 +4,30 @@
 
 #include "slughorn/canvas.hpp"
 
+static const std::string VERT_SHADER = R"(
+#version 430 core
+
+vec3 osgSlug_Vertex(
+	vec3 pos,
+	vec2 emCoord,
+	vec2 uv,
+	int effectId,
+	vec2 origin,
+	float effectParam,
+	float time
+) {
+	if(effectId == 1) {
+		float c = cos(time), s = sin(time);
+		mat2 R = mat2(c, s, -s, c);
+		vec2 pivot = pos.xy - emCoord.xy + origin;
+
+		pos.xy = R * (pos.xy - pivot) + pivot;
+	}
+
+	return pos;
+}
+)";
+
 int main(int argc, char** argv) {
 	osg::ArgumentParser args(&argc, argv);
 
@@ -112,14 +136,13 @@ int main(int argc, char** argv) {
 		clockCenter
 	));
 
-	// effectId=8: vertex shader will rotate this layer's em-coords by osg_SimulationTime.
-	// (Effects 1-7 are reserved by the existing osgSlug shader stack.)
+	// effectId=1: VERT_SHADER above rotates this layer around sd.originData.xy by osg_SimulationTime.
 	clock.layers.push_back(slughorn::Layer(
 		"clock_hand_shape",
 		{0.12_cv, 0.12_cv, 0.18_cv, 1_cv},
 		clockCenter,
 		1_cv, // scale
-		8u // effectId ("rotating hand")
+		1u   // effectId ("rotating hand")
 	));
 
 	// ============================================================================================
@@ -135,7 +158,7 @@ int main(int argc, char** argv) {
 	auto sdg = osgx::make_ref<osg::Geode>();
 
 	sdg->addDrawable(sd);
-	sdg->setStateSet(atlas->createDefaultStateSet(example::USE_GL3));
+	sdg->setStateSet(atlas->createDefaultStateSet(example::USE_GL3, VERT_SHADER));
 
 	auto mat = osgx::make_ref<osg::MatrixTransform>();
 

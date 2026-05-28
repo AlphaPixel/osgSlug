@@ -5,6 +5,8 @@
 #include <osg/Image>
 #include <osg/BlendFunc>
 #include <stdexcept>
+#include <fstream>
+#include <sstream>
 
 // TODO: Remove these!
 #ifndef GL_RGBA_INTEGER
@@ -17,7 +19,87 @@
 #define GL_RGBA32F_ARB 0x8814
 #endif
 
+namespace {
+
+// TODO: There may already be a OSG util file for this! Investigate!
+std::string readFile(const std::string& path) {
+	std::ifstream f(path);
+
+	if(!f) throw std::runtime_error("osgSlug: cannot read shader file: " + path);
+
+	std::ostringstream ss;
+
+	ss << f.rdbuf();
+
+	return ss.str();
+}
+
+}
+
 namespace osgSlug {
+
+// This is the default osgSlug SSBO shader "header"; make sure any GLSL source that needs access to
+// the structs osgSlug uses includes this!
+const std::string Atlas::SHADER_TYPES = R"(
+// Atlas-level shape data: static after packTextures(), never mutated at runtime.
+// One entry per unique shape in the atlas, indexed via LayerData.effectData.y.
+struct AtlasShapeData {
+	vec4 bandXform; // xy = bandScaleX/Y, zw = bandOffsetX/Y
+	vec4 shapeData; // xy = glyphLoc (ivec2), zw = bandMax (ivec2)
+	vec4 originData; // xy = originX/Y, zw = unused
+};
+
+// Per-layer data: one entry per layer in each drawable, indexed by (a_position.w - 1).
+// Slot order: slughorn contract first (color, gradient), osgSlug machinery last (effectData).
+struct LayerData {
+	vec4 color; // RGBA flat color
+	vec4 gradientMeta; // x = gradientId (1-based), yz = gradient center, w = r0_norm
+	vec4 gradientXform; // gradient transform (B matrix / direction / sweep)
+	vec4 effectData; // x = effectId, y = originX, z = originY, w = effectParam (user-settable)
+};
+
+layout(std430, binding = 0) readonly buffer AtlasShapeBuffer {
+	AtlasShapeData atlasShapes[];
+};
+
+layout(std430, binding = 1) buffer LayerBuffer {
+	LayerData layers[];
+};
+)";
+
+// The VERTEX shader injection point; perform any position animation here.
+const std::string Atlas::SHADER_NOOP_VERTEX = R"(
+#version 430 core
+
+vec3 osgSlug_Vertex(
+	vec3 pos,
+	vec2 emCoord,
+	vec2 uv,
+	int effectId,
+	vec2 origin,
+	float effectParam,
+	float time
+) {
+	return pos;
+}
+)";
+
+// The FRAGMENT shader injection point; controls w
+const std::string Atlas::SHADER_NOOP_FRAGMENT = R"(
+#version 330 core
+
+vec4 osgSlug_Fragment(
+	float fill,
+	vec2 emCoord,
+	vec2 uv,
+	vec4 layerColor,
+	int effectId,
+	float time
+) {
+	return vec4(layerColor.rgb, fill * layerColor.a);
+}
+)";
+
 
 Atlas::Atlas(const slughorn::Atlas& src) {
 	static_cast<slughorn::Atlas&>(*this) = src;
@@ -116,19 +198,61 @@ osg::ref_ptr<osg::Texture2D> Atlas::_makeTexture(const slughorn::Atlas::TextureD
 	return tex;
 }
 
-osg::StateSet* Atlas::createDefaultStateSet(bool useGL3) const {
+osg::StateSet* Atlas::createDefaultStateSet(
+	bool useGL3,
+	const std::string& vertEffects,
+	const std::string& fragEffects
+) const {
 	auto* ss = new osg::StateSet();
 	auto* program = new osg::Program();
 
-	program->addShader(osg::Shader::readShaderFile(
-		osg::Shader::VERTEX,
-		useGL3 ? "../src/osgSlug-gl3-vert.glsl" : "../src/osgSlug-vert.glsl"
-	));
+	// const std::string types = readFile("../src/osgSlug-types.glsl");
+	const std::string types = SHADER_TYPES;
+
+	// #version must be the first line in GLSL source. Insert the types block
+	// immediately after it, before the rest of the shader body.
+	auto makeVertShader = [&](const std::string& src) {
+		const auto vp = src.find("#version");
+		const auto nl = (vp != std::string::npos) ? src.find('\n', vp) : std::string::npos;
+		const std::string full = (nl != std::string::npos)
+			? src.substr(0, nl + 1) + types + src.substr(nl + 1)
+			: types + src
+		;
+
+		return new osg::Shader(osg::Shader::VERTEX, full);
+	};
+
+	// GL3 effect units must be #version 330 core; swap any 430 declaration.
+	auto makeGL3EffectShader = [](std::string src) {
+		const auto vp = src.find("#version");
+
+		if(vp != std::string::npos) {
+			const auto nl = src.find('\n', vp);
+
+			if(nl != std::string::npos) src.replace(vp, nl - vp, "#version 330 core");
+		}
+
+		return new osg::Shader(osg::Shader::VERTEX, src);
+	};
+
+	if(useGL3) {
+		program->addShader(osg::Shader::readShaderFile(
+			osg::Shader::VERTEX, "../src/osgSlug-gl3-vert.glsl"
+		));
+
+		program->addShader(makeGL3EffectShader(vertEffects));
+	}
+
+	else {
+		program->addShader(makeVertShader(readFile("../src/osgSlug-vert.glsl")));
+		program->addShader(makeVertShader(vertEffects));
+	}
 
 	program->addShader(osg::Shader::readShaderFile(
-		osg::Shader::FRAGMENT,
-		"../src/osgSlug-frag.glsl"
+		osg::Shader::FRAGMENT, "../src/osgSlug-frag.glsl"
 	));
+
+	program->addShader(new osg::Shader(osg::Shader::FRAGMENT, fragEffects));
 
 	ss->setAttributeAndModes(program, osg::StateAttribute::ON);
 	ss->addUniform(new osg::Uniform("osgSlug_curveTexture", 0));

@@ -81,6 +81,8 @@ int main(int argc, char** argv) {
 	// slughorn Canvas, we'll demonstrate how to MANUALLY inject raw quadratic curves into the
 	// pipeline. The points below--in "em space"--create a triangle with a single curved side,
 	// dividing it into a 2x5 (TOTALLY ARBITRARY) band arrangement.
+	//
+	// This is exactly the experiment that start ALL of slughorn/osgSlug! :)
 	tri.numBandsX = 2;
 	tri.numBandsY = 5;
 	tri.curves = {

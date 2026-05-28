@@ -32,9 +32,9 @@ out vec4 color;
 // Hardcoded to log2(512) = 9, matching the default Atlas() constructor.
 // When osgSlug is ready to support non-default atlas widths, replace this define with a uniform:
 //
-// uniform int osgSlug_texWidthLog2; // = log2(atlas.getTextureWidth())
+// uniform int osgSlug_texWidth; // = log2(atlas.getTextureWidth())
 //
-// The host sets it once at setup: osgSlug_texWidthLog2 = __builtin_ctz(atlas.getTextureWidth())
+// The host sets it once at setup: osgSlug_texWidth = __builtin_ctz(atlas.getTextureWidth())
 // (or a portable equivalent). All uses below >> TEX_WIDTH and (1 << TEX_WIDTH) - 1 stay
 // the same, just referencing the uniform instead.
 #define TEX_WIDTH 9
@@ -271,21 +271,25 @@ float slug_RenderText(
 	float c = slug_Render(renderCoord, pixelsPerEm, bandTransform, glyphLoc, bandMax, iters);
 
 #ifndef SLUG_NO_MSAA
-	if (ppem < 16.0) {
+	if(ppem < 16.0) {
 		vec2 d = emsPerPixel * (1.0 / 3.0);
 		int i1, i2, i3, i4;
 		float msaa = 0.25 * (
 			slug_Render(renderCoord + vec2(-d.x, -d.y), pixelsPerEm, bandTransform, glyphLoc, bandMax, i1) +
 			slug_Render(renderCoord + vec2( d.x, -d.y), pixelsPerEm, bandTransform, glyphLoc, bandMax, i2) +
 			slug_Render(renderCoord + vec2(-d.x, d.y), pixelsPerEm, bandTransform, glyphLoc, bandMax, i3) +
-			slug_Render(renderCoord + vec2( d.x, d.y), pixelsPerEm, bandTransform, glyphLoc, bandMax, i4));
+			slug_Render(renderCoord + vec2( d.x, d.y), pixelsPerEm, bandTransform, glyphLoc, bandMax, i4)
+		);
 		float msaaAmount = 1.0 - smoothstep(8.0, 16.0, ppem);
+
 		c = mix(c, msaa, msaaAmount);
+
 		iters += i1 + i2 + i3 + i4;
 	}
 #endif
 
 	totalIterations = iters;
+
 	return c;
 }
 
@@ -320,147 +324,6 @@ vec2 slug_EmToUV(vec2 emCoord, vec4 bandXform) {
 	vec2 emSize = float(SLUG_INDIRECTION_SIZE) / bandXform.xy;
 
 	return (emCoord - emOrigin) / emSize;
-}
-
-// =============================================================================
-// slug_ApplyEffect
-//
-// Resolves the per-layer effectId into a final fragment color.
-// Called in normal rendering mode (osgSlug_debugMode == 0).
-// =============================================================================
-vec4 slug_ApplyEffect(
-	float fill,
-	vec2 emCoord,
-	vec4 layerColor,
-	int effectId,
-	vec4 bandXform
-) {
-	if(effectId == 1) {
-		// ----------------------------------------------------------------------------------------
-		// Effect 1: checkerboard.
-		//
-		// Hard two-tone grid. Uses raw em-coords scaled to a visible frequency; not a true UV, just
-		// a diagnostic pattern. kScale is empirical: 300 gives ~37 cells across a 100px /
-		// 800px-canvas tile.
-		// ----------------------------------------------------------------------------------------
-		const float kScale = 300.0;
-
-		vec2 emScaled = emCoord * kScale;
-		float check = mod(floor(emScaled.x) + floor(emScaled.y), 2.0);
-		vec3 colorA = layerColor.rgb;
-		vec3 colorB = min(layerColor.rgb + vec3(0.25), vec3(1.0));
-
-		return vec4(mix(colorA, colorB, check), fill * layerColor.a);
-	}
-
-	if(effectId == 2) {
-		// ----------------------------------------------------------------------------------------
-		// Effect 2: pixel grid.
-		//
-		// Anti-aliased 1px grid lines in em-space using fwidth/smoothstep; lines stay exactly 1
-		// fragment wide at any zoom or rotation. Cell interiors are slightly lighter than the
-		// layer color; lines are noticeably darker, giving a clean "pixel art graph paper" look.
-		// kGridScale is empirical: 200 gives a fine grid at typical zoom.
-		// ----------------------------------------------------------------------------------------
-		const float kGridScale = 200.0;
-
-		vec2 emScaled = emCoord * kGridScale;
-		vec2 emFrac = fract(emScaled);
-		vec2 edgeDist = min(emFrac, 1.0 - emFrac); // 0 at lines, 0.5 at centres
-		vec2 fw = fwidth(emScaled); // ~1 fragment in em-scaled space
-
-		vec2 lineMask = smoothstep(fw, vec2(0.0), edgeDist);
-		float atLine = max(lineMask.x, lineMask.y);
-
-		vec3 cellColor = min(layerColor.rgb + vec3(0.12), vec3(1.0));
-		vec3 lineColor = layerColor.rgb * 0.55;
-
-		return vec4(mix(cellColor, lineColor, atLine), fill * layerColor.a);
-	}
-
-	if(effectId == 3) {
-		// ----------------------------------------------------------------------------------------
-		// Effect 3: texture fill.
-		//
-		// v_uv holds exact [0,1] UV coords baked per-vertex in Drawable::compile(). The texture
-		// is sampled directly; bind any osg::Texture2D to unit 2 via the state set.
-		// ----------------------------------------------------------------------------------------
-		vec2 uv01 = v_uv;
-		vec4 s = texture(osgSlug_effectTexture, uv01);
-
-		vec3 blended = mix(layerColor.rgb, s.rgb, s.a);
-		return vec4(blended, fill * layerColor.a);
-	}
-
-	if(effectId == 4) {
-		vec2 uv01 = v_uv;
-
-		// Scroll right-to-left by offsetting X with time
-		float scrolled = uv01.x + float(osg_SimulationTime) * 0.3; // speed
-
-		// Sine wave Y position of the wave at this X; 3 cycles, amplitude 0.15, centred at 0.5
-		float wave = sin(scrolled * 6.28 * 3.0) * 0.15 + 0.5;
-
-		// Stroke thickness
-		float dist = abs(uv01.y - wave);
-		float stroke = smoothstep(0.04, 0.01, dist); // ~1px soft edge
-
-		// Two-tone split at the wave centre
-		vec3 colorTop = vec3(1.0, 0.6, 0.1); // orange
-		vec3 colorBottom = vec3(0.1, 0.5, 1.0); // blue
-		vec3 fill3 = uv01.y > wave ? colorTop : colorBottom;
-
-		// Blend stroke color (white) over the fill
-		vec3 final = mix(fill3, vec3(1.0), stroke);
-
-		return vec4(final, fill * layerColor.a);
-	}
-
-	// A kind of "paper burning away" effect; very cool. :)
-	if(effectId == 5) {
-		vec2 uv01 = v_uv;
-
-		float t = osg_SimulationTime;
-
-		// ------------------------------------------------------------
-		// DOMAIN WARP (subtle, safe)
-		// ------------------------------------------------------------
-		vec2 emWarp = emCoord;
-		emWarp.x += sin(emCoord.y * 6.0 + t * 2.0) * 0.02;
-		emWarp.y += sin(emCoord.x * 4.0 + t * 1.5) * 0.015;
-
-		// NOTE: we do NOT recompute fill — this is just for effects
-		// (important: keeps banding intact)
-
-		// ------------------------------------------------------------
-		// DRAW-ON (UV space)
-		// ------------------------------------------------------------
-		float draw = fract(t * 0.25); // slow loop 0→1
-
-		float wave = sin(uv01.y * 10.0 + t * 3.0) * 0.05;
-		float mask = smoothstep(draw - 0.1, draw, uv01.x + wave);
-
-		// ------------------------------------------------------------
-		// COLOR
-		// ------------------------------------------------------------
-		vec3 base = layerColor.rgb;
-		vec3 glow = vec3(1.0, 0.8, 0.2);
-
-		vec3 final = mix(base * 0.3, glow, mask);
-
-		// return vec4(final, fill * mask * layerColor.a);
-		float alpha = fill * layerColor.a;
-
-		// soften leading edge
-		float edge = smoothstep(draw - 0.2, draw, uv01.x);
-
-		alpha *= edge;
-
-		return vec4(final, alpha);
-	}
-
-	// Effect 0 (default): standard Slug coverage fill.
-	return vec4(layerColor.rgb, fill * layerColor.a);
 }
 
 // ================================================================================================
@@ -528,7 +391,7 @@ vec4 slug_ApplyDebug(
 		return vec4(mix(layerColor.rgb, 1.0 - layerColor.rgb, atEdge), fill * layerColor.a);
 	}
 
-	// TODO: Mode 3 is handled in `main()`, but ... stupidly.
+	// TODO: Mode 3 is handled in main() — move here when discard/early-return can be avoided.
 
 	// Heatmap shared by modes 4 and 5.
 	const int maxIterations = 24;
@@ -567,6 +430,16 @@ float slug_StemDarken(float coverage, float brightness, float ppem) {
 	return pow(coverage, k);
 }
 
+// Defined in the linked effects or noop unit.
+vec4 osgSlug_Fragment(
+	float fill,
+	vec2 emCoord,
+	vec2 uv,
+	vec4 layerColor,
+	int effectId,
+	float time
+);
+
 void main() {
 	// Layer mask: 0 = all visible (default). Non-zero: discard if the layer's bit is clear.
 	// Decode 1-based layer index (packed as float in a_position.w by Drawable::compile()).
@@ -584,7 +457,8 @@ void main() {
 
 	float fill = osgSlug_textMode
 		? slug_RenderText(v_emCoord, emsPerPixel, pixelsPerEm, v_bandXform, glyphLoc, bandMax, iterations)
-		: slug_Render(v_emCoord, pixelsPerEm, v_bandXform, glyphLoc, bandMax, iterations);
+		: slug_Render(v_emCoord, pixelsPerEm, v_bandXform, glyphLoc, bandMax, iterations)
+	;
 
 	// Edge-only coverage adjustment for text: stem darkening and gamma correction.
 	// Skipped entirely for non-text layers (osgSlug_textMode == false).
@@ -654,28 +528,9 @@ void main() {
 
 		float onEdge = step(dist, px);
 
-		/* vec2 uv = slug_EmToUV(v_emCoord, v_bandXform);
-
-		// detect where actual coverage starts
-		float edgeThreshold = 0.001;
-
-		// find distance to first "filled" region
-		vec2 distToEdge = min(uv, 1.0 - uv);
-		float dist = min(distToEdge.x, distToEdge.y);
-
-		// pixel size
-		vec2 fw = fwidth(uv);
-		float px = min(fw.x, fw.y);
-
-		// --- KEY IDEA ---
-		// shrink edge by coverage instead of guessing padding
-		float effectiveDist = dist - (1.0 - fill) * px;
-
-		float onEdge = step(effectiveDist, px); */
-
 		if(fill < 0.001 && onEdge < 0.01) discard;
 
-		vec4 fillColor = slug_ApplyEffect(fill, v_emCoord, effectiveColor, v_effectId, v_bandXform);
+		vec4 fillColor = osgSlug_Fragment(fill, v_emCoord, v_uv, effectiveColor, v_effectId, osg_SimulationTime);
 
 		vec4 borderColor = vec4(
 			fract(v_bandXform.x * 127.1),
@@ -698,7 +553,7 @@ void main() {
 
 	else {
 		color = (osgSlug_debugMode == 0 || osgSlug_debugMode == 6)
-			? slug_ApplyEffect(fill, v_emCoord, effectiveColor, v_effectId, v_bandXform)
+			? osgSlug_Fragment(fill, v_emCoord, v_uv, effectiveColor, v_effectId, osg_SimulationTime)
 			: slug_ApplyDebug(fill, v_emCoord, effectiveColor, glyphLoc, v_bandXform, iterations)
 		;
 	}

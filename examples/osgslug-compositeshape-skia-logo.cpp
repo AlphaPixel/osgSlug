@@ -254,12 +254,75 @@ slughorn::CompositeShape buildPixelLogo(osgSlug::Atlas* atlas) {
 // main
 // =============================================================================
 
+static const std::string FRAG_SHADER = R"(
+#version 330 core
+
+uniform sampler2D osgSlug_effectTexture;
+
+vec4 osgSlug_Fragment(
+	float fill,
+	vec2 emCoord,
+	vec2 uv,
+	vec4 layerColor,
+	int effectId,
+	float time
+) {
+	if(effectId == 1) {
+		// Checkerboard: two-tone grid in em-space.
+		const float kScale = 300.0;
+		vec2 emScaled = emCoord * kScale;
+		float check = mod(floor(emScaled.x) + floor(emScaled.y), 2.0);
+		vec3 colorA = layerColor.rgb;
+		vec3 colorB = min(layerColor.rgb + vec3(0.25), vec3(1.0));
+		return vec4(mix(colorA, colorB, check), fill * layerColor.a);
+	}
+
+	if(effectId == 2) {
+		// Pixel grid: anti-aliased 1px grid lines in em-space.
+		const float kGridScale = 200.0;
+		vec2 emScaled = emCoord * kGridScale;
+		vec2 emFrac = fract(emScaled);
+		vec2 edgeDist = min(emFrac, 1.0 - emFrac);
+		vec2 fw = fwidth(emScaled);
+		vec2 lineMask = smoothstep(fw, vec2(0.0), edgeDist);
+		float atLine = max(lineMask.x, lineMask.y);
+		vec3 cellColor = min(layerColor.rgb + vec3(0.12), vec3(1.0));
+		vec3 lineColor = layerColor.rgb * 0.55;
+		return vec4(mix(cellColor, lineColor, atLine), fill * layerColor.a);
+	}
+
+	if(effectId == 3) {
+		// Texture fill: sample osgSlug_effectTexture at UV; bind any osg::Texture2D to unit 2.
+		vec4 s = texture(osgSlug_effectTexture, uv);
+		vec3 blended = mix(layerColor.rgb, s.rgb, s.a);
+		return vec4(blended, fill * layerColor.a);
+	}
+
+	if(effectId == 4) {
+		// Scrolling wave: two-tone fill split by an animated sine wave.
+		float scrolled = uv.x + time * 0.3;
+		float wave = sin(scrolled * 6.28 * 3.0) * 0.15 + 0.5;
+		float dist = abs(uv.y - wave);
+		float stroke = smoothstep(0.04, 0.01, dist);
+		vec3 colorTop = vec3(1.0, 0.6, 0.1);
+		vec3 colorBottom = vec3(0.1, 0.5, 1.0);
+		vec3 waveFill = uv.y > wave ? colorTop : colorBottom;
+		return vec4(mix(waveFill, vec3(1.0), stroke), fill * layerColor.a);
+	}
+
+	return vec4(layerColor.rgb, fill * layerColor.a);
+}
+)";
+
 int main(int argc, char** argv) {
 	osg::ArgumentParser args(&argc, argv);
 
 	osgViewer::Viewer viewer(args);
 
-	if(!example::setupArguments(args, "Demonstrates Skia-authored CompositeShapes with textured effects")) return 0;
+	if(!example::setupArguments(
+		args,
+		"Demonstrates Skia-authored CompositeShape with effects"
+	)) return 0;
 
 	auto atlas = osgx::make_ref<osgSlug::Atlas>();
 
@@ -279,13 +342,19 @@ int main(int argc, char** argv) {
 
 	// Load an image and bind it to unit 2
 	osg::ref_ptr<osg::Image> img = osgDB::readImageFile("steel_128.png");
+
 	auto tex = osgx::make_ref<osg::Texture2D>(img);
+
 	tex->setWrap(osg::Texture::WRAP_S, osg::Texture::REPEAT);
 	tex->setWrap(osg::Texture::WRAP_T, osg::Texture::REPEAT);
 	tex->setFilter(osg::Texture::MIN_FILTER, osg::Texture::LINEAR);
 	tex->setFilter(osg::Texture::MAG_FILTER, osg::Texture::LINEAR);
 
-	auto* ss = atlas->createDefaultStateSet(example::USE_GL3);
+	auto* ss = atlas->createDefaultStateSet(
+		example::USE_GL3,
+		osgSlug::Atlas::SHADER_NOOP_VERTEX,
+		FRAG_SHADER
+	);
 
 	ss->setTextureAttributeAndModes(2, tex, osg::StateAttribute::ON);
 

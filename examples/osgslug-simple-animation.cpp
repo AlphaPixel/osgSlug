@@ -5,6 +5,27 @@
 #include "osgSlug/Font.hpp"
 #include "osgSlug/Text.hpp"
 
+static const std::string VERT_SHADER = R"(
+#version 430 core
+
+vec3 osgSlug_Vertex(
+	vec3 pos,
+	vec2 emCoord,
+	vec2 uv,
+	int effectId,
+	vec2 origin,
+	float effectParam,
+	float time
+) {
+	if(effectId == 1) {
+		pos.x += sin(emCoord.y * 6.0 + time * 2.0) * 0.2;
+		pos.y += sin(emCoord.x * 4.0 + time * 1.5) * 0.1;
+	}
+
+	return pos;
+}
+)";
+
 int main(int argc, char** argv) {
 	osg::ArgumentParser args(&argc, argv);
 
@@ -38,7 +59,7 @@ int main(int argc, char** argv) {
 	sd->addLayer({
 		.key = key,
 		.color = {1_cv, 0.5_cv, 0_cv, 1_cv},
-		.effectId = 6
+		.effectId = 1
 	});
 	// TODO: Use `expandBy`; also, why does `effectId` 6 "offset" the shape from its center?
 	sd->setInitialBound(osg::BoundingBox(
@@ -80,7 +101,7 @@ int main(int argc, char** argv) {
 	sd->compile();
 
 	sdg->addDrawable(sd);
-	sdg->setStateSet(atlas->createDefaultStateSet(example::USE_GL3));
+	sdg->setStateSet(atlas->createDefaultStateSet(example::USE_GL3, VERT_SHADER));
 
 	return example::run(viewer, args, sdg);
 }
