@@ -133,12 +133,13 @@ void GL3ShapeDrawable::compile() {
 		// const slughorn::Quad q = shape->computeQuad(layer.transform, layer.scale, cv(expand));
 		const auto q = shape->computeQuad(layer.transform, layer.scale, expand);
 		const slug_t lidx = cv(index + 1);
+		const slug_t z = cv(layer.transform.z);
 
 		vertices->append_range({
-			{q.x0, q.y0, 0_cv, lidx},
-			{q.x1, q.y0, 0_cv, lidx},
-			{q.x1, q.y1, 0_cv, lidx},
-			{q.x0, q.y1, 0_cv, lidx}
+			{q.x0, q.y0, z, lidx},
+			{q.x1, q.y0, z, lidx},
+			{q.x1, q.y1, z, lidx},
+			{q.x0, q.y1, z, lidx}
 		});
 
 		colors->append_n<4>({layer.color.r, layer.color.g, layer.color.b, layer.color.a});
@@ -250,8 +251,6 @@ void GL3ShapeDrawable::setLayerEffectParam(size_t index, slug_t param) {
 	if(!arr || (index + 1) * 4 > arr->size()) return;
 
 	for(size_t v = 0; v < 4; v++) (*arr)[index * 4 + v].w() = cv(param);
-
-	arr->dirty();
 }
 
 void GL3ShapeDrawable::updateLayer(size_t index, const slughorn::Layer& layer) {
@@ -570,8 +569,6 @@ void GL3SubdividedDrawable::setLayerEffectParam(size_t index, slug_t param) {
 	if(start + stride > arr->size()) return;
 
 	for(size_t v = 0; v < stride; v++) (*arr)[start + v].w() = cv(param);
-
-	arr->dirty();
 }
 
 void SSBOShapeDrawable::compile() {
@@ -604,12 +601,13 @@ void SSBOShapeDrawable::compile() {
 		const slug_t expand = 0.01_cv;
 		const auto q = shape->computeQuad(layer.transform, layer.scale, expand);
 		const slug_t lidx = cv(index + 1);
+		const slug_t z = cv(layer.transform.z);
 
 		vertices->append_range({
-			{q.x0, q.y0, 0_cv, lidx},
-			{q.x1, q.y0, 0_cv, lidx},
-			{q.x1, q.y1, 0_cv, lidx},
-			{q.x0, q.y1, 0_cv, lidx}
+			{q.x0, q.y0, z, lidx},
+			{q.x1, q.y0, z, lidx},
+			{q.x1, q.y1, z, lidx},
+			{q.x0, q.y1, z, lidx}
 		});
 
 		const auto emX0 = shape->bearingX - expand;

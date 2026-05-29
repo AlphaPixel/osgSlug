@@ -55,7 +55,7 @@ struct LayerData {
 	vec4 color; // RGBA flat color
 	vec4 gradientMeta; // x = gradientId (1-based), yz = gradient center, w = r0_norm
 	vec4 gradientXform; // gradient transform (B matrix / direction / sweep)
-	vec4 effectData; // x = effectId, y = originX, z = originY, w = effectParam (user-settable)
+	vec4 effectData; // x = effectId, y = shapeIndex (into AtlasShapeBuffer), z = 0 (reserved), w = effectParam (user-settable)
 };
 
 layout(std430, binding = 0) readonly buffer AtlasShapeBuffer {
@@ -136,6 +136,7 @@ void Atlas::packTextures() {
 	// Build the atlas-level shape SSBO (binding 0). One entry per unique shape;
 	// 3 vec4s = 48 bytes per entry: bandXform, shapeData, originData.
 	_shapeBuffer = osgx::make_ref<osgx::Vec4Array>();
+
 	uint32_t idx = 0;
 
 	for(const auto& [key, shape] : getShapes()) {
