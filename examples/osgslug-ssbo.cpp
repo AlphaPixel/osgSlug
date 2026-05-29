@@ -20,7 +20,7 @@ struct ColorCallback: public osg::NodeCallback {
 			cv(0.5f + 0.5f * std::sin(t)),
 			cv(0.5f + 0.5f * std::sin(t + 2.0944)),
 			cv(0.5f + 0.5f * std::sin(t + 4.1888)),
-			1_cv
+			0.75_cv
 		});
 
 		sd->dirtyLayers(1);
@@ -52,7 +52,7 @@ int main(int argc, char** argv) {
 	canvas.translate(0.33_cv, 0_cv);
 	canvas.fill(house, {1_cv, 1_cv, 1_cv, 1_cv});
 	canvas.translate(0.33_cv, 0_cv);
-	canvas.fill(house, {1_cv, 1_cv, 1_cv, 1_cv});
+	canvas.fill(house, {1_cv, 1_cv, 1_cv, 0.5_cv});
 
 	auto compositeShape = canvas.finalize();
 

@@ -10,6 +10,8 @@ OSGSLUG_DISABLE_WARNINGS
 
 OSGSLUG_ENABLE_WARNINGS
 
+// TODO: We should be able to SOMEHOW get the `osgSlug::Atlas::SHADER_TYPES` GLSL blurb into this
+// inline shader source as well; perhaps we could setup format flags or some kind of helper methods?
 static const char* COMPUTE_SHADER = R"(
 #version 430 core
 layout(local_size_x = 2) in;

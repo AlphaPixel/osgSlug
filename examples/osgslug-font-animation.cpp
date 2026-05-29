@@ -18,9 +18,13 @@ vec3 osgSlug_Vertex(
 	float time
 ) {
 	if(effectId == 1) {
-		// Each glyph sits at a different pos.x, so the sin phase shifts naturally
-		// across the string — letters ripple like a wave left to right.
+		// Wave: pos.x varies smoothly across the string, giving a continuous ripple.
 		pos.y += sin(pos.x * 2.0 + time * 4.0) * 0.1;
+
+		// Scale: origin.x is identical for all 4 vertices of a glyph, so each
+		// letter pulses uniformly (no shear). Different time rate = compound motion.
+		float s = 1.0 + 0.4 * sin(origin.x * 2.0 + time * 3.0);
+		pos.xy = origin + (pos.xy - origin) * s;
 	}
 
 	return pos;
