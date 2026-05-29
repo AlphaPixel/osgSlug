@@ -204,10 +204,14 @@ inline auto run(
 	else viewer.setSceneData(sceneData);
 
 	if(args.read("--profile")) {
-		// auto dv = osgDebug::DrawVisitor<120, 60>();
+		// TODO: Is there a better way to do this!?
+		setenv("__GL_SYNC_TO_VBLANK", "0", 1);
+
+		auto dsv = osgx::DescribeSceneVisitor();
 		auto dv = osgDebug::DrawVisitor();
 
 		// Adds the osgDebug::DrawCallback to every detected `Drawable` in the subgraph.
+		sceneData->accept(dsv);
 		sceneData->accept(dv);
 
 		// auto debugSupported = osgx::make_ref<osgDebug::GraphicsOperation>();
