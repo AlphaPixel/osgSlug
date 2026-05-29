@@ -162,7 +162,7 @@ int main(int argc, char** argv) {
 	auto matsd = example::makeShapeDrawable();
 	auto matsdg = osgx::make_ref<osg::Geode>();
 
-	matsd->addLayer({'F', {1_cv, 1_cv, 0_cv, 0.5_cv}, slughorn::Matrix::identity(), 100_cv});
+	matsd->addLayer({'F', {1_cv, 1_cv, 0_cv, 0.5_cv}, slughorn::Transform{}, 100_cv});
 	matsd->setAtlas(atlas);
 	matsd->compile();
 	matsdg->addDrawable(matsd);

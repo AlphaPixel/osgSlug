@@ -120,7 +120,7 @@ int main(int argc, char** argv) {
 	// point. The GPU rotation pivot for the hand is therefore automatically correct.
 	// ============================================================================================
 
-	const slughorn::Matrix clockCenter{.dx=CX, .dy=CY};
+	const slughorn::Transform clockCenter{.x=CX, .y=CY};
 
 	slughorn::CompositeShape clock;
 

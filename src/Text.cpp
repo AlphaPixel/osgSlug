@@ -114,7 +114,7 @@ void Text::compile() {
 			_drawable->addLayer(slughorn::Layer{
 				key,
 				run.color,
-				slughorn::Matrix{.dx = cursorX / _fontSize, .dy = cursorY / _fontSize},
+				slughorn::Transform{.x = cursorX / _fontSize, .y = cursorY / _fontSize},
 				cv(_fontSize)
 			});
 

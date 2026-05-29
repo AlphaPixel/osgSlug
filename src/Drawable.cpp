@@ -483,6 +483,7 @@ void GL3SubdividedDrawable::compile() {
 				const slug_t u = cv(su) / cv(_stepsU);
 
 				const auto p = posFn(u, v);
+
 				vertices->push_back(osg::Vec4(p.x(), p.y(), p.z(), lidx));
 
 				emCoords->push_back({

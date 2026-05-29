@@ -158,7 +158,7 @@ slughorn::CompositeShape buildPixelLogo(osgSlug::Atlas* atlas) {
 			combined.detach(), *atlas, key, SCALE
 		); */
 
-		shape.layers.push_back({ key++, outlineColor, xform });
+		shape.layers.push_back({ key++, outlineColor, slughorn::Transform{xform.dx, xform.dy} });
 	}
 
 #if 1
@@ -174,7 +174,7 @@ slughorn::CompositeShape buildPixelLogo(osgSlug::Atlas* atlas) {
 
 			layer.key = key++;
 			layer.color = tileColors[i];
-			layer.transform = xform;
+			layer.transform = {xform.dx, xform.dy};
 			layer.effectId = i % 5; // procedural texture fill
 
 			shape.layers.push_back(layer);
@@ -206,7 +206,7 @@ slughorn::CompositeShape buildPixelLogo(osgSlug::Atlas* atlas) {
 
 			else if(i == 4) layer.color = {0.0_cv, 0.0_cv, 0.0_cv, 0.75_cv};
 
-			layer.transform = xform;
+			layer.transform = {xform.dx, xform.dy};
 
 			shape.layers.push_back(layer);
 		// }
@@ -232,7 +232,7 @@ slughorn::CompositeShape buildPixelLogo(osgSlug::Atlas* atlas) {
 
 			layer.key = key++;
 			layer.color = glyphColor;
-			layer.transform = xform;
+			layer.transform = {xform.dx, xform.dy};
 
 			shape.layers.push_back(layer);
 		// }

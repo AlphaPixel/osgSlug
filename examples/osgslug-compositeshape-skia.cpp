@@ -32,7 +32,7 @@ slughorn::CompositeShape buildCompositeShape(osgSlug::Atlas* atlas) {
 
 		atlas->addShape(key, info);
 
-		shape.layers.push_back({key++, color, transform});
+		shape.layers.push_back({key++, color, slughorn::Transform{transform.dx, transform.dy}});
 	};
 
 	// ── Left gill (back, behind head) ──

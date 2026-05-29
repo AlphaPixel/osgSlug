@@ -75,7 +75,7 @@ int main(int argc, char** argv) {
 		compositeShape.layers.push_back({
 			.key = "bar",
 			.color = {1_cv, 1_cv, 1_cv, 1_cv},
-			.transform = slughorn::Matrix{.dx=0, .dy=(cv(y) * 0.15_cv)},
+			.transform = slughorn::Transform{.x=0, .y=(cv(y) * 0.15_cv)},
 			.scale = 1_cv,
 			.effectId = 1u
 		});

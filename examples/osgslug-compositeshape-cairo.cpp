@@ -215,7 +215,7 @@ slughorn::CompositeShape buildAxolotl(osgSlug::Atlas* atlas) {
 		if(!info.curves.empty()) {
 			atlas->addShape(key, info);
 
-			shape.layers.push_back({key, color, transform});
+			shape.layers.push_back({key, color, slughorn::Transform{transform.dx, transform.dy}});
 		}
 
 		key++;
@@ -274,7 +274,7 @@ slughorn::CompositeShape buildTriangles(osgSlug::Atlas* atlas) {
 		if(!info.curves.empty()) {
 			atlas->addShape(key, info);
 
-			shape.layers.push_back({key, {1_cv, 0_cv, 0_cv, 1_cv}, transform});
+			shape.layers.push_back({key, {1_cv, 0_cv, 0_cv, 1_cv}, slughorn::Transform{transform.dx, transform.dy}});
 		}
 
 		key++;

@@ -56,7 +56,7 @@ int main(int argc, char** argv) {
 		sd->addLayer({
 			static_cast<uint32_t>(str[i]),
 			{1_cv, 1_cv, 1_cv, 1_cv},
-			slughorn::Matrix{.dx=cv(i), .dy=0_cv},
+			slughorn::Transform{.x=cv(i), .y=0_cv},
 			1_cv,
 			1u
 		});
