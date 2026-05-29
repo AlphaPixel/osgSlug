@@ -243,10 +243,10 @@ int main(int argc, char** argv) {
 	sd->setAtlas(atlas);
 	// sd->addCompositeShape(cardShape);
 	// sd->addCompositeShape(compositeShape);
-	// Place "AXO" centered in the bottom region of the card.
-	// canvas.text() handles em-space conversion, centering, and Layer accumulation.
+	// Place "AXO" just below the dividing line, in SVG canvas coordinates (y-down).
+	// SVG y=305 → world y=215 (dividing line is at world y=270).
 	const slug_t fontSize = 70_cv;
-	const slug_t baseline = 55_cv;
+	const slug_t baseline = 305_cv;
 
 	canvas.text(
 		"AXO",
@@ -266,10 +266,76 @@ int main(int argc, char** argv) {
 
 	sd->compile();
 
+	// ── SECOND ATLAS: italic flavor text ─────────────────────────────────────
+	// Separate Atlas so the italic glyphs don't collide with the regular ones
+	// already loaded above. Atlas state is merged into each drawable's StateSet
+	// (which compile() already populated) rather than replacing it.
+
+	auto atlas2 = osgx::make_ref<osgSlug::Atlas>();
+
+	slughorn::canvas::Canvas canvas2(*atlas2);
+
+	canvas2.translate(0_cv, 520_cv);
+	canvas2.scale(1_cv, -1_cv);
+
+	// Flavor text frame — SVG space (y-down); box spans SVG y=330..475.
+	canvas2.beginPath();
+	canvas2.roundedRect(22_cv, 330_cv, 316_cv, 145_cv, 8_cv);
+	canvas2.fill({0.06_cv, 0.06_cv, 0.12_cv, 0.75_cv});
+
+	canvas2.beginPath();
+	canvas2.roundedRect(22_cv, 330_cv, 316_cv, 145_cv, 8_cv);
+	canvas2.stroke(1.5_cv, {0.85_cv, 0.66_cv, 0.26_cv, 0.5_cv});
+
+	canvas2.finalize("flavorBox");
+
+	auto fontItalic = osgx::make_ref<osgSlug::Font>(
+		"font/EB_Garamond/EBGaramond-Italic-VariableFont_wght.ttf",
+		atlas2
+	);
+
+	fontItalic->load();
+	atlas2->build();
+	atlas2->packTextures();
+
+	const slug_t flavorSize = 22_cv;
+	const slughorn::Color flavorColor = {0.92_cv, 0.88_cv, 0.78_cv, 1.0_cv};
+
+	canvas2.text(
+		"We hacked off every limb.",
+		flavorSize, 180_cv, 375_cv, flavorColor,
+		fontItalic->metrics(),
+		slughorn::canvas::TextAnchorY::Baseline,
+		slughorn::canvas::TextAlignX::Center
+	);
+
+	canvas2.text(
+		"We ran out of swords first.",
+		flavorSize, 180_cv, 410_cv, flavorColor,
+		fontItalic->metrics(),
+		slughorn::canvas::TextAnchorY::Baseline,
+		slughorn::canvas::TextAlignX::Center
+	);
+
+	canvas2.finalize("flavor");
+
+	auto sdtext = example::makeShapeDrawable();
+
+	sdtext->setAtlas(atlas2);
+	sdtext->addCompositeShape(*atlas2->getCompositeShape("flavorBox"));
+	sdtext->addCompositeShape(*atlas2->getCompositeShape("flavor"));
+	sdtext->compile();
+
+	// Merge atlas state into each drawable's existing StateSet (set by compile()).
+	// compile() writes program + layer SSBO (binding 1); merge() adds the atlas
+	// shape SSBO (binding 0) + textures + uniforms without clobbering binding 1.
+	sd->getOrCreateStateSet()->merge(*atlas->createDefaultStateSet(example::USE_GL3));
+	sdtext->getOrCreateStateSet()->merge(*atlas2->createDefaultStateSet(example::USE_GL3));
+
 	auto sdg = osgx::make_ref<osg::Geode>();
 
 	sdg->addDrawable(sd);
-	sdg->setStateSet(atlas->createDefaultStateSet(example::USE_GL3));
+	sdg->addDrawable(sdtext);
 
 	return example::run(viewer, args, sdg);
 }
