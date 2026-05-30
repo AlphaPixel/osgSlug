@@ -53,7 +53,7 @@ int main(int argc, char** argv) {
 	auto font = osgx::make_ref<osgSlug::Font>(atlas);
 
 	// TODO: This isn't reliable yet...
-	if(!font->loadEmoji(fontFile, {emojiCodepoint}, true)) {
+	if(!font->loadEmoji(fontFile, {emojiCodepoint})) {
 		OSG_WARN << "Couldn't find " << emojiCodepoint << " in font: " << fontFile << std::endl;
 
 		return example::fail(args, 3);

@@ -88,7 +88,7 @@ int main(int argc, char** argv) {
 	atlas->packTextures();
 
 	// Saves your Atlas to a glTF-compatible SLUG file.
-	slughorn::serial::writeJSON(*atlas, std::cout);
+	slughorn::serial::writeJSON(*atlas, std::cerr);
 
 	// auto sd = osgx::make_ref<osgSlug::SSBOShapeDrawable>();
 	auto sd = example::makeShapeDrawable();

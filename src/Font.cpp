@@ -15,6 +15,7 @@ _atlas(atlas) {
 Font::Font(const std::string& fontPath, Atlas* atlas):
 _fontPath(fontPath),
 _atlas(atlas) {
+#if 0
 	// Forward slughorn::freetype log messages through OSG's notification system so
 	// that they respect OSG_NOTIFY_LEVEL and appear alongside other OSG output.
 	//
@@ -28,11 +29,12 @@ _atlas(atlas) {
 			osg::INFO
 		) << msg << std::endl;
 	});
+#endif
 }
 
 Font::~Font() = default;
 
-void Font::load(bool adaptive) {
+void Font::load(const slughorn::freetype::LoadConfig& config) {
 	if(_loaded) return;
 
 	if(!_atlas) {
@@ -41,27 +43,7 @@ void Font::load(bool adaptive) {
 		return;
 	}
 
-	if(!adaptive) {
-		if(!slughorn::freetype::loadAsciiFont(_fontPath, *_atlas)) {
-			// loadAsciiFont already logged the reason via the callback above.
-			return;
-		}
-	}
-
-	else {
-		if(!slughorn::freetype::loadAsciiFont(
-			_fontPath,
-			*_atlas,
-			[](const slughorn::Atlas::Curves& curves) {
-				int n = static_cast<int>(std::min(size_t(16), std::max(size_t(1), curves.size() / 2)));
-
-				return slughorn::Atlas::computeAdaptiveSplits(curves, n, n);
-				// return slughorn::Atlas::computeUniformSplits(curves, n, n);
-			}
-		)) {
-			return;
-		}
-	}
+	if(!slughorn::freetype::loadAsciiFont(_fontPath, *_atlas, config)) return;
 
 	if(auto m = slughorn::freetype::loadFontMetrics(_fontPath)) _metrics = *m;
 
@@ -70,15 +52,16 @@ void Font::load(bool adaptive) {
 
 // TODO: This is a quick, hacky way... we need to be able VERIFY that the requested codepoints were
 // actually FOUND and loaded.
-bool Font::loadEmoji(const std::string& fontPath, const std::vector<uint32_t>& codepoints, bool adaptive) {
+bool Font::loadEmoji(const std::string& fontPath, const std::vector<uint32_t>& codepoints) {
 	if(!_atlas) {
 		OSG_WARN << "osgSlug::Font::loadEmoji: no atlas set" << std::endl;
 
 		return false;
 	}
 
-	if(!adaptive) return slughorn::freetype::loadEmojiFont(fontPath, codepoints, *_atlas, _colorGlyphs);
+	return slughorn::freetype::loadEmojiFont(fontPath, codepoints, *_atlas, _colorGlyphs);
 
+#if 0
 	// return false;
 	else return slughorn::freetype::loadEmojiFont(
 		fontPath,
@@ -91,6 +74,7 @@ bool Font::loadEmoji(const std::string& fontPath, const std::vector<uint32_t>& c
 			return slughorn::Atlas::computeAdaptiveSplits(curves, n, n);
 		}
 	);
+#endif
 }
 
 }

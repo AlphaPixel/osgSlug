@@ -679,6 +679,12 @@ void SSBOShapeDrawable::setLayerEffectParam(size_t index, slug_t param) {
 	ssboSetLayerEffectParam(_layerBuffers[index].get(), param);
 }
 
+void SSBOShapeDrawable::setLayerShapeIndex(size_t index, size_t shapeIndex) {
+	if(index >= _layerBuffers.size()) return;
+
+	(*_layerBuffers[index])[3].y() = cv(shapeIndex);
+}
+
 void SSBOShapeDrawable::updateLayer(size_t index, const slughorn::Layer& layer) {
 	if(index >= _layerBuffers.size() || !_atlas) return;
 

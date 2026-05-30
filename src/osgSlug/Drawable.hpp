@@ -47,6 +47,7 @@ public:
 	virtual void setLayerColor(size_t index, const slughorn::Color& color) {}
 	virtual void setLayerEffectId(size_t index, uint32_t effectId) {}
 	virtual void setLayerEffectParam(size_t index, slug_t param) {}
+	virtual void setLayerShapeIndex(size_t index, size_t shapeIndex) {}
 	virtual void updateLayer(size_t index, const slughorn::Layer& layer) {}
 	virtual void dirtyLayers() {}
 	virtual void dirtyLayers(size_t index) {}
@@ -164,6 +165,7 @@ public:
 	void setLayerColor(size_t index, const slughorn::Color& color) override;
 	void setLayerEffectId(size_t index, uint32_t effectId) override;
 	void setLayerEffectParam(size_t index, slug_t param) override;
+	void setLayerShapeIndex(size_t index, size_t shapeIndex) override;
 
 	// Full re-pack from a Layer struct. Re-runs gradient packing internally.
 	void updateLayer(size_t index, const slughorn::Layer& layer) override;

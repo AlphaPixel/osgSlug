@@ -78,7 +78,7 @@ else {
 	auto atlas = osgx::make_ref<osgSlug::Atlas>();
 	auto font  = osgx::make_ref<osgSlug::Font>(atlas);
 
-	if(!font->loadEmoji(fontFile, codepoints, true)) {
+	if(!font->loadEmoji(fontFile, codepoints)) {
 		OSG_WARN << "Some emoji may be missing from the font" << std::endl;
 	}
 

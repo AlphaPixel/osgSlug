@@ -60,7 +60,7 @@ public:
 	// atlas (e.g. custom shapes injected before load()) are skipped.
 	//
 	// Does nothing if called more than once.
-	void load(bool adaptive=false);
+	void load(const slughorn::freetype::LoadConfig& config={});
 
 	// Load COLR emoji from a font file (may be the same or different from
 	// the text font; e.g. NotoColorEmoji.ttf or Twemoji.Mozilla.ttf).
@@ -71,7 +71,7 @@ public:
 	// read from the font's first palette (index 0).
 	//
 	// Must be called before atlas->build().
-	bool loadEmoji(const std::string& fontPath, const std::vector<uint32_t>& codepoints, bool adaptive=false);
+	bool loadEmoji(const std::string& fontPath, const std::vector<uint32_t>& codepoints);
 
 	bool loaded() const { return _loaded; }
 
