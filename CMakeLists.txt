@@ -74,6 +74,7 @@ else(WIN32)
 			"-Wshadow"
 			"-Wconversion"
 			"-Wpedantic"
+			"-Wextra"
 			"-Werror"
 			"-Wno-unused-parameter"
 			#"-Wno-conversion"
@@ -90,6 +91,7 @@ else(WIN32)
 			"-Wshadow"
 			"-Wconversion"
 			"-Wpedantic"
+			"-Wextra"
 			"-Werror"
 			"-Wno-unused-parameter"
 			#"-Wno-conversion"
@@ -175,6 +177,7 @@ if(OSGSLUG_BUILD_EXAMPLES)
 	osgslug_example(osgslug-serial SOURCES "examples/osgslug-serial.cpp")
 	osgslug_example(osgslug-text SOURCES "examples/osgslug-text.cpp")
 	osgslug_example(osgslug-clock SOURCES "examples/osgslug-clock.cpp")
+	osgslug_example(osgslug-ammohud SOURCES "examples/osgslug-ammohud.cpp")
 	osgslug_example(osgslug-compute SOURCES "examples/osgslug-compute.cpp")
 	osgslug_example(osgslug-gradient-canvas SOURCES "examples/osgslug-gradient-canvas.cpp")
 	osgslug_example(osgslug-simple SOURCES "examples/osgslug-simple.cpp")

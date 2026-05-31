@@ -7,6 +7,8 @@
 static const std::string VERT_SHADER = R"(
 #version 430 core
 
+#pragma osgSlug lib_vertex
+
 vec3 osgSlug_Vertex(
 	vec3 pos,
 	vec2 emCoord,
@@ -16,13 +18,7 @@ vec3 osgSlug_Vertex(
 	float effectParam,
 	float time
 ) {
-	if(effectId == 1) {
-		float c = cos(time), s = sin(time);
-		mat2 R = mat2(c, s, -s, c);
-		vec2 pivot = pos.xy - emCoord.xy + origin;
-
-		pos.xy = R * (pos.xy - pivot) + pivot;
-	}
+	if(effectId == 1) return osgSlug_Vertex_Rotate(pos, emCoord, origin, time);
 
 	return pos;
 }
