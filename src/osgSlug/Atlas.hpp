@@ -59,6 +59,8 @@ public:
 	static const std::string SHADER_NOOP_VERTEX;
 	static const std::string SHADER_NOOP_FRAGMENT;
 	static const std::string SHADER_TYPES;
+	static const std::string SHADER_LIB_VERTEX;
+	static const std::string SHADER_LIB_FRAGMENT;
 
 	osg::StateSet* createDefaultStateSet(
 		bool useGL3=false,

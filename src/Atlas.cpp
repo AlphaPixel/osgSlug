@@ -67,6 +67,24 @@ layout(std430, binding = 1) buffer LayerBuffer {
 };
 )";
 
+// Optional vertex helper library; include via: #pragma osgSlug lib_vertex
+const std::string Atlas::SHADER_LIB_VERTEX = R"(
+// Rotate pos.xy around the Pivot origin.
+// Expects Origin::Pivot — origin is the pivot point in local em-space.
+// Pass time, effectParam, or any angle expression as `angle`.
+vec3 osgSlug_Vertex_Rotate(vec3 pos, vec2 emCoord, vec2 origin, float angle) {
+	float c = cos(angle), s = sin(angle);
+	mat2 R = mat2(c, s, -s, c);
+	vec2 pivot = pos.xy - emCoord.xy + origin;
+	pos.xy = R * (pos.xy - pivot) + pivot;
+	return pos;
+}
+)";
+
+// Optional fragment helper library; include via: #pragma osgSlug lib_fragment
+const std::string Atlas::SHADER_LIB_FRAGMENT = R"(
+)";
+
 // The VERTEX shader injection point; perform any position animation here.
 const std::string Atlas::SHADER_NOOP_VERTEX = R"(
 #version 430 core
@@ -212,19 +230,36 @@ osg::StateSet* Atlas::createDefaultStateSet(
 
 	// #version must be the first line in GLSL source. Insert the types block
 	// immediately after it, before the rest of the shader body.
+	auto resolveLib = [](std::string src, const std::string& pragma, const std::string& lib) {
+		size_t pos = 0;
+		while((pos = src.find(pragma, pos)) != std::string::npos) {
+			src.replace(pos, pragma.size(), lib);
+			pos += lib.size();
+		}
+		return src;
+	};
+
+	auto resolveLibs = [&resolveLib](std::string src) {
+		src = resolveLib(std::move(src), "#pragma osgSlug lib_vertex",   SHADER_LIB_VERTEX);
+		src = resolveLib(std::move(src), "#pragma osgSlug lib_fragment",  SHADER_LIB_FRAGMENT);
+		return src;
+	};
+
 	auto makeVertShader = [&](const std::string& src) {
-		const auto vp = src.find("#version");
-		const auto nl = (vp != std::string::npos) ? src.find('\n', vp) : std::string::npos;
+		const std::string resolved = resolveLibs(src);
+		const auto vp = resolved.find("#version");
+		const auto nl = (vp != std::string::npos) ? resolved.find('\n', vp) : std::string::npos;
 		const std::string full = (nl != std::string::npos)
-			? src.substr(0, nl + 1) + types + src.substr(nl + 1)
-			: types + src
+			? resolved.substr(0, nl + 1) + types + resolved.substr(nl + 1)
+			: types + resolved
 		;
 
 		return new osg::Shader(osg::Shader::VERTEX, full);
 	};
 
 	// GL3 effect units must be #version 330 core; swap any 430 declaration.
-	auto makeGL3EffectShader = [](std::string src) {
+	auto makeGL3EffectShader = [&](std::string src) {
+		src = resolveLibs(src);
 		const auto vp = src.find("#version");
 
 		if(vp != std::string::npos) {
@@ -253,7 +288,7 @@ osg::StateSet* Atlas::createDefaultStateSet(
 		osg::Shader::FRAGMENT, "../src/osgSlug-frag.glsl"
 	));
 
-	program->addShader(new osg::Shader(osg::Shader::FRAGMENT, fragEffects));
+	program->addShader(new osg::Shader(osg::Shader::FRAGMENT, resolveLibs(fragEffects)));
 
 	ss->setAttributeAndModes(program, osg::StateAttribute::ON);
 	ss->addUniform(new osg::Uniform("osgSlug_curveTexture", 0));
