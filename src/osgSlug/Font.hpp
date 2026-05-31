@@ -60,7 +60,7 @@ public:
 	// atlas (e.g. custom shapes injected before load()) are skipped.
 	//
 	// Does nothing if called more than once.
-	void load(const slughorn::freetype::LoadConfig& config={});
+	bool load(const slughorn::freetype::LoadConfig& config={});
 
 	// Load COLR emoji from a font file (may be the same or different from
 	// the text font; e.g. NotoColorEmoji.ttf or Twemoji.Mozilla.ttf).

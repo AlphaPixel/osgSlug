@@ -34,20 +34,26 @@ _atlas(atlas) {
 
 Font::~Font() = default;
 
-void Font::load(const slughorn::freetype::LoadConfig& config) {
-	if(_loaded) return;
+bool Font::load(const slughorn::freetype::LoadConfig& config) {
+	if(_loaded) return true;
 
 	if(!_atlas) {
 		OSG_WARN << "osgSlug::Font::load: no atlas set" << std::endl;
 
-		return;
+		return false;
 	}
 
-	if(!slughorn::freetype::loadAsciiFont(_fontPath, *_atlas, config)) return;
+	if(!slughorn::freetype::loadAsciiFont(_fontPath, *_atlas, config)) {
+		OSG_WARN << "osgSlug::Font::load: failed to load font: " << _fontPath << std::endl;
+
+		return false;
+	}
 
 	if(auto m = slughorn::freetype::loadFontMetrics(_fontPath)) _metrics = *m;
 
 	_loaded = true;
+
+	return true;
 }
 
 // TODO: This is a quick, hacky way... we need to be able VERIFY that the requested codepoints were
