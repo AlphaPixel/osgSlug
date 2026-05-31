@@ -12,14 +12,10 @@ struct GradientData {
 	Vec4 xform {0.0f, 0.0f, 0.0f, 0.0f};
 };
 
-GradientData buildGradientData(const Atlas& atlas, const slughorn::Layer& layer) {
+static GradientData buildGradientDataFromInfo(uint32_t gradientId, const slughorn::GradientInfo& grad) {
 	GradientData data;
+	data.meta.x() = cv(gradientId);
 
-	data.meta.x() = cv(layer.gradientId);
-
-	if(layer.gradientId <= 0) return data;
-
-	const auto& grad = atlas.getGradients()[layer.gradientId - 1];
 	const auto& m = grad.transform;
 
 	if(grad.type == slughorn::GradientInfo::Type::Radial) {
@@ -28,7 +24,7 @@ GradientData buildGradientData(const Atlas& atlas, const slughorn::Layer& layer)
 		const slug_t invDR = deltaR > 1e-6f ? 1.0f / deltaR : 0.0f;
 
 		data.xform = {invDR, 0.0f, 0.0f, invDR};
-		data.meta = {cv(layer.gradientId), cv(m.dx), cv(m.dy), cv(grad.innerRadius) * invDR};
+		data.meta = {cv(gradientId), cv(m.dx), cv(m.dy), cv(grad.innerRadius) * invDR};
 	}
 
 	else if(grad.type == slughorn::GradientInfo::Type::AffineRadial) {
@@ -38,7 +34,7 @@ GradientData buildGradientData(const Atlas& atlas, const slughorn::Layer& layer)
 		if(b11 < 0.0f) { b00 = -b00; b01 = -b01; b10 = -b10; b11 = -b11; }
 
 		data.xform = {b00, b10, b01, b11};
-		data.meta = {cv(layer.gradientId), cv(m.dx), cv(m.dy), cv(grad.innerRadius)};
+		data.meta = {cv(gradientId), cv(m.dx), cv(m.dy), cv(grad.innerRadius)};
 	}
 
 	else if(grad.type == slughorn::GradientInfo::Type::Sweep) {
@@ -51,6 +47,12 @@ GradientData buildGradientData(const Atlas& atlas, const slughorn::Layer& layer)
 	else data.xform = {cv(m.xx), cv(m.xy), cv(m.dx), 0.0f};
 
 	return data;
+}
+
+GradientData buildGradientData(const Atlas& atlas, const slughorn::Layer& layer) {
+	if(layer.gradientId <= 0) return {};
+
+	return buildGradientDataFromInfo(layer.gradientId, atlas.getGradients()[layer.gradientId - 1]);
 }
 
 // ------------------------------------------------------------------------------------------------
@@ -277,6 +279,29 @@ void GL3ShapeDrawable::updateLayer(size_t index, const slughorn::Layer& layer) {
 		(*colors)[index * 4 + v] = c;
 		(*effectData)[index * 4 + v] = eid;
 		(*gradMeta)[index * 4 + v] = gmeta;
+		(*gradXforms)[index * 4 + v] = gxform;
+	}
+}
+
+void GL3ShapeDrawable::setLayerGradientTransform(size_t index, const slughorn::Matrix& m) {
+	if(index >= _layers.size() || !_atlas) return;
+
+	auto* gradMeta  = static_cast<osgx::Vec4Array*>(getVertexAttribArray(6));
+	auto* gradXforms = static_cast<osgx::Vec4Array*>(getVertexAttribArray(7));
+
+	if(!gradMeta || !gradXforms || (index + 1) * 4 > gradMeta->size()) return;
+
+	const auto& layer = _layers[index];
+
+	if(layer.gradientId <= 0) return;
+
+	slughorn::GradientInfo tmp = _atlas->getGradients()[layer.gradientId - 1];
+	tmp.transform = m;
+
+	const auto [gmeta, gxform] = buildGradientDataFromInfo(layer.gradientId, tmp);
+
+	for(size_t v = 0; v < 4; v++) {
+		(*gradMeta)[index * 4 + v]   = gmeta;
 		(*gradXforms)[index * 4 + v] = gxform;
 	}
 }
@@ -685,6 +710,23 @@ void SSBOShapeDrawable::setLayerShapeIndex(size_t index, size_t shapeIndex) {
 	(*_layerBuffers[index])[3].y() = cv(shapeIndex);
 }
 
+void SSBOShapeDrawable::setLayerGradientTransform(size_t index, const slughorn::Matrix& m) {
+	if(index >= _layerBuffers.size() || !_atlas) return;
+
+	const auto& layer = _layers[index];
+
+	if(layer.gradientId <= 0) return;
+
+	slughorn::GradientInfo tmp = _atlas->getGradients()[layer.gradientId - 1];
+	tmp.transform = m;
+
+	const auto [gmeta, gxform] = buildGradientDataFromInfo(layer.gradientId, tmp);
+	auto& buf = *_layerBuffers[index];
+
+	buf[1] = gmeta;
+	buf[2] = gxform;
+}
+
 void SSBOShapeDrawable::updateLayer(size_t index, const slughorn::Layer& layer) {
 	if(index >= _layerBuffers.size() || !_atlas) return;
 
@@ -858,6 +900,23 @@ void SSBOSubdividedDrawable::updateLayer(size_t index, const slughorn::Layer& la
 	buf[1] = gmeta;
 	buf[2] = gxform;
 	buf[3] = Vec4(cv(layer.effectId), shapeIdx, 0_cv, buf[3].w());
+}
+
+void SSBOSubdividedDrawable::setLayerGradientTransform(size_t index, const slughorn::Matrix& m) {
+	if(index >= _layerBuffers.size() || !_atlas) return;
+
+	const auto& layer = _layers[index];
+
+	if(layer.gradientId <= 0) return;
+
+	slughorn::GradientInfo tmp = _atlas->getGradients()[layer.gradientId - 1];
+	tmp.transform = m;
+
+	const auto [gmeta, gxform] = buildGradientDataFromInfo(layer.gradientId, tmp);
+	auto& buf = *_layerBuffers[index];
+
+	buf[1] = gmeta;
+	buf[2] = gxform;
 }
 
 void SSBOSubdividedDrawable::dirtyLayers() {

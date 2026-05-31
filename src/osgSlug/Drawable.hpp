@@ -48,6 +48,7 @@ public:
 	virtual void setLayerEffectId(size_t index, uint32_t effectId) {}
 	virtual void setLayerEffectParam(size_t index, slug_t param) {}
 	virtual void setLayerShapeIndex(size_t index, size_t shapeIndex) {}
+	virtual void setLayerGradientTransform(size_t index, const slughorn::Matrix& m) {}
 	virtual void updateLayer(size_t index, const slughorn::Layer& layer) {}
 	virtual void dirtyLayers() {}
 	virtual void dirtyLayers(size_t index) {}
@@ -74,6 +75,7 @@ public:
 	void setLayerColor(size_t index, const slughorn::Color& color) override;
 	void setLayerEffectId(size_t index, uint32_t effectId) override;
 	void setLayerEffectParam(size_t index, slug_t param) override;
+	void setLayerGradientTransform(size_t index, const slughorn::Matrix& m) override;
 	void updateLayer(size_t index, const slughorn::Layer& layer) override;
 	void dirtyLayers() override;
 	// GL3 stores per-layer data interleaved across 4 VBOs; range-dirty is not yet implemented.
@@ -166,6 +168,7 @@ public:
 	void setLayerEffectId(size_t index, uint32_t effectId) override;
 	void setLayerEffectParam(size_t index, slug_t param) override;
 	void setLayerShapeIndex(size_t index, size_t shapeIndex) override;
+	void setLayerGradientTransform(size_t index, const slughorn::Matrix& m) override;
 
 	// Full re-pack from a Layer struct. Re-runs gradient packing internally.
 	void updateLayer(size_t index, const slughorn::Layer& layer) override;
@@ -192,6 +195,7 @@ public:
 	void setLayerColor(size_t index, const slughorn::Color& color) override;
 	void setLayerEffectId(size_t index, uint32_t effectId) override;
 	void setLayerEffectParam(size_t index, slug_t param) override;
+	void setLayerGradientTransform(size_t index, const slughorn::Matrix& m) override;
 	void updateLayer(size_t index, const slughorn::Layer& layer) override;
 	void dirtyLayers() override;
 	void dirtyLayers(size_t index) override;
