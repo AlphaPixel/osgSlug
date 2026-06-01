@@ -35,7 +35,8 @@ namespace osgSlug {
 // ================================================================================================
 class Atlas: public osg::Referenced, public slughorn::Atlas {
 public:
-	Atlas() = default;
+	// Atlas() = default;
+	Atlas(uint32_t texWidth=slughorn::Atlas::DEFAULT_TEXTURE_WIDTH);
 	explicit Atlas(const slughorn::Atlas& src);
 
 	static osg::ref_ptr<Atlas> read(std::filesystem::path path);
@@ -91,9 +92,9 @@ private:
 
 	osg::ref_ptr<osg::Texture2D> _curveTexture;
 	osg::ref_ptr<osg::Texture2D> _bandTexture;
-	osg::ref_ptr<osg::Texture2D> _gradientTexture;  // null when no gradients registered
+	osg::ref_ptr<osg::Texture2D> _gradientTexture; // null when no gradients registered
 
-	osg::ref_ptr<osgx::Vec4Array> _shapeBuffer;     // atlas shape SSBO, binding 0
+	osg::ref_ptr<osgx::Vec4Array> _shapeBuffer; // atlas shape SSBO, binding 0
 	std::unordered_map<slughorn::Key, uint32_t, slughorn::KeyHash> _shapeIndex;
 };
 

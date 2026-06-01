@@ -70,7 +70,7 @@ layout(std430, binding = 1) buffer LayerBuffer {
 // Optional vertex helper library; include via: #pragma osgSlug lib_vertex
 const std::string Atlas::SHADER_LIB_VERTEX = R"(
 // Rotate pos.xy around the Pivot origin.
-// Expects Origin::Pivot — origin is the pivot point in local em-space.
+// Expects Origin::Pivot; origin is the pivot point in local em-space.
 // Pass time, effectParam, or any angle expression as `angle`.
 vec3 osgSlug_Vertex_Rotate(vec3 pos, vec2 emCoord, vec2 origin, float angle) {
 	float c = cos(angle), s = sin(angle);
@@ -116,8 +116,12 @@ vec4 osgSlug_Fragment(
 ) {
 	return vec4(layerColor.rgb, fill * layerColor.a);
 }
+
 )";
 
+Atlas::Atlas(uint32_t texWidth):
+slughorn::Atlas(texWidth) {
+}
 
 Atlas::Atlas(const slughorn::Atlas& src) {
 	static_cast<slughorn::Atlas&>(*this) = src;
@@ -296,6 +300,7 @@ osg::StateSet* Atlas::createDefaultStateSet(
 	ss->addUniform(new osg::Uniform("osgSlug_effectTexture", 2));
 	ss->addUniform(new osg::Uniform("osgSlug_gradientTexture", 3));
 	ss->addUniform(new osg::Uniform("osgSlug_gradientCount", static_cast<int>(getGradients().size())));
+	ss->addUniform(new osg::Uniform("osgSlug_emTile", osg::Vec2(1.0f, 1.0f)));
 	ss->setTextureAttributeAndModes(0, _curveTexture, osg::StateAttribute::ON);
 	ss->setTextureAttributeAndModes(1, _bandTexture, osg::StateAttribute::ON);
 
