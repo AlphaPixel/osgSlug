@@ -431,6 +431,8 @@ float slug_StemDarken(float coverage, float brightness, float ppem) {
 }
 
 // Defined in the linked effects or noop unit.
+vec2 osgSlug_FragEmCoord(vec2 emCoord, int effectId, float time);
+
 vec4 osgSlug_Fragment(
 	float fill,
 	vec2 emCoord,
@@ -448,16 +450,20 @@ void main() {
 	ivec2 glyphLoc = ivec2(v_shapeData.xy);
 	ivec2 bandMax = ivec2(v_shapeData.zw);
 
+	// Allow effects to remap em-coords (e.g. fract-based GPU tiling). Gradients and debug
+	// visualisation stay on the raw v_emCoord — only coverage sampling uses renderCoord.
+	vec2 renderCoord = osgSlug_FragEmCoord(v_emCoord, v_effectId, osg_SimulationTime);
+
 	// fwidth at uniform control flow; both values passed into slug_Render / slug_RenderText so
 	// all samples share the same pixel-frequency estimate.
-	vec2 emsPerPixel = fwidth(v_emCoord);
+	vec2 emsPerPixel = fwidth(renderCoord);
 	vec2 pixelsPerEm = 1.0 / emsPerPixel;
 
 	int iterations;
 
 	float fill = osgSlug_textMode
-		? slug_RenderText(v_emCoord, emsPerPixel, pixelsPerEm, v_bandXform, glyphLoc, bandMax, iterations)
-		: slug_Render(v_emCoord, pixelsPerEm, v_bandXform, glyphLoc, bandMax, iterations)
+		? slug_RenderText(renderCoord, emsPerPixel, pixelsPerEm, v_bandXform, glyphLoc, bandMax, iterations)
+		: slug_Render(renderCoord, pixelsPerEm, v_bandXform, glyphLoc, bandMax, iterations)
 	;
 
 	// Edge-only coverage adjustment for text: stem darkening and gamma correction.

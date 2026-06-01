@@ -106,6 +106,10 @@ vec3 osgSlug_Vertex(
 const std::string Atlas::SHADER_NOOP_FRAGMENT = R"(
 #version 330 core
 
+vec2 osgSlug_FragEmCoord(vec2 emCoord, int effectId, float time) {
+	return emCoord;
+}
+
 vec4 osgSlug_Fragment(
 	float fill,
 	vec2 emCoord,

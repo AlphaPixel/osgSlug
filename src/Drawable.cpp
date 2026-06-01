@@ -126,7 +126,7 @@ void GL3ShapeDrawable::compile() {
 
 		if(!shape) continue;
 
-		const slug_t expand = 0.01_cv;
+		const slug_t expand = layer.expand;
 
 		// Quad placement comes entirely from slughorn truth:
 		// - layer.transform.dx/dy: canvas-space origin set by decomposePath
@@ -623,7 +623,7 @@ void SSBOShapeDrawable::compile() {
 
 		if(!shape) { index++; continue; }
 
-		const slug_t expand = 0.01_cv;
+		const slug_t expand = layer.expand;
 		const auto q = shape->computeQuad(layer.transform, layer.scale, expand);
 		const slug_t lidx = cv(index + 1);
 		const slug_t z = cv(layer.transform.z);
