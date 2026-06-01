@@ -500,8 +500,10 @@ int main(int argc, char** argv) {
 	// sd->addLayer({KEY, {0.2_cv, 0.8_cv, 0.4_cv, 1.0_cv}, slughorn::Matrix{.dx=0.1_cv, .dy=0.1_cv}, 300_cv});
 	sd->addLayer({KEY, {0.2_cv, 0.8_cv, 0.4_cv, 0.8_cv}});
 	// sd->addLayer({KEY, {0.2_cv, 0.8_cv, 0.4_cv, 1.0_cv}});
+	sd->setStateSet(atlas->createDefaultStateSet(example::USE_GL3));
 	sd->compile();
 	sd->setName("sd");
+	// sd->setStateSet(atlas->createDefaultStateSet(example::USE_GL3));
 
 	grid->setAtlas(atlas); // must contain the unit square shape
 	grid->setGridExtent(800, 600); // world-space width x height
@@ -513,12 +515,13 @@ int main(int argc, char** argv) {
 	grid->setMinorColor({0.65_cv, 0.65_cv, 0.65_cv, 0.8_cv});
 	grid->compile();
 	grid->setName("grid");
+	grid->setStateSet(atlas->createDefaultStateSet(true));
 
 	auto sdg = osgx::make_ref<osg::Geode>();
 
 	sdg->addDrawable(grid);
 	sdg->addDrawable(sd);
-	sdg->setStateSet(atlas->createDefaultStateSet(example::USE_GL3));
+	// sdg->setStateSet(atlas->createDefaultStateSet(example::USE_GL3));
 
 	auto mat = osgx::make_ref<osg::MatrixTransform>();
 

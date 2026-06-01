@@ -2,6 +2,8 @@
 
 #include "osgslug-example.hpp"
 
+#include "slughorn/canvas.hpp"
+
 int main(int argc, char** argv) {
 	osg::ArgumentParser args(&argc, argv);
 
@@ -38,6 +40,36 @@ int main(int argc, char** argv) {
 	};
 
 	auto key = slughorn::Key("tri");
+
+#if 1
+		slughorn::canvas::Canvas canvas(*atlas);
+
+		// Three disconnected rects sharing one left-to-right gradient — proves that a single
+		// shape can have multiple disconnected sub-paths and the gradient clips correctly to each.
+		auto grad = canvas.createLinearGradient(
+			0.1_cv, 0.5_cv, // left edge
+			0.9_cv, 0.5_cv, // right edge
+			{
+				{0.0_cv, {0_cv, 0.8_cv, 1_cv, 1_cv}}, // cyan
+				{0.5_cv, {0.6_cv, 0_cv, 1_cv, 1_cv}}, // violet
+				{1.0_cv, {1_cv, 0_cv, 0.8_cv, 1_cv}} // magenta
+			}
+		);
+
+		auto addRect = [&](slug_t x, slug_t y, slug_t w, slug_t h) {
+			canvas.moveTo(x, y);
+			canvas.lineTo(x + w, y);
+			canvas.lineTo(x + w, y + h);
+			canvas.lineTo(x, y + h);
+			canvas.closePath();
+		};
+
+		canvas.beginPath();
+		addRect(0.1_cv, 0.25_cv, 0.2_cv, 0.5_cv); // left
+		addRect(0.4_cv, 0.25_cv, 0.2_cv, 0.5_cv); // center
+		addRect(0.7_cv, 0.25_cv, 0.2_cv, 0.5_cv); // right
+		auto layer = canvas.fillGradient(grad);
+#endif
 
 	atlas->addShape(key, tri);
 	atlas->build();
@@ -87,9 +119,10 @@ int main(int argc, char** argv) {
 		sdsd->setStepsV(1);
 		sdsd->setPositionCallback([](float u, float v) -> osg::Vec3 {
 			// torus, parametric surface, heightmap sample, anything...
-			return { u, v, std::sin(u * 5.0f) * 0.1f };
+			return { u, v, std::sin(u * 5.0f) * 0.5f };
 		});
-		sdsd->addLayer({.key=key, .color={1_cv, 0.5_cv, 0_cv, 1_cv}});
+		// sdsd->addLayer({.key=key, .color={1_cv, 0.5_cv, 0_cv, 1_cv}});
+		sdsd->addLayer(layer);
 
 		sd = sdsd;
 	}

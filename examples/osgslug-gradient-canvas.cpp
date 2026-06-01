@@ -3,6 +3,7 @@
 #include "osgslug-example.hpp"
 
 #include "slughorn/canvas.hpp"
+#include "slughorn/serial.hpp"
 
 using slughorn::PI_CV;
 using slughorn::PI_2_CV;
@@ -19,6 +20,7 @@ int main(int argc, char** argv) {
 			"\tstroke (DEFAULT)\n"
 			"\tlinear-0\n"
 			"\tlinear-1\n"
+			"\tlinear-2\n"
 			"\tradial-0\n"
 			"\tradial-1\n"
 			"\tsweep-0\n"
@@ -33,6 +35,7 @@ int main(int argc, char** argv) {
 			"stroke",
 			"linear-0",
 			"linear-1",
+			"linear-2",
 			"radial-0",
 			"radial-1",
 			"sweep-0",
@@ -105,6 +108,36 @@ int main(int argc, char** argv) {
 				0.5_cv, 0.08_cv
 		);
 		canvas.closePath();
+		canvas.fillGradient(grad);
+
+		compositeShape = canvas.finalize();
+	}
+
+	else if(gradient == "linear-2") {
+		// Three disconnected rects sharing one left-to-right gradient — proves that a single
+		// shape can have multiple disconnected sub-paths and the gradient clips correctly to each.
+		auto grad = canvas.createLinearGradient(
+			0.1_cv, 0.5_cv, // left edge
+			0.9_cv, 0.5_cv, // right edge
+			{
+				{0.0_cv, {0_cv, 0.8_cv, 1_cv, 1_cv}}, // cyan
+				{0.5_cv, {0.6_cv, 0_cv, 1_cv, 1_cv}}, // violet
+				{1.0_cv, {1_cv, 0_cv, 0.8_cv, 1_cv}} // magenta
+			}
+		);
+
+		auto addRect = [&](slug_t x, slug_t y, slug_t w, slug_t h) {
+			canvas.moveTo(x, y);
+			canvas.lineTo(x + w, y);
+			canvas.lineTo(x + w, y + h);
+			canvas.lineTo(x, y + h);
+			canvas.closePath();
+		};
+
+		canvas.beginPath();
+		addRect(0.1_cv, 0.25_cv, 0.2_cv, 0.5_cv); // left
+		addRect(0.4_cv, 0.25_cv, 0.2_cv, 0.5_cv); // center
+		addRect(0.7_cv, 0.25_cv, 0.2_cv, 0.5_cv); // right
 		canvas.fillGradient(grad);
 
 		compositeShape = canvas.finalize();
@@ -217,6 +250,8 @@ int main(int argc, char** argv) {
 
 	atlas->build();
 	atlas->packTextures();
+
+	slughorn::serial::writeJSON(*atlas, std::cerr);
 
 	auto sd = example::makeShapeDrawable();
 

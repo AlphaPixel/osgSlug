@@ -82,7 +82,8 @@ int main(int argc, char** argv) {
 	canvas.lineTo(0.812_cv, 0.188_cv);  // was (0.9, 0.1), inset ~0.088 along NW arm
 	canvas.strokePath(0.25_cv, true); */
 
-	auto key = canvas.fill({});
+	// auto layer = canvas.fill({});
+	auto layer = canvas.fill({0.6_cv, 0.7_cv, 0.8_cv, 1.0_cv});
 
 	atlas->build();
 	atlas->packTextures();
@@ -94,7 +95,8 @@ int main(int argc, char** argv) {
 	auto sd = example::makeShapeDrawable();
 
 	sd->setAtlas(atlas);
-	sd->addLayer({key, {0.6_cv, 0.7_cv, 0.8_cv, 1.0_cv}});
+	// sd->addLayer({layer.key, {0.6_cv, 0.7_cv, 0.8_cv, 1.0_cv}});
+	sd->addLayer(layer);
 	sd->compile();
 
 	auto sdg = osgx::make_ref<osg::Geode>();
