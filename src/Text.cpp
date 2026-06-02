@@ -86,7 +86,7 @@ void Text::compile() {
 
 				// Use font's recommended line gap; fall back to CSS-standard 1.2x when absent.
 				const slug_t leading = _metrics.lineGapRatio > 0_cv
-					? _fontSize * (1.0_cv + _metrics.lineGapRatio)
+					? _fontSize * (1_cv + _metrics.lineGapRatio)
 					: _fontSize * 1.2_cv
 				;
 

@@ -218,10 +218,10 @@ private:
 class HalfCylinderDrawable: public SSBOSubdividedDrawable {
 public:
 	HalfCylinderDrawable(
-		slug_t radius=2.0_cv,
-		slug_t height=1.0_cv,
+		slug_t radius=2_cv,
+		slug_t height=1_cv,
 		// 120 degrees default
-		slug_t arcAngle=osg::PIf * (2.0_cv / 3.0_cv),
+		slug_t arcAngle=osg::PIf * (2_cv / 3_cv),
 		index_element_type stepsU=64,
 		// height needs far fewer steps
 		index_element_type stepsV=8
@@ -243,10 +243,10 @@ public:
 // ------------------------------------------------------------------------------------------------
 // SphereDrawable (reimplemented as SubdividedDrawable)
 // ------------------------------------------------------------------------------------------------
-class SphereDrawable : public SSBOSubdividedDrawable {
+class SphereDrawable: public SSBOSubdividedDrawable {
 public:
 	SphereDrawable(
-		slug_t radius=1.0_cv,
+		slug_t radius=1_cv,
 		index_element_type stacks=64,
 		index_element_type slices=128
 	) {
@@ -255,7 +255,7 @@ public:
 
 		setPositionCallback([radius](slug_t u, slug_t v) -> Vec3 {
 			const slug_t PI = M_PIf;
-			const slug_t TAU = 2.0_cv * PI;
+			const slug_t TAU = 2_cv * PI;
 			const slug_t lat = PI * v - PI * 0.5_cv;
 			const slug_t lon = TAU * u;
 

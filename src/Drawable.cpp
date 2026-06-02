@@ -334,12 +334,12 @@ void BoxDrawable::compile() {
 
 		if(!shape) return;
 
-		static constexpr slug_t SLUG_EXPAND = 0.01_cv;
+		const slug_t expand = layer.expand;
 
-		const slug_t emX0 = shape->bearingX - SLUG_EXPAND;
-		const slug_t emY0 = (shape->bearingY - shape->height) - SLUG_EXPAND;
-		const slug_t emX1 = (shape->bearingX + shape->width) + SLUG_EXPAND;
-		const slug_t emY1 = shape->bearingY + SLUG_EXPAND;
+		const slug_t emX0 = shape->bearingX - expand;
+		const slug_t emY0 = (shape->bearingY - shape->height) - expand;
+		const slug_t emX1 = (shape->bearingX + shape->width) + expand;
+		const slug_t emY1 = shape->bearingY + expand;
 
 		const Vec4 bx(shape->bandScaleX, shape->bandScaleY, shape->bandOffsetX, shape->bandOffsetY);
 
@@ -435,8 +435,6 @@ void GL3SubdividedDrawable::compile() {
 	auto gradientXforms = osgx::make_ref<osgx::Vec4Array>();
 	auto indices = osgx::make_ref<osgx::DrawElementsUShort>();
 
-	static constexpr slug_t SLUG_EXPAND = 0.01_cv;
-
 	index_element_type base = 0;
 
 	size_t index = 0;
@@ -446,7 +444,8 @@ void GL3SubdividedDrawable::compile() {
 
 		if(!shape) { index++; continue; }
 
-		const auto q = shape->computeQuad(layer.transform, layer.scale, SLUG_EXPAND);
+		const slug_t expand = layer.expand;
+		const auto q = shape->computeQuad(layer.transform, layer.scale, expand);
 
 		// If no position callback is set, default to a flat quad covering the world-space
 		// bounds computed above. This makes SubdividedDrawable usable as a drop-in
@@ -459,10 +458,10 @@ void GL3SubdividedDrawable::compile() {
 			})
 		;
 
-		const slug_t emX0 = shape->bearingX - SLUG_EXPAND;
-		const slug_t emY0 = (shape->bearingY - shape->height) - SLUG_EXPAND;
-		const slug_t emX1 = (shape->bearingX + shape->width) + SLUG_EXPAND;
-		const slug_t emY1 = shape->bearingY + SLUG_EXPAND;
+		const slug_t emX0 = shape->bearingX - expand;
+		const slug_t emY0 = (shape->bearingY - shape->height) - expand;
+		const slug_t emX1 = (shape->bearingX + shape->width) + expand;
+		const slug_t emY1 = shape->bearingY + expand;
 
 		const Vec4 bx(
 			shape->bandScaleX, shape->bandScaleY,
@@ -538,12 +537,9 @@ void GL3SubdividedDrawable::compile() {
 				const auto tl = static_cast<index_element_type>(row1 + su);
 				const auto tr = static_cast<index_element_type>(row1 + su + 1);
 
-				// TODO: Both approaches have polar artifacts; why!?
-				// indices->append_range({bl, br, tl, br, tr, tl});
+				if(!((su + sv) & 1)) indices->append_range({tl, br, bl, tl, tr, br});
 
-				if(!((su + sv) & 1)) indices->append_range({bl, br, tl, br, tr, tl});
-
-				else indices->append_range({bl, br, tr, bl, tr, tl});
+				else indices->append_range({tr, br, bl, tl, tr, bl});
 			}
 		}
 
@@ -764,8 +760,6 @@ void SSBOSubdividedDrawable::compile() {
 
 	auto ssbo = osgx::make_ref<osg::ShaderStorageBufferObject>();
 
-	static constexpr slug_t SLUG_EXPAND = 0.01_cv;
-
 	index_element_type base = 0;
 	size_t index = 0;
 
@@ -774,7 +768,8 @@ void SSBOSubdividedDrawable::compile() {
 
 		if(!shape) { index++; continue; }
 
-		const auto q = shape->computeQuad(layer.transform, layer.scale, SLUG_EXPAND);
+		const slug_t expand = layer.expand;
+		const auto q = shape->computeQuad(layer.transform, layer.scale, expand);
 
 		PositionCallback posFn = _positionCallback
 			? _positionCallback
@@ -783,10 +778,10 @@ void SSBOSubdividedDrawable::compile() {
 			})
 		;
 
-		const auto emX0 = shape->bearingX - SLUG_EXPAND;
-		const auto emY0 = (shape->bearingY - shape->height) - SLUG_EXPAND;
-		const auto emX1 = (shape->bearingX + shape->width) + SLUG_EXPAND;
-		const auto emY1 = shape->bearingY + SLUG_EXPAND;
+		const auto emX0 = shape->bearingX - expand;
+		const auto emY0 = (shape->bearingY - shape->height) - expand;
+		const auto emX1 = (shape->bearingX + shape->width) + expand;
+		const auto emY1 = shape->bearingY + expand;
 
 		const slug_t lidx = cv(index + 1);
 
@@ -840,9 +835,9 @@ void SSBOSubdividedDrawable::compile() {
 				const auto tl = static_cast<index_element_type>(row1 + su);
 				const auto tr = static_cast<index_element_type>(row1 + su + 1);
 
-				if(!((su + sv) & 1)) indices->append_range({bl, br, tl, br, tr, tl});
+				if(!((su + sv) & 1)) indices->append_range({tl, br, bl, tl, tr, br});
 
-				else indices->append_range({bl, br, tr, bl, tr, tl});
+				else indices->append_range({tr, br, bl, tl, tr, bl});
 			}
 		}
 
