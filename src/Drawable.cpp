@@ -922,4 +922,122 @@ void SSBOSubdividedDrawable::dirtyLayers(size_t index) {
 	if(index < _layerBuffers.size() && _layerBuffers[index]) _layerBuffers[index]->dirty();
 }
 
+void SSBODecalDrawable::compile() {
+	auto* atlas = getAtlas();
+
+	if(!atlas || !atlas->isBuilt() || _decalLayers.empty()) return;
+
+	auto vertices = osgx::make_ref<osgx::Vec4Array>();
+	auto emCoords = osgx::make_ref<osgx::Vec4Array>();
+	auto indices = osgx::make_ref<osgx::DrawElementsUShort>();
+
+	_layerBuffers.clear();
+
+	auto ssbo = osgx::make_ref<osg::ShaderStorageBufferObject>();
+
+	index_element_type base = 0;
+	size_t index = 0;
+
+	for(const auto& [layer, rect] : _decalLayers) {
+		const auto* shape = atlas->getShape(layer.key);
+
+		if(!shape) { index++; continue; }
+
+		const slug_t expand = layer.expand;
+		const auto q = shape->computeQuad(layer.transform, layer.scale, expand);
+
+		PositionCallback posFn = _positionCallback
+			? _positionCallback
+			: PositionCallback([q](slug_t u, slug_t v) -> Vec3 {
+				return {q.x0 + u * (q.x1 - q.x0), q.y0 + v * (q.y1 - q.y0), 0_cv};
+			})
+		;
+
+		const auto emX0 = shape->bearingX - expand;
+		const auto emY0 = (shape->bearingY - shape->height) - expand;
+		const auto emX1 = (shape->bearingX + shape->width) + expand;
+		const auto emY1 = shape->bearingY + expand;
+
+		const slug_t lidx = cv(index + 1);
+
+		const size_t ni =
+			static_cast<size_t>(_stepsU + 1) * static_cast<size_t>(_stepsV + 1)
+		;
+
+		if(
+			static_cast<size_t>(base) + ni >
+			static_cast<size_t>(std::numeric_limits<index_element_type>::max()) + 1
+		) {
+			throw std::runtime_error("SSBODecalDrawable: mesh exceeds index capacity");
+		}
+
+		for(index_element_type sv = 0; sv <= _stepsV; sv++) {
+			const slug_t lv = cv(sv) / cv(_stepsV);
+			const slug_t v = rect.v0 + lv * (rect.v1 - rect.v0);
+
+			for(index_element_type su = 0; su <= _stepsU; su++) {
+				const slug_t lu = cv(su) / cv(_stepsU);
+				const slug_t u = rect.u0 + lu * (rect.u1 - rect.u0);
+
+				const auto p = posFn(u, v);
+
+				vertices->push_back({p.x(), p.y(), p.z(), lidx});
+				emCoords->push_back({
+					emX0 + lu * (emX1 - emX0),
+					emY0 + lv * (emY1 - emY0),
+					lu, lv
+				});
+			}
+		}
+
+		const auto [gmeta, gxform] = buildGradientData(*atlas, layer);
+		const slug_t shapeIdx = cv(atlas->getShapeIndex(layer.key));
+		auto layerBuf = osgx::make_ref<osgx::Vec4Array>();
+
+		layerBuf->push_back({layer.color.r, layer.color.g, layer.color.b, layer.color.a});
+		layerBuf->push_back(gmeta);
+		layerBuf->push_back(gxform);
+		layerBuf->push_back({cv(layer.effectId), shapeIdx, 0_cv, q.x1 - q.x0});
+		layerBuf->setBufferObject(ssbo);
+
+		_layerBuffers.push_back(std::move(layerBuf));
+
+		const index_element_type layerBase = base;
+
+		for(index_element_type sv = 0; sv < _stepsV; sv++) {
+			for(index_element_type su = 0; su < _stepsU; su++) {
+				const auto row0 = static_cast<index_element_type>(layerBase + sv * (_stepsU + 1));
+				const auto row1 = static_cast<index_element_type>(layerBase + (sv + 1) * (_stepsU + 1));
+				const auto bl = static_cast<index_element_type>(row0 + su);
+				const auto br = static_cast<index_element_type>(row0 + su + 1);
+				const auto tl = static_cast<index_element_type>(row1 + su);
+				const auto tr = static_cast<index_element_type>(row1 + su + 1);
+
+				if(!((su + sv) & 1)) indices->append_range({tl, br, bl, tl, tr, br});
+				else indices->append_range({tr, br, bl, tl, tr, bl});
+			}
+		}
+
+		base += static_cast<index_element_type>(ni);
+		index++;
+	}
+
+	if(vertices->empty()) return;
+
+	setVertexAttribArray(0, vertices);
+	setVertexAttribBinding(0, osg::Geometry::BIND_PER_VERTEX);
+
+	setVertexAttribArray(1, emCoords);
+	setVertexAttribBinding(1, osg::Geometry::BIND_PER_VERTEX);
+
+	addPrimitiveSet(indices);
+
+	const auto totalSize = static_cast<GLsizeiptr>(_layerBuffers.size() * 4 * sizeof(osg::Vec4));
+
+	getOrCreateStateSet()->setAttributeAndModes(
+		new osg::ShaderStorageBufferBinding(1, _layerBuffers[0], 0, totalSize),
+		osg::StateAttribute::ON
+	);
+}
+
 }

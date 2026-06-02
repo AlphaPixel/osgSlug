@@ -204,8 +204,65 @@ public:
 		return index < _layerBuffers.size() ? _layerBuffers[index].get() : nullptr;
 	}
 
-private:
+protected:
 	std::vector<osg::ref_ptr<osgx::Vec4Array>> _layerBuffers;
+};
+
+// ------------------------------------------------------------------------------------------------
+// UVRect / SSBODecalDrawable
+//
+// UVRect describes a sub-region of a [0,1]x[0,1] UV surface. SSBODecalDrawable extends
+// SSBOSubdividedDrawable so that each layer can be placed at a specific UV sub-region ("decal")
+// instead of always covering the full surface.
+//
+// Full-surface layers (default UVRect) are backwards compatible with SSBOSubdividedDrawable.
+// ------------------------------------------------------------------------------------------------
+
+struct UVRect {
+	slug_t u0 = 0_cv, v0 = 0_cv;
+	slug_t u1 = 1_cv, v1 = 1_cv;
+
+	// Convenience factory for SphereDrawable lat/lon placement.
+	// latDeg in [-90, 90], lonDeg in [-180, 180]; halfSizeDeg is the angular half-extent.
+	// SphereDrawable UV mapping: u = (lonDeg + 180) / 360, v = (latDeg + 90) / 180.
+	static UVRect fromLatLon(
+		float latDeg, float lonDeg,
+		float halfSizeDeg, float halfHeightDeg = -1.f
+	) {
+		if(halfHeightDeg < 0.f) halfHeightDeg = halfSizeDeg;
+		// Compensate for equirectangular longitude compression at this latitude.
+		const float cosLat  = std::cos(latDeg * M_PIf / 180.f);
+		const float halfLon = halfSizeDeg / cosLat;
+		const float u = (lonDeg + 180.f) / 360.f;
+		const float v = (latDeg  +  90.f) / 180.f;
+		return {
+			cv(u - halfLon       / 360.f), cv(v - halfHeightDeg / 180.f),
+			cv(u + halfLon       / 360.f), cv(v + halfHeightDeg / 180.f)
+		};
+	}
+};
+
+class SSBODecalDrawable : public SSBOSubdividedDrawable {
+public:
+	SSBODecalDrawable() = default;
+
+	// Full-surface layer — identical to SSBOSubdividedDrawable behaviour.
+	void addLayer(const slughorn::Layer& layer) {
+		_decalLayers.push_back({layer, UVRect{}});
+		_layers.push_back(layer);
+	}
+
+	// Decal layer placed at the given UV sub-region.
+	void addLayer(const slughorn::Layer& layer, const UVRect& rect) {
+		_decalLayers.push_back({layer, rect});
+		_layers.push_back(layer);
+	}
+
+	void compile() override;
+
+private:
+	struct DecalLayer { slughorn::Layer layer; UVRect rect; };
+	std::vector<DecalLayer> _decalLayers;
 };
 
 // ------------------------------------------------------------------------------------------------
