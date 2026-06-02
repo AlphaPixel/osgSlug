@@ -259,6 +259,10 @@ static const std::string FRAG_SHADER = R"(
 
 uniform sampler2D osgSlug_effectTexture;
 
+vec2 osgSlug_FragEmCoord(vec2 emCoord, inout vec2 emsPerPixel, int effectId, float time) {
+	return emCoord;
+}
+
 vec4 osgSlug_Fragment(
 	float fill,
 	vec2 emCoord,
