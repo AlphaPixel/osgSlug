@@ -431,7 +431,7 @@ float slug_StemDarken(float coverage, float brightness, float ppem) {
 }
 
 // Defined in the linked effects or noop unit.
-vec2 osgSlug_FragEmCoord(vec2 emCoord, int effectId, float time);
+vec2 osgSlug_FragEmCoord(vec2 emCoord, inout vec2 emsPerPixel, int effectId, float time);
 
 vec4 osgSlug_Fragment(
 	float fill,
@@ -450,13 +450,14 @@ void main() {
 	ivec2 glyphLoc = ivec2(v_shapeData.xy);
 	ivec2 bandMax = ivec2(v_shapeData.zw);
 
+	// fwidth on the raw varying — no discontinuities. osgSlug_FragEmCoord may scale it for
+	// effects like tiling (where fract would make fwidth unreliable at tile boundaries).
+	vec2 emsPerPixel = fwidth(v_emCoord);
+
 	// Allow effects to remap em-coords (e.g. fract-based GPU tiling). Gradients and debug
 	// visualisation stay on the raw v_emCoord — only coverage sampling uses renderCoord.
-	vec2 renderCoord = osgSlug_FragEmCoord(v_emCoord, v_effectId, osg_SimulationTime);
+	vec2 renderCoord = osgSlug_FragEmCoord(v_emCoord, emsPerPixel, v_effectId, osg_SimulationTime);
 
-	// fwidth at uniform control flow; both values passed into slug_Render / slug_RenderText so
-	// all samples share the same pixel-frequency estimate.
-	vec2 emsPerPixel = fwidth(renderCoord);
 	vec2 pixelsPerEm = 1.0 / emsPerPixel;
 
 	int iterations;
