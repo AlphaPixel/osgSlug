@@ -3,11 +3,19 @@
 #include "osgslug-example.hpp"
 
 #include "slughorn/canvas.hpp"
+#include "osgSlug/Font.hpp"
+
+#include <chrono>
+#include <ctime>
 
 static const std::string VERT_SHADER = R"(
 #version 430 core
 
 #pragma osgSlug lib_vertex
+
+uniform float u_hourAngle;
+uniform float u_minuteAngle;
+uniform float u_secondAngle;
 
 vec3 osgSlug_Vertex(
 	vec3 pos,
@@ -18,31 +26,71 @@ vec3 osgSlug_Vertex(
 	float effectParam,
 	float time
 ) {
-	if(effectId == 1) return osgSlug_Vertex_Rotate(pos, emCoord, origin, time);
+	// Negate angles: osgSlug_Vertex_Rotate is CCW, clocks run CW.
+	if(effectId == 1) return osgSlug_Vertex_Rotate(pos, emCoord, origin, -u_secondAngle);
+	if(effectId == 2) return osgSlug_Vertex_Rotate(pos, emCoord, origin, -u_minuteAngle);
+	if(effectId == 3) return osgSlug_Vertex_Rotate(pos, emCoord, origin, -u_hourAngle);
 
 	return pos;
 }
 )";
+
+struct ClockCallback : public osg::NodeCallback {
+	osg::ref_ptr<osg::Uniform> _hourAngle;
+	osg::ref_ptr<osg::Uniform> _minuteAngle;
+	osg::ref_ptr<osg::Uniform> _secondAngle;
+
+	ClockCallback(osg::StateSet* ss):
+	_hourAngle(new osg::Uniform("u_hourAngle", 0.0f)),
+	_minuteAngle(new osg::Uniform("u_minuteAngle", 0.0f)),
+	_secondAngle(new osg::Uniform("u_secondAngle", 0.0f)) {
+		ss->addUniform(_hourAngle);
+		ss->addUniform(_minuteAngle);
+		ss->addUniform(_secondAngle);
+	}
+
+	void operator()(osg::Node* node, osg::NodeVisitor* nv) override {
+		const auto now = std::chrono::system_clock::now();
+		const std::time_t t = std::chrono::system_clock::to_time_t(now);
+		const std::tm* tm = std::localtime(&t);
+
+		const float sec  = static_cast<float>(tm->tm_sec);
+		const float min  = static_cast<float>(tm->tm_min)  + sec  / 60.0f;
+		const float hour = static_cast<float>(tm->tm_hour % 12) + min / 60.0f;
+
+		static constexpr float TWO_PI = 2.0f * static_cast<float>(M_PI);
+
+		_secondAngle->set((sec  / 60.0f)  * TWO_PI);
+		_minuteAngle->set((min  / 60.0f)  * TWO_PI);
+		_hourAngle->set(  (hour / 12.0f)  * TWO_PI);
+
+		traverse(node, nv);
+	}
+};
 
 int main(int argc, char** argv) {
 	osg::ArgumentParser args(&argc, argv);
 
 	osgViewer::Viewer viewer(args);
 
-	if(!example::setupArguments(args, "Clock HUD demo - face, ticks, rotating hand")) return 0;
+	if(!example::setupArguments(args, "Clock HUD demo - single CompositeShape, real time")) return 0;
 
 	// ============================================================================================
-	// Shared geometry constants. All authoring is in [0, 1] em-space; scale = 1.0 throughout.
-	// CX/CY is both the clock centre AND the hand's rotation pivot.
+	// Geometry constants. Canvas is Y-up: larger Y = higher on screen.
+	// Clock positions: x = CX + r*sin(a),  y = CY + r*cos(a)  (a=0 at 12 o'clock, CW).
 	// ============================================================================================
 
 	const slug_t CX = 0.5_cv, CY = 0.5_cv;
-	const slug_t FACE_R = 0.45_cv;
+	const slug_t FACE_R     = 0.45_cv;
 	const slug_t TICK_OUTER = 0.43_cv;
 	const slug_t TICK_INNER = 0.36_cv;
 	const slug_t TICK_WIDTH = 0.025_cv;
-	const slug_t HAND_LENGTH = 0.38_cv; // tip lands just inside the tick ring
-	const slug_t HAND_WIDTH = 0.03_cv;
+	const slug_t NUM_R      = 0.29_cv;
+	const slug_t FONT_SIZE  = 0.07_cv;
+
+	const slug_t HOUR_LENGTH = 0.24_cv, HOUR_WIDTH = 0.035_cv;
+	const slug_t MIN_LENGTH  = 0.33_cv, MIN_WIDTH  = 0.025_cv;
+	const slug_t SEC_LENGTH  = 0.38_cv, SEC_WIDTH  = 0.010_cv;
 
 	// ============================================================================================
 	// Atlas + Canvas
@@ -54,19 +102,17 @@ int main(int argc, char** argv) {
 	canvas.decomposer().tolerance = slughorn::TOLERANCE_BALANCED;
 
 	// ============================================================================================
-	// Clock face - Centered origin so layer.transform.dx/dy = (0.5, 0.5)
+	// Clock face
 	// ============================================================================================
 
 	canvas.circle(CX, CY, FACE_R);
 	canvas.fill(
 		{0.95_cv, 0.92_cv, 0.82_cv, 1_cv}, 1_cv,
-		"clock_face_shape",
 		slughorn::Atlas::ShapeInfo::Origin::Type::Centered
 	);
 
 	// ============================================================================================
-	// Tick marks - 12 strokes baked into one Shape. Same Centered origin as the face, so both
-	// quads are anchored at (0.5, 0.5) regardless of their slightly different bbox sizes.
+	// Tick marks - 12 strokes baked into one Shape
 	// ============================================================================================
 
 	canvas.beginPath();
@@ -83,63 +129,67 @@ int main(int argc, char** argv) {
 
 	canvas.fill(
 		{0.15_cv, 0.15_cv, 0.15_cv, 1_cv}, 1_cv,
-		"clock_ticks_shape",
 		slughorn::Atlas::ShapeInfo::Origin::Type::Centered
 	);
 
 	// ============================================================================================
-	// Clock hand - base at clock centre, tip toward 12 o'clock (Y-down: smaller Y = up).
-	//
-	// Origin(CX, CY) makes layer.transform.dx/dy = (0.5, 0.5); matching the face and ticks.
-	// effectId=1 will drive time-based rotation in the vertex shader.
+	// Hour numbers 1-12. canvas.text() is pre-build safe: reads getShape() for advance only.
+	// Y-up canvas: y = CY + r*cos(angle) places 12 at the top.
+	// ============================================================================================
+
+	auto font = osgx::make_ref<osgSlug::Font>("font/Orbitron-VariableFont_wght.ttf", atlas);
+
+	if(!font->load()) return 1;
+
+	for(int i = 1; i <= 12; i++) {
+		const double angle = (i % 12) / 12.0 * 2.0 * M_PI;
+		const slug_t nx = CX + cv(std::sin(angle)) * NUM_R;
+		const slug_t ny = CY + cv(std::cos(angle)) * NUM_R;
+
+		canvas.text(
+			std::to_string(i), FONT_SIZE, nx, ny,
+			{0.12_cv, 0.12_cv, 0.18_cv, 1_cv},
+			font->metrics(),
+			slughorn::canvas::TextAnchorY::CapCenter,
+			slughorn::canvas::TextAlignX::Center
+		);
+	}
+
+	// ============================================================================================
+	// Hands - capture layer index before each stroke so we can patch effectId after finalize.
+	// Numbers are already accumulated above, so hands naturally render on top.
 	// ============================================================================================
 
 	canvas.beginPath();
 	canvas.moveTo(CX, CY);
-	canvas.lineTo(CX, CY - HAND_LENGTH);
-	canvas.stroke(
-		HAND_WIDTH,
-		{0.12_cv, 0.12_cv, 0.18_cv, 1_cv},
-		1_cv,
-		"clock_hand_shape",
-		slughorn::Atlas::ShapeInfo::Origin(CX, CY)
-	);
+	canvas.lineTo(CX, CY + HOUR_LENGTH);
+	canvas.stroke(HOUR_WIDTH, {0.12_cv, 0.12_cv, 0.18_cv, 1_cv}, 1_cv,
+		"clock_hour_hand", slughorn::Atlas::ShapeInfo::Origin(CX, CY));
+
+	canvas.beginPath();
+	canvas.moveTo(CX, CY);
+	canvas.lineTo(CX, CY + MIN_LENGTH);
+	canvas.stroke(MIN_WIDTH, {0.12_cv, 0.12_cv, 0.18_cv, 1_cv}, 1_cv,
+		"clock_minute_hand", slughorn::Atlas::ShapeInfo::Origin(CX, CY));
+
+	canvas.beginPath();
+	canvas.moveTo(CX, CY);
+	canvas.lineTo(CX, CY + SEC_LENGTH);
+	canvas.stroke(SEC_WIDTH, {0.85_cv, 0.15_cv, 0.10_cv, 1_cv}, 1_cv,
+		"clock_second_hand", slughorn::Atlas::ShapeInfo::Origin(CX, CY));
+
+	// ============================================================================================
+	// Build, finalize the single CompositeShape, then patch effectIds by name.
+	// ============================================================================================
 
 	atlas->build();
 	atlas->packTextures();
 
-	// ============================================================================================
-	// CompositeShape - all three layers share the clock centre as their world-space anchor.
-	//
-	// Centered origin (face, ticks) and Custom origin at (0.5, 0.5) (hand) both produce
-	// layer.transform.dx/dy = (0.5, 0.5), so computeQuad places every quad around the same
-	// point. The GPU rotation pivot for the hand is therefore automatically correct.
-	// ============================================================================================
+	auto clock = canvas.finalize();
 
-	const slughorn::Transform clockCenter{.x=CX, .y=CY};
-
-	slughorn::CompositeShape clock;
-
-	clock.layers.push_back(slughorn::Layer(
-		"clock_face_shape",
-		{0.95_cv, 0.92_cv, 0.82_cv, 1_cv},
-		clockCenter
-	));
-
-	clock.layers.push_back(slughorn::Layer(
-		"clock_ticks_shape",
-		{0.15_cv, 0.15_cv, 0.15_cv, 1_cv},
-		clockCenter
-	));
-
-	// effectId=1: VERT_SHADER above rotates this layer around sd.originData.xy by osg_SimulationTime.
-	clock.layers.push_back(slughorn::Layer(
-		"clock_hand_shape",
-		{0.12_cv, 0.12_cv, 0.18_cv, 1_cv},
-		clockCenter,
-		1_cv, // scale
-		1u   // effectId ("rotating hand")
-	));
+	clock.layer("clock_hour_hand").effectId   = 3;
+	clock.layer("clock_minute_hand").effectId = 2;
+	clock.layer("clock_second_hand").effectId = 1;
 
 	// ============================================================================================
 	// Render
@@ -154,11 +204,15 @@ int main(int argc, char** argv) {
 	auto sdg = osgx::make_ref<osg::Geode>();
 
 	sdg->addDrawable(sd);
-	sdg->setStateSet(atlas->createDefaultStateSet(example::USE_GL3, VERT_SHADER));
+
+	auto* ss = atlas->createDefaultStateSet(example::USE_GL3, VERT_SHADER);
+
+	sdg->setStateSet(ss);
 
 	auto mat = osgx::make_ref<osg::MatrixTransform>();
 
 	mat->addChild(sdg);
+	mat->setUpdateCallback(new ClockCallback(ss));
 
 	return example::run(viewer, args, mat);
 }
