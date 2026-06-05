@@ -1,9 +1,12 @@
 #include "osgSlug/Atlas.hpp"
 
-// #include "slughorn/serial.hpp"
+OSGSLUG_DISABLE_WARNINGS
 
 #include <osg/Image>
 #include <osg/BlendFunc>
+
+OSGSLUG_ENABLE_WARNINGS
+
 #include <stdexcept>
 #include <fstream>
 #include <sstream>
@@ -34,32 +37,66 @@ std::string readFile(const std::string& path) {
 	return ss.str();
 }
 
+std::string resolveLib(std::string src, const std::string& pragma, const std::string& lib) {
+	size_t pos = 0;
+
+	while((pos = src.find(pragma, pos)) != std::string::npos) {
+		src.replace(pos, pragma.size(), lib);
+
+		pos += lib.size();
+	}
+
+	return src;
+}
+
+std::string resolveLibs(std::string src) {
+	src = resolveLib(std::move(src), "#pragma osgSlug lib_vertex", osgSlug::Atlas::SHADER_LIB_VERTEX);
+	src = resolveLib(std::move(src), "#pragma osgSlug lib_fragment", osgSlug::Atlas::SHADER_LIB_FRAGMENT);
+
+	return src;
+}
+
+// Prepend `types` immediately after the #version directive in `src`.
+osg::Shader* makeVertShader(const std::string& src, const std::string& types) {
+	const std::string resolved = resolveLibs(src);
+	const auto vp = resolved.find("#version");
+	const auto nl = (vp != std::string::npos) ? resolved.find('\n', vp) : std::string::npos;
+
+	const std::string full = (nl != std::string::npos)
+		? resolved.substr(0, nl + 1) + types + resolved.substr(nl + 1)
+		: types + resolved
+	;
+
+	return new osg::Shader(osg::Shader::VERTEX, full);
+}
+
 }
 
 namespace osgSlug {
 
-// This is the default osgSlug SSBO shader "header"; make sure any GLSL source that needs access to
-// the structs osgSlug uses includes this!
-const std::string Atlas::SHADER_TYPES = R"(
-// Atlas-level shape data: static after packTextures(), never mutated at runtime.
-// One entry per unique shape in the atlas, indexed via LayerData.effectData.y.
+// Atlas-only SSBO types (binding 0). Safe to inject into any shader that needs AtlasShapeData
+// without conflicting with binding 1 declarations (LayerData vs DecalLayerData).
+const std::string Atlas::SHADER_ATLAS_TYPES = R"(
 struct AtlasShapeData {
-	vec4 bandXform; // xy = bandScaleX/Y, zw = bandOffsetX/Y
-	vec4 shapeData; // xy = glyphLoc (ivec2), zw = bandMax (ivec2)
+	vec4 bandXform;  // xy = bandScaleX/Y, zw = bandOffsetX/Y
+	vec4 shapeData;  // xy = glyphLoc (ivec2), zw = bandMax (ivec2)
 	vec4 originData; // xy = originX/Y, zw = unused
 };
 
+layout(std430, binding = 0) readonly buffer AtlasShapeBuffer {
+	AtlasShapeData atlasShapes[];
+};
+)";
+
+// Full SSBO types: SHADER_ATLAS_TYPES + per-layer data (binding 1) for the standard pipeline.
+const std::string Atlas::SHADER_TYPES = SHADER_ATLAS_TYPES + R"(
 // Per-layer data: one entry per layer in each drawable, indexed by (a_position.w - 1).
 // Slot order: slughorn contract first (color, gradient), osgSlug machinery last (effectData).
 struct LayerData {
 	vec4 color; // RGBA flat color
 	vec4 gradientMeta; // x = gradientId (1-based), yz = gradient center, w = r0_norm
-	vec4 gradientXform; // gradient transform (B matrix / direction / sweep)
-	vec4 effectData; // x = effectId, y = shapeIndex (into AtlasShapeBuffer), z = 0 (reserved), w = effectParam (user-settable)
-};
-
-layout(std430, binding = 0) readonly buffer AtlasShapeBuffer {
-	AtlasShapeData atlasShapes[];
+	vec4 gradientXform;// gradient transform (B matrix / direction / sweep)
+	vec4 effectData; // x = effectId, y = shapeIndex (into AtlasShapeBuffer), z = 0, w = effectParam
 };
 
 layout(std430, binding = 1) buffer LayerBuffer {
@@ -233,41 +270,10 @@ osg::StateSet* Atlas::createDefaultStateSet(
 	auto* ss = new osg::StateSet();
 	auto* program = new osg::Program();
 
-	// const std::string types = readFile("../src/osgSlug-types.glsl");
-	const std::string types = SHADER_TYPES;
-
-	// #version must be the first line in GLSL source. Insert the types block
-	// immediately after it, before the rest of the shader body.
-	auto resolveLib = [](std::string src, const std::string& pragma, const std::string& lib) {
-		size_t pos = 0;
-		while((pos = src.find(pragma, pos)) != std::string::npos) {
-			src.replace(pos, pragma.size(), lib);
-			pos += lib.size();
-		}
-		return src;
-	};
-
-	auto resolveLibs = [&resolveLib](std::string src) {
-		src = resolveLib(std::move(src), "#pragma osgSlug lib_vertex",   SHADER_LIB_VERTEX);
-		src = resolveLib(std::move(src), "#pragma osgSlug lib_fragment",  SHADER_LIB_FRAGMENT);
-		return src;
-	};
-
-	auto makeVertShader = [&](const std::string& src) {
-		const std::string resolved = resolveLibs(src);
-		const auto vp = resolved.find("#version");
-		const auto nl = (vp != std::string::npos) ? resolved.find('\n', vp) : std::string::npos;
-		const std::string full = (nl != std::string::npos)
-			? resolved.substr(0, nl + 1) + types + resolved.substr(nl + 1)
-			: types + resolved
-		;
-
-		return new osg::Shader(osg::Shader::VERTEX, full);
-	};
-
 	// GL3 effect units must be #version 330 core; swap any 430 declaration.
 	auto makeGL3EffectShader = [&](std::string src) {
 		src = resolveLibs(src);
+
 		const auto vp = src.find("#version");
 
 		if(vp != std::string::npos) {
@@ -288,8 +294,8 @@ osg::StateSet* Atlas::createDefaultStateSet(
 	}
 
 	else {
-		program->addShader(makeVertShader(readFile("../src/osgSlug-vert.glsl")));
-		program->addShader(makeVertShader(vertEffects));
+		program->addShader(makeVertShader(readFile("../src/osgSlug-vert.glsl"), SHADER_TYPES));
+		program->addShader(makeVertShader(vertEffects, SHADER_TYPES));
 	}
 
 	program->addShader(osg::Shader::readShaderFile(
@@ -308,12 +314,20 @@ osg::StateSet* Atlas::createDefaultStateSet(
 	ss->setTextureAttributeAndModes(0, _curveTexture, osg::StateAttribute::ON);
 	ss->setTextureAttributeAndModes(1, _bandTexture, osg::StateAttribute::ON);
 
-	if(_gradientTexture.valid()) {
-		ss->setTextureAttributeAndModes(3, _gradientTexture, osg::StateAttribute::ON);
-	}
+	if(_gradientTexture.valid()) ss->setTextureAttributeAndModes(
+		3,
+		_gradientTexture,
+		osg::StateAttribute::ON
+	);
+
 	if(_shapeBuffer.valid()) {
 		ss->setAttributeAndModes(
-			new osg::ShaderStorageBufferBinding(0, _shapeBuffer, 0, _shapeBuffer->getTotalDataSize()),
+			new osg::ShaderStorageBufferBinding(
+				0,
+				_shapeBuffer,
+				0,
+				_shapeBuffer->getTotalDataSize()
+			),
 			osg::StateAttribute::ON
 		);
 	}
@@ -331,6 +345,25 @@ osg::StateSet* Atlas::createDefaultStateSet(
 	));
 
 	return ss;
+}
+
+osg::Program* Atlas::createDecalProgram(
+	const std::string& vertEffects,
+	const std::string& fragEffects
+) const {
+	auto* program = new osg::Program();
+
+	// Inject only SHADER_ATLAS_TYPES (binding 0); the decal shader defines DecalLayerData
+	// and binding 1 itself, avoiding conflict with the standard LayerData / binding 1.
+	program->addShader(makeVertShader(readFile("../src/osgSlug-decal-vert.glsl"), SHADER_ATLAS_TYPES));
+	program->addShader(makeVertShader(vertEffects, SHADER_ATLAS_TYPES));
+	program->addShader(osg::Shader::readShaderFile(
+		osg::Shader::FRAGMENT,
+		"../src/osgSlug-frag.glsl"
+	));
+	program->addShader(new osg::Shader(osg::Shader::FRAGMENT, resolveLibs(fragEffects)));
+
+	return program;
 }
 
 }

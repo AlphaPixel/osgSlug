@@ -173,7 +173,7 @@ public:
 	// Full re-pack from a Layer struct. Re-runs gradient packing internally.
 	void updateLayer(size_t index, const slughorn::Layer& layer) override;
 
-	// Flush all accumulated writes to the GPU — all layers or just one.
+	// Flush all accumulated writes to the GPU; all layers or just one.
 	void dirtyLayers() override;
 	void dirtyLayers(size_t index) override;
 
@@ -209,60 +209,58 @@ protected:
 };
 
 // ------------------------------------------------------------------------------------------------
-// UVRect / SSBODecalDrawable
+// SSBODecalDrawable
 //
-// UVRect describes a sub-region of a [0,1]x[0,1] UV surface. SSBODecalDrawable extends
-// SSBOSubdividedDrawable so that each layer can be placed at a specific UV sub-region ("decal")
-// instead of always covering the full surface.
+// Extends SSBOSubdividedDrawable for sphere-surface decals. Each layer is placed at a lat/lon
+// position using a tangent-frame SSBO (7 Vec4s per layer instead of 4). The vertex shader
+// reconstructs world-space position from the tangent frame - no per-vertex sphere math on CPU.
 //
-// Full-surface layers (default UVRect) are backwards compatible with SSBOSubdividedDrawable.
+// Requires the osgSlug-ssbo-decal-{vert,frag}.glsl shaders (set automatically in compile()).
 // ------------------------------------------------------------------------------------------------
-
-struct UVRect {
-	slug_t u0 = 0_cv, v0 = 0_cv;
-	slug_t u1 = 1_cv, v1 = 1_cv;
-
-	// Convenience factory for SphereDrawable lat/lon placement.
-	// latDeg in [-90, 90], lonDeg in [-180, 180]; halfSizeDeg is the angular half-extent.
-	// SphereDrawable UV mapping: u = (lonDeg + 180) / 360, v = (latDeg + 90) / 180.
-	static UVRect fromLatLon(
-		float latDeg, float lonDeg,
-		float halfSizeDeg, float halfHeightDeg = -1.f
-	) {
-		if(halfHeightDeg < 0.f) halfHeightDeg = halfSizeDeg;
-		// Compensate for equirectangular longitude compression at this latitude.
-		const float cosLat  = std::cos(latDeg * M_PIf / 180.f);
-		const float halfLon = halfSizeDeg / cosLat;
-		const float u = (lonDeg + 180.f) / 360.f;
-		const float v = (latDeg  +  90.f) / 180.f;
-		return {
-			cv(u - halfLon       / 360.f), cv(v - halfHeightDeg / 180.f),
-			cv(u + halfLon       / 360.f), cv(v + halfHeightDeg / 180.f)
-		};
-	}
-};
-
-class SSBODecalDrawable : public SSBOSubdividedDrawable {
+class SSBODecalDrawable: public SSBOSubdividedDrawable {
 public:
-	SSBODecalDrawable() = default;
+	SSBODecalDrawable(slug_t radius=1_cv): _radius(radius) {}
 
-	// Full-surface layer — identical to SSBOSubdividedDrawable behaviour.
-	void addLayer(const slughorn::Layer& layer) {
-		_decalLayers.push_back({layer, UVRect{}});
-		_layers.push_back(layer);
-	}
+	void setRadius(slug_t radius) { _radius = radius; }
 
-	// Decal layer placed at the given UV sub-region.
-	void addLayer(const slughorn::Layer& layer, const UVRect& rect) {
-		_decalLayers.push_back({layer, rect});
-		_layers.push_back(layer);
-	}
+	// Add a decal layer at the given lat/lon on the sphere.
+	// halfHeightDeg < 0 uses halfWidthDeg for both dimensions.
+	void addDecal(
+		const slughorn::Layer& layer,
+		slug_t latDeg,
+		slug_t lonDeg,
+		slug_t halfWidthDeg,
+		slug_t halfHeightDeg=-1_cv
+	);
 
+	// Reposition an existing decal without recompiling.
+	void updateDecalPosition(
+		size_t index,
+		slug_t latDeg,
+		slug_t lonDeg,
+		slug_t halfWidthDeg,
+		slug_t halfHeightDeg=-1_cv
+	);
+
+	// Reposition + rotate an existing decal without recompiling.
+	void setDecalTransform(
+		size_t index,
+		slug_t latDeg,
+		slug_t lonDeg,
+		slug_t halfWidthDeg,
+		slug_t halfHeightDeg=-1_cv,
+		slug_t rotationAngle=0_cv
+	);
+
+	void updateLayer(size_t index, const slughorn::Layer& layer) override;
 	void compile() override;
 
 private:
-	struct DecalLayer { slughorn::Layer layer; UVRect rect; };
-	std::vector<DecalLayer> _decalLayers;
+	struct Anchor { slug_t latDeg, lonDeg, halfWidthDeg, halfHeightDeg; };
+	struct DecalEntry { slughorn::Layer layer; Anchor anchor; };
+
+	std::vector<DecalEntry> _decalEntries;
+	slug_t _radius = 1_cv;
 };
 
 // ------------------------------------------------------------------------------------------------

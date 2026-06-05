@@ -96,7 +96,7 @@ void Text::compile() {
 			}
 
 			const uint32_t key = static_cast<uint32_t>(static_cast<unsigned char>(ch));
-			const slughorn::Atlas::Shape* shape = _atlas->getShape(key);
+			const auto shape = _atlas->getShape(key);
 
 			if(!shape) {
 				cursorX += 0.5_cv * _fontSize;

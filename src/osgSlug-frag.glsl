@@ -37,7 +37,11 @@ out vec4 color;
 // The host sets it once at setup: osgSlug_texWidth = __builtin_ctz(atlas.getTextureWidth())
 // (or a portable equivalent). All uses below >> TEX_WIDTH and (1 << TEX_WIDTH) - 1 stay
 // the same, just referencing the uniform instead.
-#define TEX_WIDTH 9
+// #define TEX_WIDTH 8 // TEX_WIDTH == 256
+#define TEX_WIDTH 9 // TEX_WIDTH == 512
+// #define TEX_WIDTH 10 // TEX_WIDTH == 1024
+// #define TEX_WIDTH 11 // TEX_WIDTH == 2048
+// #define TEX_WIDTH 12 // TEX_WIDTH == 4096
 
 // Must match slughorn::Atlas::INDIRECTION_SIZE.
 #define SLUG_INDIRECTION_SIZE 32
@@ -391,7 +395,7 @@ vec4 slug_ApplyDebug(
 		return vec4(mix(layerColor.rgb, 1.0 - layerColor.rgb, atEdge), fill * layerColor.a);
 	}
 
-	// TODO: Mode 3 is handled in main() — move here when discard/early-return can be avoided.
+	// TODO: Mode 3 is handled in main(); move here when discard/early-return can be avoided.
 
 	// Heatmap shared by modes 4 and 5.
 	const int maxIterations = 24;
@@ -450,12 +454,12 @@ void main() {
 	ivec2 glyphLoc = ivec2(v_shapeData.xy);
 	ivec2 bandMax = ivec2(v_shapeData.zw);
 
-	// fwidth on the raw varying — no discontinuities. osgSlug_FragEmCoord may scale it for
+	// fwidth on the raw varying, no discontinuities. osgSlug_FragEmCoord may scale it for
 	// effects like tiling (where fract would make fwidth unreliable at tile boundaries).
 	vec2 emsPerPixel = fwidth(v_emCoord);
 
 	// Allow effects to remap em-coords (e.g. fract-based GPU tiling). Gradients and debug
-	// visualisation stay on the raw v_emCoord — only coverage sampling uses renderCoord.
+	// visualisation stay on the raw v_emCoord; only coverage sampling uses renderCoord.
 	vec2 renderCoord = osgSlug_FragEmCoord(v_emCoord, emsPerPixel, v_effectId, osg_SimulationTime);
 
 	vec2 pixelsPerEm = 1.0 / emsPerPixel;

@@ -67,6 +67,7 @@ static void ssboSetLayerColor(
 	const slughorn::Color& color
 ) {
 	layers[index].color = color;
+
 	(*buf)[0] = Vec4(color.r, color.g, color.b, color.a);
 }
 
@@ -77,6 +78,7 @@ static void ssboSetLayerEffectId(
 	uint32_t effectId
 ) {
 	layers[index].effectId = effectId;
+
 	(*buf)[3].x() = cv(effectId);
 }
 
@@ -122,7 +124,7 @@ void GL3ShapeDrawable::compile() {
 	size_t index = 0;
 
 	for(const auto& layer : _layers) {
-		const auto* shape = _atlas->getShape(layer.key);
+		const auto shape = _atlas->getShape(layer.key);
 
 		if(!shape) continue;
 
@@ -269,7 +271,7 @@ void GL3ShapeDrawable::updateLayer(size_t index, const slughorn::Layer& layer) {
 
 	_layers[index] = layer;
 
-	const auto* shape = _atlas->getShape(layer.key);
+	const auto shape = _atlas->getShape(layer.key);
 	const auto [gmeta, gxform] = buildGradientData(*_atlas, layer);
 
 	const Vec4 c(layer.color.r, layer.color.g, layer.color.b, layer.color.a);
@@ -286,7 +288,7 @@ void GL3ShapeDrawable::updateLayer(size_t index, const slughorn::Layer& layer) {
 void GL3ShapeDrawable::setLayerGradientTransform(size_t index, const slughorn::Matrix& m) {
 	if(index >= _layers.size() || !_atlas) return;
 
-	auto* gradMeta  = static_cast<osgx::Vec4Array*>(getVertexAttribArray(6));
+	auto* gradMeta = static_cast<osgx::Vec4Array*>(getVertexAttribArray(6));
 	auto* gradXforms = static_cast<osgx::Vec4Array*>(getVertexAttribArray(7));
 
 	if(!gradMeta || !gradXforms || (index + 1) * 4 > gradMeta->size()) return;
@@ -296,12 +298,13 @@ void GL3ShapeDrawable::setLayerGradientTransform(size_t index, const slughorn::M
 	if(layer.gradientId <= 0) return;
 
 	slughorn::GradientInfo tmp = _atlas->getGradients()[layer.gradientId - 1];
+
 	tmp.transform = m;
 
 	const auto [gmeta, gxform] = buildGradientDataFromInfo(layer.gradientId, tmp);
 
 	for(size_t v = 0; v < 4; v++) {
-		(*gradMeta)[index * 4 + v]   = gmeta;
+		(*gradMeta)[index * 4 + v] = gmeta;
 		(*gradXforms)[index * 4 + v] = gxform;
 	}
 }
@@ -330,7 +333,7 @@ void BoxDrawable::compile() {
 
 	auto addFace = [&](Vec3 p0, Vec3 p1, Vec3 p2, Vec3 p3, size_t index) {
 		const auto& layer = _layers[index];
-		const auto* shape = atlas->getShape(layer.key);
+		const auto shape = atlas->getShape(layer.key);
 
 		if(!shape) return;
 
@@ -360,7 +363,7 @@ void BoxDrawable::compile() {
 
 		Vec3 ps[4] = {p0, p1, p2, p3};
 
-		slug_t uvs[4][2] = {{0, 0}, {1, 0}, {1, 1}, {0, 1}};
+		slug_t uvs[4][2] = {{0_cv, 0_cv}, {1_cv, 0_cv}, {1_cv, 1_cv}, {0_cv, 1_cv}};
 
 		for(size_t i = 0; i < 4; i++) {
 			vertices->push_back(osg::Vec4(ps[i].x(), ps[i].y(), ps[i].z(), lidx));
@@ -440,7 +443,7 @@ void GL3SubdividedDrawable::compile() {
 	size_t index = 0;
 
 	for(const auto& layer : _layers) {
-		const auto* shape = atlas->getShape(layer.key);
+		const auto shape = atlas->getShape(layer.key);
 
 		if(!shape) { index++; continue; }
 
@@ -615,7 +618,7 @@ void SSBOShapeDrawable::compile() {
 	size_t index = 0;
 
 	for(const auto& layer : _layers) {
-		const auto* shape = _atlas->getShape(layer.key);
+		const auto shape = _atlas->getShape(layer.key);
 
 		if(!shape) { index++; continue; }
 
@@ -764,7 +767,7 @@ void SSBOSubdividedDrawable::compile() {
 	size_t index = 0;
 
 	for(const auto& layer : _layers) {
-		const auto* shape = atlas->getShape(layer.key);
+		const auto shape = atlas->getShape(layer.key);
 
 		if(!shape) { index++; continue; }
 
@@ -905,6 +908,7 @@ void SSBOSubdividedDrawable::setLayerGradientTransform(size_t index, const slugh
 	if(layer.gradientId <= 0) return;
 
 	slughorn::GradientInfo tmp = _atlas->getGradients()[layer.gradientId - 1];
+
 	tmp.transform = m;
 
 	const auto [gmeta, gxform] = buildGradientDataFromInfo(layer.gradientId, tmp);
@@ -922,10 +926,149 @@ void SSBOSubdividedDrawable::dirtyLayers(size_t index) {
 	if(index < _layerBuffers.size() && _layerBuffers[index]) _layerBuffers[index]->dirty();
 }
 
+// ------------------------------------------------------------------------------------------------
+// SSBODecalDrawable
+// ------------------------------------------------------------------------------------------------
+
+namespace {
+
+// Compute the tangent frame for a sphere decal at (latDeg, lonDeg).
+// center.xyz = unit-sphere point, center.w = radius.
+// tangentEast/North are already scaled so that lu/lv ? [-0.5, 0.5] maps to
+// +-halfWidthDeg / +-halfHeightDeg arc on the sphere surface.
+void computeDecalTangentFrame(
+	float latDeg,
+	float lonDeg,
+	float halfWidthDeg,
+	float halfHeightDeg,
+	float radius,
+	osg::Vec4& center,
+	osg::Vec4& tangentEast,
+	osg::Vec4& tangentNorth
+) {
+	const float lat = latDeg * M_PIf / 180.f;
+	const float lon = lonDeg * M_PIf / 180.f;
+	const float cx = std::cos(lat) * std::cos(lon);
+	const float cy = std::sin(lat);
+	const float cz = std::cos(lat) * std::sin(lon);
+
+	// Unit east tangent: ?pos/?lon (normalized)
+	const float ex = -std::sin(lon);
+	// ey = 0
+	const float ez = std::cos(lon);
+
+	// Unit north tangent: ?pos/?lat (normalized)
+	const float nx = -std::sin(lat) * std::cos(lon);
+	const float ny = std::cos(lat);
+	const float nz = -std::sin(lat) * std::sin(lon);
+
+	// Scale: lu ? [-0.5, 0.5] -> arc = radius x halfDeg_rad at edge
+	// so fullScale = 2 x radius x halfDeg_rad
+	const float scaleW = 2.f * radius * halfWidthDeg * M_PIf / 180.f;
+	const float scaleH = 2.f * radius * halfHeightDeg * M_PIf / 180.f;
+
+	center = osg::Vec4(cx, cy, cz, radius);
+	tangentEast = osg::Vec4(ex * scaleW, 0.f, ez * scaleW, 0.f);
+	tangentNorth = osg::Vec4(nx * scaleH, ny * scaleH, nz * scaleH, 0.f);
+}
+
+}
+
+void SSBODecalDrawable::addDecal(
+	const slughorn::Layer& layer,
+	float latDeg,
+	float lonDeg,
+	float halfWidthDeg,
+	float halfHeightDeg
+) {
+	_decalEntries.push_back({layer, {latDeg, lonDeg, halfWidthDeg, halfHeightDeg}});
+	_layers.push_back(layer);
+}
+
+void SSBODecalDrawable::updateDecalPosition(
+	size_t index,
+	float latDeg,
+	float lonDeg,
+	float halfWidthDeg,
+	float halfHeightDeg
+) {
+	if(index >= _decalEntries.size() || index >= _layerBuffers.size()) return;
+
+	auto& entry = _decalEntries[index];
+	entry.anchor = {latDeg, lonDeg, halfWidthDeg, halfHeightDeg};
+
+	const float halfH = halfHeightDeg < 0.f ? halfWidthDeg : halfHeightDeg;
+
+	osg::Vec4 center, tangentEast, tangentNorth;
+
+	computeDecalTangentFrame(latDeg, lonDeg, halfWidthDeg, halfH, cv(_radius), center, tangentEast, tangentNorth);
+
+	auto& buf = *_layerBuffers[index];
+
+	buf[4] = center;
+	buf[5] = tangentEast;
+	buf[6] = tangentNorth;
+
+	dirtyLayers(index);
+}
+
+void SSBODecalDrawable::setDecalTransform(
+	size_t index,
+	float latDeg,
+	float lonDeg,
+	float halfWidthDeg,
+	float halfHeightDeg,
+	float rotationAngle
+) {
+	if(index >= _decalEntries.size() || index >= _layerBuffers.size()) return;
+
+	auto& entry = _decalEntries[index];
+	entry.anchor = {latDeg, lonDeg, halfWidthDeg, halfHeightDeg};
+
+	const float halfH = halfHeightDeg < 0.f ? halfWidthDeg : halfHeightDeg;
+
+	osg::Vec4 center, Te, Tn;
+
+	computeDecalTangentFrame(latDeg, lonDeg, halfWidthDeg, halfH, cv(_radius), center, Te, Tn);
+
+	if(rotationAngle != 0.f) {
+		const float c = std::cos(rotationAngle);
+		const float s = std::sin(rotationAngle);
+		const osg::Vec3 te(Te.x(), Te.y(), Te.z());
+		const osg::Vec3 tn(Tn.x(), Tn.y(), Tn.z());
+
+		Te = osg::Vec4(c*te.x() + s*tn.x(), c*te.y() + s*tn.y(), c*te.z() + s*tn.z(), 0.f);
+		Tn = osg::Vec4(-s*te.x() + c*tn.x(), -s*te.y() + c*tn.y(), -s*te.z() + c*tn.z(), 0.f);
+	}
+
+	auto& buf = *_layerBuffers[index];
+
+	buf[4] = center;
+	buf[5] = Te;
+	buf[6] = Tn;
+
+	dirtyLayers(index);
+}
+
+void SSBODecalDrawable::updateLayer(size_t index, const slughorn::Layer& layer) {
+	if(index >= _decalEntries.size()) return;
+
+	_decalEntries[index].layer = layer;
+
+	SSBOSubdividedDrawable::updateLayer(index, layer);
+}
+
 void SSBODecalDrawable::compile() {
 	auto* atlas = getAtlas();
 
-	if(!atlas || !atlas->isBuilt() || _decalLayers.empty()) return;
+	if(!atlas || !atlas->isBuilt() || _decalEntries.empty()) return;
+
+	// Set the decal program on this drawable's StateSet; it overrides the parent Geode's
+	// program for this drawable only. The Geode still provides textures and uniforms.
+	getOrCreateStateSet()->setAttributeAndModes(
+		atlas->createDecalProgram(),
+		osg::StateAttribute::ON
+	);
 
 	auto vertices = osgx::make_ref<osgx::Vec4Array>();
 	auto emCoords = osgx::make_ref<osgx::Vec4Array>();
@@ -938,20 +1081,13 @@ void SSBODecalDrawable::compile() {
 	index_element_type base = 0;
 	size_t index = 0;
 
-	for(const auto& [layer, rect] : _decalLayers) {
-		const auto* shape = atlas->getShape(layer.key);
+	for(const auto& [layer, anchor] : _decalEntries) {
+		const auto shape = atlas->getShape(layer.key);
 
 		if(!shape) { index++; continue; }
 
 		const slug_t expand = layer.expand;
 		const auto q = shape->computeQuad(layer.transform, layer.scale, expand);
-
-		PositionCallback posFn = _positionCallback
-			? _positionCallback
-			: PositionCallback([q](slug_t u, slug_t v) -> Vec3 {
-				return {q.x0 + u * (q.x1 - q.x0), q.y0 + v * (q.y1 - q.y0), 0_cv};
-			})
-		;
 
 		const auto emX0 = shape->bearingX - expand;
 		const auto emY0 = (shape->bearingY - shape->height) - expand;
@@ -971,17 +1107,15 @@ void SSBODecalDrawable::compile() {
 			throw std::runtime_error("SSBODecalDrawable: mesh exceeds index capacity");
 		}
 
+		// Vertex data: normalized [0,1]2 grid. World position is computed in the vertex shader
+		// from the tangent frame in the SSBO -- no sphere math on the CPU.
 		for(index_element_type sv = 0; sv <= _stepsV; sv++) {
 			const slug_t lv = cv(sv) / cv(_stepsV);
-			const slug_t v = rect.v0 + lv * (rect.v1 - rect.v0);
 
 			for(index_element_type su = 0; su <= _stepsU; su++) {
 				const slug_t lu = cv(su) / cv(_stepsU);
-				const slug_t u = rect.u0 + lu * (rect.u1 - rect.u0);
 
-				const auto p = posFn(u, v);
-
-				vertices->push_back({p.x(), p.y(), p.z(), lidx});
+				vertices->push_back({lu, lv, 0_cv, lidx});
 				emCoords->push_back({
 					emX0 + lu * (emX1 - emX0),
 					emY0 + lv * (emY1 - emY0),
@@ -990,14 +1124,34 @@ void SSBODecalDrawable::compile() {
 			}
 		}
 
+		// 7-Vec4 SSBO: [0..3] standard layer data, [4..6] tangent frame.
 		const auto [gmeta, gxform] = buildGradientData(*atlas, layer);
 		const slug_t shapeIdx = cv(atlas->getShapeIndex(layer.key));
 		auto layerBuf = osgx::make_ref<osgx::Vec4Array>();
 
-		layerBuf->push_back({layer.color.r, layer.color.g, layer.color.b, layer.color.a});
-		layerBuf->push_back(gmeta);
-		layerBuf->push_back(gxform);
-		layerBuf->push_back({cv(layer.effectId), shapeIdx, 0_cv, q.x1 - q.x0});
+		layerBuf->push_back({layer.color.r, layer.color.g, layer.color.b, layer.color.a}); // [0]
+		layerBuf->push_back(gmeta); // [1]
+		layerBuf->push_back(gxform); // [2]
+		layerBuf->push_back({cv(layer.effectId), shapeIdx, 0_cv, q.x1 - q.x0}); // [3]
+
+		osg::Vec4 center, tangentEast, tangentNorth;
+
+		const float halfH = anchor.halfHeightDeg < 0.f ? anchor.halfWidthDeg : anchor.halfHeightDeg;
+
+		computeDecalTangentFrame(
+			anchor.latDeg,
+			anchor.lonDeg,
+			anchor.halfWidthDeg,
+			halfH,
+			cv(_radius),
+			center,
+			tangentEast,
+			tangentNorth
+		);
+
+		layerBuf->push_back(center); // [4]
+		layerBuf->push_back(tangentEast); // [5]
+		layerBuf->push_back(tangentNorth); // [6]
 		layerBuf->setBufferObject(ssbo);
 
 		_layerBuffers.push_back(std::move(layerBuf));
@@ -1014,11 +1168,13 @@ void SSBODecalDrawable::compile() {
 				const auto tr = static_cast<index_element_type>(row1 + su + 1);
 
 				if(!((su + sv) & 1)) indices->append_range({tl, br, bl, tl, tr, br});
+
 				else indices->append_range({tr, br, bl, tl, tr, bl});
 			}
 		}
 
 		base += static_cast<index_element_type>(ni);
+
 		index++;
 	}
 
@@ -1032,7 +1188,7 @@ void SSBODecalDrawable::compile() {
 
 	addPrimitiveSet(indices);
 
-	const auto totalSize = static_cast<GLsizeiptr>(_layerBuffers.size() * 4 * sizeof(osg::Vec4));
+	const auto totalSize = static_cast<GLsizeiptr>(_layerBuffers.size() * 7 * sizeof(osg::Vec4));
 
 	getOrCreateStateSet()->setAttributeAndModes(
 		new osg::ShaderStorageBufferBinding(1, _layerBuffers[0], 0, totalSize),

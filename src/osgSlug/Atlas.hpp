@@ -59,12 +59,21 @@ public:
 
 	static const std::string SHADER_NOOP_VERTEX;
 	static const std::string SHADER_NOOP_FRAGMENT;
-	static const std::string SHADER_TYPES;
+	static const std::string SHADER_ATLAS_TYPES; // AtlasShapeData + binding 0 only
+	static const std::string SHADER_TYPES; // SHADER_ATLAS_TYPES + LayerData + binding 1
 	static const std::string SHADER_LIB_VERTEX;
 	static const std::string SHADER_LIB_FRAGMENT;
 
 	osg::StateSet* createDefaultStateSet(
 		bool useGL3=false,
+		const std::string& vertEffects=SHADER_NOOP_VERTEX,
+		const std::string& fragEffects=SHADER_NOOP_FRAGMENT
+	) const;
+
+	// Returns a Program that uses the tangent-plane decal vertex shader.
+	// Set this on an SSBODecalDrawable's StateSet to override the parent Geode's program.
+	// (SSBODecalDrawable::compile() calls this automatically.)
+	osg::Program* createDecalProgram(
 		const std::string& vertEffects=SHADER_NOOP_VERTEX,
 		const std::string& fragEffects=SHADER_NOOP_FRAGMENT
 	) const;
