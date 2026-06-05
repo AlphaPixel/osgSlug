@@ -57,23 +57,25 @@ int main(int argc, char** argv) {
 
 	auto key = canvas.stroke(0.35_cv, {}); */
 
-	// Example 4: A "punched out", stroked chevron...
-	canvas.beginPath();
-
 	// First, we stroke a single, fat chevron using the default CCW winding.
-	canvas.moveTo(0.1_cv, 0.1_cv);
-	canvas.lineTo(0.5_cv, 0.5_cv);
-	canvas.lineTo(0.9_cv, 0.1_cv);
-	canvas.strokePath(0.35_cv);
+	canvas
+		.beginPath()
+		.moveTo(0.1_cv, 0.1_cv)
+		.lineTo(0.5_cv, 0.5_cv)
+		.lineTo(0.9_cv, 0.1_cv)
+		.strokePath(0.35_cv)
+	;
 
 	// Second, we stroke (essentially) the exact same chevron shape, only slightly offset; we use a
 	// smaller "stroke size", and CW winding. When osgSlug evaluates the coverag using the
 	// "non-zero" rule, it determines the OVERLAPPING AREA should be SKIPPED (achieving a kind of
 	// "punch out" effect).
-	canvas.moveTo(0.135_cv, 0.135_cv);
-	canvas.lineTo(0.5_cv, 0.5_cv);
-	canvas.lineTo(0.865_cv, 0.135_cv);
-	canvas.strokePath(0.25_cv, true);
+	canvas
+		.moveTo(0.135_cv, 0.135_cv)
+		.lineTo(0.5_cv, 0.5_cv)
+		.lineTo(0.865_cv, 0.135_cv)
+		.strokePath(0.25_cv, true)
+	;
 
 	/* // Arm direction from left tip toward apex: (0.707, 0.707)
 	// Inset by roughly innerHalfWidth (0.125) so the inner cap sits inside the outer body

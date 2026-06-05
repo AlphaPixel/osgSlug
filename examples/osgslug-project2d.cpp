@@ -92,7 +92,7 @@ public:
 	void compile() override {
 		if(!_atlas || !_atlas->isBuilt()) return;
 
-		const auto* shape = _atlas->getShape(UNIT_SQUARE_KEY);
+		const auto shape = _atlas->getShape(UNIT_SQUARE_KEY);
 
 		if(!shape) return;
 
@@ -475,7 +475,7 @@ int main(int argc, char** argv) {
 	atlas->build();
 	atlas->packTextures();
 
-	const osgSlug::Atlas::Shape* shape = atlas->getShape(KEY);
+	const auto shape = atlas->getShape(KEY);
 
 	if(shape) {
 		std::cout

@@ -58,7 +58,7 @@ int main(int argc, char** argv) {
 	auto sd = example::makeShapeDrawable();
 
 	if(shape.size()) {
-		const slughorn::Atlas::Shape* s = atlas->getShape(key);
+		const auto s = atlas->getShape(key);
 
 		if(s) {
 			OSG_NOTICE << "Found Shape: w=" << s->width

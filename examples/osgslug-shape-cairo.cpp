@@ -700,7 +700,7 @@ int main(int argc, char** argv) {
     atlas->build();
     atlas->packTextures();
 
-    const osgSlug::Atlas::Shape* shape = atlas->getShape(PIECE_KEY);
+    const auto shape = atlas->getShape(PIECE_KEY);
 
     if(shape) {
         std::cout

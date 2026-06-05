@@ -311,7 +311,7 @@ int main(int argc, char** argv) {
 
 	// Debug: dump each layer and its resolved atlas shape.
 	for(const auto& layer : axolotl.layers) {
-		const auto* s = atlas->getShape(layer.key);
+		const auto s = atlas->getShape(layer.key);
 
 		if(s) std::cout << layer << std::endl << " " << *s << std::endl;
 	}

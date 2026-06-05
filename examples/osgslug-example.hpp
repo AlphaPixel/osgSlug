@@ -10,6 +10,8 @@ OSGSLUG_DISABLE_WARNINGS
 
 #include <osg/MatrixTransform>
 
+#include <osgGA/StateSetManipulator>
+
 #include <osgViewer/Viewer>
 #include <osgViewer/ViewerEventHandlers>
 
@@ -222,6 +224,7 @@ inline auto run(
 	}
 
 	viewer.addEventHandler(new osgViewer::StatsHandler());
+	viewer.addEventHandler(new osgGA::StateSetManipulator(viewer.getCamera()->getOrCreateStateSet()));
 
 	return viewer.run();
 }

@@ -28,7 +28,7 @@ int main(int argc, char** argv) {
 
 	std::string svgFile = args[1];
 
-	auto atlas = osgx::make_ref<osgSlug::Atlas>();
+	auto atlas = osgx::make_ref<osgSlug::Atlas>(512);
 
 	slughorn::KeyIterator baseKey{};
 	// uint32_t baseKey = 0x0;
@@ -56,7 +56,7 @@ int main(int argc, char** argv) {
 
 	// Debug: dump each layer and its resolved atlas shape.
 	for(const auto& layer : logo.layers) {
-		const auto* s = atlas->getShape(layer.key);
+		const auto s = atlas->getShape(layer.key);
 
 		if(s) OSG_NOTICE << layer << std::endl << " " << *s << std::endl;
 	}
