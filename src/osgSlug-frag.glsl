@@ -29,19 +29,8 @@ uniform int osgSlug_layerMask;
 
 out vec4 color;
 
-// Hardcoded to log2(512) = 9, matching the default Atlas() constructor.
-// When osgSlug is ready to support non-default atlas widths, replace this define with a uniform:
-//
-// uniform int osgSlug_texWidth; // = log2(atlas.getTextureWidth())
-//
-// The host sets it once at setup: osgSlug_texWidth = __builtin_ctz(atlas.getTextureWidth())
-// (or a portable equivalent). All uses below >> TEX_WIDTH and (1 << TEX_WIDTH) - 1 stay
-// the same, just referencing the uniform instead.
-// #define TEX_WIDTH 8 // TEX_WIDTH == 256
-#define TEX_WIDTH 9 // TEX_WIDTH == 512
-// #define TEX_WIDTH 10 // TEX_WIDTH == 1024
-// #define TEX_WIDTH 11 // TEX_WIDTH == 2048
-// #define TEX_WIDTH 12 // TEX_WIDTH == 4096
+// log2(atlas.getTextureWidth()); set by Atlas::createDefaultStateSet() via __builtin_ctz.
+uniform int osgSlug_texWidth;
 
 // Must match slughorn::Atlas::INDIRECTION_SIZE.
 #define SLUG_INDIRECTION_SIZE 32
@@ -100,8 +89,8 @@ vec2 slug_SolveVertPoly(vec4 p12, vec2 p3) {
 ivec2 slug_CalcBandLoc(ivec2 glyphLoc, uint offset) {
 	ivec2 bandLoc = ivec2(glyphLoc.x + int(offset), glyphLoc.y);
 
-	bandLoc.y += bandLoc.x >> TEX_WIDTH;
-	bandLoc.x &= (1 << TEX_WIDTH) - 1;
+	bandLoc.y += bandLoc.x >> osgSlug_texWidth;
+	bandLoc.x &= (1 << osgSlug_texWidth) - 1;
 
 	return bandLoc;
 }

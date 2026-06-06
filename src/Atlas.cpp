@@ -7,6 +7,7 @@ OSGSLUG_DISABLE_WARNINGS
 
 OSGSLUG_ENABLE_WARNINGS
 
+#include <bit>
 #include <stdexcept>
 #include <fstream>
 #include <sstream>
@@ -37,10 +38,55 @@ std::string readFile(const std::string& path) {
 	return ss.str();
 }
 
+std::string_view::size_type caseInsensitiveFind(
+	std::string_view haystack,
+	std::string_view needle,
+	std::string_view::size_type pos=0
+) {
+	if(pos > haystack.size()) return std::string_view::npos;
+
+	const auto equalIgnoringCase = [](char lhs, char rhs) noexcept {
+		const auto lhsUnsigned = static_cast<unsigned char>(lhs);
+		const auto rhsUnsigned = static_cast<unsigned char>(rhs);
+
+		return std::tolower(lhsUnsigned) == std::tolower(rhsUnsigned);
+	};
+
+	const std::string_view tail = haystack.substr(pos);
+
+	const auto it = std::search(
+		tail.begin(),
+		tail.end(),
+		needle.begin(),
+		needle.end(),
+		equalIgnoringCase
+	);
+
+	if(it == tail.end()) return std::string_view::npos;
+
+	return pos + static_cast<std::string_view::size_type>(
+		std::distance(tail.begin(), it)
+	);
+}
+
+/* size_t caseInsensitiveFind(const std::string& hay, const std::string& needle, size_t pos=0) {
+	auto it = std::search(
+		hay.begin() + pos,
+		hay.end(),
+		needle.begin(),
+		needle.end(),
+		[](char a, char b) { return std::tolower(
+			static_cast<unsigned char>(a) == std::tolower(static_cast<unsigned char>(b)
+		); }
+	);
+
+	return it == hay.end() ? std::string::npos : static_cast<size_t>(std::distance(hay.begin(), it));
+} */
+
 std::string resolveLib(std::string src, const std::string& pragma, const std::string& lib) {
 	size_t pos = 0;
 
-	while((pos = src.find(pragma, pos)) != std::string::npos) {
+	while((pos = caseInsensitiveFind(src, pragma, pos)) != std::string::npos) {
 		src.replace(pos, pragma.size(), lib);
 
 		pos += lib.size();
@@ -310,6 +356,7 @@ osg::StateSet* Atlas::createDefaultStateSet(
 	ss->addUniform(new osg::Uniform("osgSlug_effectTexture", 2));
 	ss->addUniform(new osg::Uniform("osgSlug_gradientTexture", 3));
 	ss->addUniform(new osg::Uniform("osgSlug_gradientCount", static_cast<int>(getGradients().size())));
+	ss->addUniform(new osg::Uniform("osgSlug_texWidth", static_cast<int>(std::countr_zero(getTextureWidth()))));
 	ss->addUniform(new osg::Uniform("osgSlug_emTile", osg::Vec2(1.0f, 1.0f)));
 	ss->setTextureAttributeAndModes(0, _curveTexture, osg::StateAttribute::ON);
 	ss->setTextureAttributeAndModes(1, _bandTexture, osg::StateAttribute::ON);
