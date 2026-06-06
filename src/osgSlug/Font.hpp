@@ -23,10 +23,10 @@ namespace osgSlug {
 //
 // Usage:
 //
-//   osg::ref_ptr<Atlas> atlas = new Atlas();
-//   osg::ref_ptr<Font> font = new Font("Roboto-Regular.ttf", atlas);
-//   font->load(); // FreeType runs; skips any key already in the atlas
-//   atlas->build(); // pack textures; atlas is now frozen
+// osg::ref_ptr<Atlas> atlas = new Atlas();
+// osg::ref_ptr<Font> font = new Font("Roboto-Regular.ttf", atlas);
+// font->load(); // FreeType runs; skips any key already in the atlas
+// atlas->build(); // pack textures; atlas is now frozen
 //
 // TODO: Investigate how necessary this comment it; should we change this contract?
 // The atlas is owned externally; Font holds a non-owning raw pointer.
@@ -38,16 +38,16 @@ namespace osgSlug {
 //
 // COLR support:
 //
-//   v0 - flat layer list via FT_Get_Color_Glyph_Layer (Twemoji etc.)
-//   v1 - paint graph via FT_Get_Color_Glyph_Paint, supporting:
-//          PaintColrLayers   layer container
-//          PaintGlyph        outline + child paint
-//          PaintSolid        flat color fill
-//          PaintTransform    affine transform baked into curve coords
-//          PaintTranslate    translation baked into curve coords
-//          PaintComposite    both paints rendered, blend mode ignored
-//          PaintLinearGradient / PaintRadialGradient / PaintSweepGradient
-//          first color stop used as flat approximation
+// v0 - flat layer list via FT_Get_Color_Glyph_Layer (Twemoji etc.)
+// v1 - paint graph via FT_Get_Color_Glyph_Paint, supporting:
+//      PaintColrLayers - layer container
+//      PaintGlyph - outline + child paint
+//      PaintSolid - flat color fill
+//      PaintTransform - affine transform baked into curve coords
+//      PaintTranslate - translation baked into curve coords
+//      PaintComposite - both paints rendered, blend mode ignored
+//      PaintLinearGradient / PaintRadialGradient / PaintSweepGradient
+//      first color stop used as flat approximation
 //
 // Everything else is skipped (for now).
 class Font: public osg::Referenced {
@@ -60,7 +60,7 @@ public:
 	// atlas (e.g. custom shapes injected before load()) are skipped.
 	//
 	// Does nothing if called more than once.
-	bool load(const slughorn::freetype::LoadConfig& config={});
+	bool load(slughorn::freetype::LoadConfig* config=nullptr);
 
 	// Load COLR emoji from a font file (may be the same or different from
 	// the text font; e.g. NotoColorEmoji.ttf or Twemoji.Mozilla.ttf).

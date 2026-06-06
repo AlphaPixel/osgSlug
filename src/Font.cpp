@@ -34,7 +34,7 @@ _atlas(atlas) {
 
 Font::~Font() = default;
 
-bool Font::load(const slughorn::freetype::LoadConfig& config) {
+bool Font::load(slughorn::freetype::LoadConfig* config) {
 	if(_loaded) return true;
 
 	if(!_atlas) {
