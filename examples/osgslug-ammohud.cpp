@@ -220,7 +220,11 @@ int main(int argc, char** argv) {
 
 	auto font = osgx::make_ref<osgSlug::Font>("font/Orbitron-VariableFont_wght.ttf", atlas);
 
-	if(!font->load(slughorn::freetype::LoadConfig{.uniform=true})) return 1;
+	slughorn::freetype::LoadConfig config;
+
+	config.uniform = true;
+
+	if(!font->load(&config)) return 1;
 
 	atlas->build();
 	atlas->packTextures();

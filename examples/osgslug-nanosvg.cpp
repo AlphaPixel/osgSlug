@@ -28,7 +28,7 @@ int main(int argc, char** argv) {
 
 	std::string svgFile = args[1];
 
-	auto atlas = osgx::make_ref<osgSlug::Atlas>(512);
+	auto atlas = osgx::make_ref<osgSlug::Atlas>(uint32_t{1024});
 
 	slughorn::KeyIterator baseKey{};
 	// uint32_t baseKey = 0x0;
