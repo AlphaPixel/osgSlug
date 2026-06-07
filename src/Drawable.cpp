@@ -124,6 +124,8 @@ void GL3ShapeDrawable::compile() {
 	size_t index = 0;
 
 	for(const auto& layer : _layers) {
+		if(!layer.visible) continue;
+
 		const auto shape = _atlas->getShape(layer.key);
 
 		if(!shape) continue;
@@ -443,6 +445,8 @@ void GL3SubdividedDrawable::compile() {
 	size_t index = 0;
 
 	for(const auto& layer : _layers) {
+		if(!layer.visible) continue;
+
 		const auto shape = atlas->getShape(layer.key);
 
 		if(!shape) { index++; continue; }
@@ -618,6 +622,8 @@ void SSBOShapeDrawable::compile() {
 	size_t index = 0;
 
 	for(const auto& layer : _layers) {
+		if(!layer.visible) continue;
+
 		const auto shape = _atlas->getShape(layer.key);
 
 		if(!shape) { index++; continue; }
@@ -767,6 +773,8 @@ void SSBOSubdividedDrawable::compile() {
 	size_t index = 0;
 
 	for(const auto& layer : _layers) {
+		if(!layer.visible) continue;
+
 		const auto shape = atlas->getShape(layer.key);
 
 		if(!shape) { index++; continue; }
