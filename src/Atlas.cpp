@@ -162,6 +162,15 @@ vec3 osgSlug_Vertex_Rotate(vec3 pos, vec2 emCoord, vec2 origin, float angle) {
 	pos.xy = R * (pos.xy - pivot) + pivot;
 	return pos;
 }
+
+// Scale pos.xy uniformly around the Pivot origin.
+// Expects Origin::Pivot; origin is the pivot point in local em-space.
+// Pass a scalar expression (e.g. 1.0 + 0.18*sin(t)) as `scale`.
+vec3 osgSlug_Vertex_Scale(vec3 pos, vec2 emCoord, vec2 origin, float scale) {
+	vec2 pivot = pos.xy - emCoord.xy + origin;
+	pos.xy = (pos.xy - pivot) * scale + pivot;
+	return pos;
+}
 )";
 
 // Optional fragment helper library; include via: #pragma osgSlug lib_fragment
