@@ -114,6 +114,7 @@ target_include_directories(skia INTERFACE "${SKIA_DIR}")
 add_library(osgSlug
 	"src/Atlas.cpp"
 	"src/Drawable.cpp"
+	"src/InkDrawable.cpp"
 	"src/Font.cpp"
 	"src/Text.cpp"
 )
@@ -168,15 +169,18 @@ if(OSGSLUG_BUILD_EXAMPLES)
 		)
 		target_include_directories(${name} PRIVATE
 			"${CMAKE_CURRENT_SOURCE_DIR}/src"
+			"${CMAKE_SOURCE_DIR}/examples"
 			# "${CMAKE_SOURCE_DIR}/ext/nanosvg/src"
 		)
 	endfunction()
 
-	osgslug_example(osgslug-tmp SOURCES "examples/osgslug-tmp.cpp")
+	add_subdirectory("examples/tmp")
+
 	osgslug_example(osgslug-ssbo SOURCES "examples/osgslug-ssbo.cpp")
 	osgslug_example(osgslug-serial SOURCES "examples/osgslug-serial.cpp")
 	osgslug_example(osgslug-text SOURCES "examples/osgslug-text.cpp")
 	osgslug_example(osgslug-clock SOURCES "examples/osgslug-clock.cpp")
+	osgslug_example(osgslug-hud SOURCES "examples/osgslug-hud.cpp")
 	osgslug_example(osgslug-ammohud SOURCES "examples/osgslug-ammohud.cpp")
 	osgslug_example(osgslug-compute SOURCES "examples/osgslug-compute.cpp")
 	osgslug_example(osgslug-gradient-canvas SOURCES "examples/osgslug-gradient-canvas.cpp")
@@ -184,7 +188,7 @@ if(OSGSLUG_BUILD_EXAMPLES)
 	osgslug_example(osgslug-simple-3d SOURCES "examples/osgslug-simple-3d.cpp")
 	osgslug_example(osgslug-simple-animation SOURCES "examples/osgslug-simple-animation.cpp")
 	osgslug_example(osgslug-font-animation SOURCES "examples/osgslug-font-animation.cpp")
-	osgslug_example(osgslug-lines SOURCES "examples/osgslug-lines.cpp")
+	osgslug_example(osgslug-origin SOURCES "examples/osgslug-origin.cpp")
 	osgslug_example(osgslug-nanosvg SOURCES "examples/osgslug-nanosvg.cpp")
 	osgslug_example(osgslug-emoji-ft2 SOURCES "examples/osgslug-emoji-ft2.cpp")
 	osgslug_example(osgslug-emoji-grid SOURCES "examples/osgslug-emoji-grid.cpp")

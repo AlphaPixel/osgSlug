@@ -158,7 +158,7 @@ slughorn::CompositeShape buildPixelLogo(osgSlug::Atlas* atlas) {
 			combined.detach(), *atlas, key, SCALE
 		); */
 
-		shape.layers.push_back({ key++, outlineColor, slughorn::Transform{xform.dx, xform.dy} });
+		shape.layers.push_back({ key++, outlineColor, slughorn::Transform{xform.x, xform.y} });
 	}
 
 #if 1
@@ -174,7 +174,7 @@ slughorn::CompositeShape buildPixelLogo(osgSlug::Atlas* atlas) {
 
 			layer.key = key++;
 			layer.color = tileColors[i];
-			layer.transform = {xform.dx, xform.dy};
+			layer.transform = {xform.x, xform.y};
 			layer.effectId = i % 5; // procedural texture fill
 
 			shape.layers.push_back(layer);
@@ -206,7 +206,7 @@ slughorn::CompositeShape buildPixelLogo(osgSlug::Atlas* atlas) {
 
 			else if(i == 4) layer.color = {0.0_cv, 0.0_cv, 0.0_cv, 0.75_cv};
 
-			layer.transform = {xform.dx, xform.dy};
+			layer.transform = {xform.x, xform.y};
 
 			shape.layers.push_back(layer);
 		// }
@@ -232,7 +232,7 @@ slughorn::CompositeShape buildPixelLogo(osgSlug::Atlas* atlas) {
 
 			layer.key = key++;
 			layer.color = glyphColor;
-			layer.transform = {xform.dx, xform.dy};
+			layer.transform = {xform.x, xform.y};
 
 			shape.layers.push_back(layer);
 		// }
@@ -296,7 +296,7 @@ vec4 osgSlug_Fragment(
 	}
 
 	if(effectId == 3) {
-		// Texture fill: sample osgSlug_effectTexture at UV; bind any osg::Texture2D to unit 2.
+		// Texture fill: sample osgSlug_effectTexture at UV; bind any osg::Texture2D to unit 4.
 		vec4 s = texture(osgSlug_effectTexture, uv);
 		vec3 blended = mix(layerColor.rgb, s.rgb, s.a);
 		return vec4(blended, fill * layerColor.a);
@@ -344,7 +344,7 @@ int main(int argc, char** argv) {
 	sd->addCompositeShape(logo);
 	sd->compile();
 
-	// Load an image and bind it to unit 2
+	// Load an image and bind it to unit 4 (osgSlug_effectTexture)
 	osg::ref_ptr<osg::Image> img = osgDB::readImageFile("steel_128.png");
 
 	auto tex = osgx::make_ref<osg::Texture2D>(img);
@@ -360,7 +360,7 @@ int main(int argc, char** argv) {
 		FRAG_SHADER
 	);
 
-	ss->setTextureAttributeAndModes(2, tex, osg::StateAttribute::ON);
+	ss->setTextureAttributeAndModes(4, tex, osg::StateAttribute::ON);
 
 	auto geode = osgx::make_ref<osg::Geode>();
 

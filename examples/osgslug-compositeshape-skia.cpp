@@ -24,7 +24,8 @@ slughorn::CompositeShape buildCompositeShape(osgSlug::Atlas* atlas) {
 		auto [info, transform] = slughorn::skia::decomposePath(
 			b.detach(),
 			SCALE,
-			slughorn::Atlas::ShapeInfo::Origin::Type::Centered
+			slughorn::Atlas::ShapeInfo::Origin::Type::Centered,
+			true
 		);
 
 		// info.curves = curves;
@@ -32,7 +33,7 @@ slughorn::CompositeShape buildCompositeShape(osgSlug::Atlas* atlas) {
 
 		atlas->addShape(key, info);
 
-		shape.layers.push_back({key++, color, slughorn::Transform{transform.dx, transform.dy}});
+		shape.layers.push_back({key++, color, slughorn::Transform{transform.x, transform.y}});
 	};
 
 	// ── Left gill (back, behind head) ──

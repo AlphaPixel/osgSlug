@@ -44,7 +44,7 @@ int main(int argc, char** argv) {
 #if 1
 		slughorn::canvas::Canvas canvas(*atlas);
 
-		// Three disconnected rects sharing one left-to-right gradient — proves that a single
+		// Three disconnected rects sharing one left-to-right gradient -- proves that a single
 		// shape can have multiple disconnected sub-paths and the gradient clips correctly to each.
 		auto grad = canvas.createLinearGradient(
 			0.1_cv, 0.5_cv, // left edge
@@ -136,7 +136,7 @@ int main(int argc, char** argv) {
 	sdg->setStateSet(atlas->createDefaultStateSet());
 	// We go ahead and set the necessary "debugMode" to visualize the entire 3D shape; this is
 	// OPTIONAL, but helpful when learning. :)
-	sdg->getOrCreateStateSet()->addUniform(new osg::Uniform("osgSlug_debugMode", 6));
+	// sdg->getOrCreateStateSet()->addUniform(new osg::Uniform("osgSlug_debugMode", 6));
 
 	return example::run(viewer, args, sdg, false);
 }

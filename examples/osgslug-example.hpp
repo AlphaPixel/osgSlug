@@ -9,7 +9,9 @@
 OSGSLUG_DISABLE_WARNINGS
 
 #include <osg/MatrixTransform>
+#include <osg/Uniform>
 
+#include <osgGA/GUIEventHandler>
 #include <osgGA/StateSetManipulator>
 
 #include <osgViewer/Viewer>
@@ -22,6 +24,82 @@ OSGSLUG_ENABLE_WARNINGS
 namespace example {
 
 inline bool USE_GL3 = false;
+
+struct DebugModeHandler: public osgGA::GUIEventHandler {
+	static constexpr int MAX_MODE = 6;
+
+	static constexpr const char* MODE_NAMES[] = {
+		"normal",
+		"checkerboard",
+		"band edges",
+		"quad border",
+		"heatmap",
+		"heatmap + grid",
+		"half-white"
+	};
+
+	osg::ref_ptr<osg::Uniform> _uniform;
+	int _mode = 0;
+
+	DebugModeHandler(osg::StateSet* ss) {
+		_uniform = ss->getUniform("osgSlug_debugMode");
+
+		if(!_uniform) {
+			_uniform = new osg::Uniform("osgSlug_debugMode", 0);
+			ss->addUniform(_uniform);
+		}
+
+		int dm = 0;
+
+		_uniform->get(dm);
+
+		_mode = dm;
+	}
+
+	void setMode(int mode) {
+		_mode = mode;
+
+		_uniform->set(_mode);
+
+		OSG_NOTICE << "osgSlug_debugMode = " << _mode << " (" << MODE_NAMES[_mode] << ")" << std::endl;
+	}
+
+	bool handle(const osgGA::GUIEventAdapter& ea, osgGA::GUIActionAdapter&) override {
+		if(ea.getEventType() != osgGA::GUIEventAdapter::KEYDOWN) return false;
+
+		int target = -1;
+
+		switch(ea.getKey()) {
+			case osgGA::GUIEventAdapter::KEY_F1: target = 1; break;
+			case osgGA::GUIEventAdapter::KEY_F2: target = 2; break;
+			case osgGA::GUIEventAdapter::KEY_F3: target = 3; break;
+			case osgGA::GUIEventAdapter::KEY_F4: target = 4; break;
+			case osgGA::GUIEventAdapter::KEY_F5: target = 5; break;
+			case osgGA::GUIEventAdapter::KEY_F6: target = 6; break;
+			default: return false;
+		}
+
+		setMode(_mode == target ? 0 : target);
+
+		return true;
+	}
+};
+
+struct AtlasExportVisitor: public osg::NodeVisitor {
+	std::vector<osgSlug::Atlas*> atlases;
+
+	AtlasExportVisitor(): osg::NodeVisitor(TRAVERSE_ALL_CHILDREN) {}
+
+	void apply(osg::Geometry& geom) override {
+		if(auto* sd = dynamic_cast<osgSlug::ShapeDrawable*>(&geom)) {
+			if(auto* atlas = sd->getAtlas()) {
+				if(std::ranges::find(atlases, atlas) == atlases.end()) atlases.push_back(atlas);
+			}
+		}
+
+		traverse(geom);
+	}
+};
 
 inline osg::ref_ptr<osgSlug::ShapeDrawable> makeShapeDrawable() {
 	auto sd = osgx::make_ref<osgSlug::ShapeDrawable>(nullptr);
@@ -143,6 +221,11 @@ inline bool setupArguments(
 		"Use GL3ShapeDrawable instead of the default SSBOShapeDrawable"
 	);
 
+	args.getApplicationUsage()->addCommandLineOption(
+		"--dump-atlas <file>",
+		"Traverse the scene, find all ShapeDrawables, and write the first atlas to <file> (.slug or .slugb)"
+	);
+
 	for(const auto& a : extraArgs) args.getApplicationUsage()->addCommandLineOption(
 		a.first,
 		a.second
@@ -225,6 +308,30 @@ inline auto run(
 
 	viewer.addEventHandler(new osgViewer::StatsHandler());
 	viewer.addEventHandler(new osgGA::StateSetManipulator(viewer.getCamera()->getOrCreateStateSet()));
+	viewer.addEventHandler(new DebugModeHandler(viewer.getCamera()->getOrCreateStateSet()));
+
+	std::string dumpAtlasPath;
+
+	if(args.read("--dump-atlas", dumpAtlasPath)) {
+		AtlasExportVisitor visitor;
+
+		sceneData->accept(visitor);
+
+		if(visitor.atlases.empty()) {
+			OSG_WARN << "dump-atlas: no ShapeDrawable found" << std::endl;
+		}
+
+		else {
+			if(visitor.atlases.size() > 1) OSG_WARN
+				<< "dump-atlas: " << visitor.atlases.size()
+				<< " atlases found; writing first only" << std::endl
+			;
+
+			slughorn::serial::write(*visitor.atlases[0], dumpAtlasPath);
+
+			OSG_NOTICE << "dump-atlas: wrote " << dumpAtlasPath << std::endl;
+		}
+	}
 
 	return viewer.run();
 }

@@ -207,7 +207,7 @@ slughorn::CompositeShape buildAxolotl(osgSlug::Atlas* atlas) {
 
 		// slughorn::Atlas::ShapeInfo info;
 
-		auto [info, transform] = slughorn::cairo::decomposePath(cr, SCALE);
+		auto [info, transform] = slughorn::cairo::decomposePath(cr, SCALE, {}, false);
 
 		// info.curves = curves;
 		// info.origin = slughorn::Atlas::ShapeInfo::Origin::Centered;
@@ -215,7 +215,7 @@ slughorn::CompositeShape buildAxolotl(osgSlug::Atlas* atlas) {
 		if(!info.curves.empty()) {
 			atlas->addShape(key, info);
 
-			shape.layers.push_back({key, color, slughorn::Transform{transform.dx, transform.dy}});
+			shape.layers.push_back({key, color, slughorn::Transform{transform.x, transform.y}});
 		}
 
 		key++;
@@ -267,14 +267,18 @@ slughorn::CompositeShape buildTriangles(osgSlug::Atlas* atlas) {
 
 		// slughorn::Atlas::ShapeInfo info;
 
-		auto [info, transform] = slughorn::cairo::decomposePath(cr, SCALE);
+		auto [info, transform] = slughorn::cairo::decomposePath(cr, SCALE, {}, false);
 
 		// info.curves = std::move(curves);
 
 		if(!info.curves.empty()) {
 			atlas->addShape(key, info);
 
-			shape.layers.push_back({key, {1_cv, 0_cv, 0_cv, 1_cv}, slughorn::Transform{transform.dx, transform.dy}});
+			shape.layers.push_back({
+				key,
+				{1_cv, 0_cv, 0_cv, 1_cv},
+				slughorn::Transform{transform.x, transform.y}
+			});
 		}
 
 		key++;

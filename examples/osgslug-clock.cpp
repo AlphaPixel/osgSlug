@@ -99,7 +99,7 @@ int main(int argc, char** argv) {
 	auto atlas = osgx::make_ref<osgSlug::Atlas>();
 
 	slughorn::canvas::Canvas canvas(*atlas, slughorn::KeyIterator());
-	canvas.decomposer().tolerance = slughorn::TOLERANCE_BALANCED;
+	canvas.setTolerance(slughorn::TOLERANCE_BALANCED);
 
 	// ============================================================================================
 	// Clock face

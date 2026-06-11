@@ -134,17 +134,18 @@ int main(int argc, char** argv) {
 		else colors.push_back(color);
 	}
 
+	if(!args[1]) return example::fail(args, 1, "Missing required FONT_FILE argument");
+
 	auto atlas = osgx::make_ref<osgSlug::Atlas>();
 	auto font = osgx::make_ref<osgSlug::Font>(args[1], atlas);
 
-	// font->load(adaptive);
-	font->load();
+	slughorn::freetype::LoadConfig config;
 
-	if(!font->loaded()) {
-		OSG_WARN << "Couldn't load font: " << std::endl;
+	config.strategy = [](const slughorn::Atlas::Curves& c) {
+		return slughorn::Atlas::computeUniformSplits(c, 15, 15);
+	};
 
-		return 1;
-	}
+	if(!font->load(&config)) return example::fail(args, 1, "Couldn't load font: " + std::string(args[1]));
 
 	atlas->build();
 	atlas->packTextures();
