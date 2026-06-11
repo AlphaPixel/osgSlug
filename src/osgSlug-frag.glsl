@@ -16,8 +16,8 @@ uniform float osg_SimulationTime;
 
 uniform sampler2D osgSlug_curveTexture;
 uniform usampler2D osgSlug_bandTexture;
-uniform sampler2D osgSlug_effectTexture;
 uniform sampler2D osgSlug_gradientTexture;
+uniform sampler2D osgSlug_effectTexture;
 uniform int osgSlug_gradientCount;
 uniform int osgSlug_debugMode;
 uniform bool osgSlug_textMode; // enables MSAA, stem darkening, and gamma for text layers

@@ -362,8 +362,8 @@ osg::StateSet* Atlas::createDefaultStateSet(
 	ss->setAttributeAndModes(program, osg::StateAttribute::ON);
 	ss->addUniform(new osg::Uniform("osgSlug_curveTexture", 0));
 	ss->addUniform(new osg::Uniform("osgSlug_bandTexture", 1));
-	ss->addUniform(new osg::Uniform("osgSlug_effectTexture", 2));
-	ss->addUniform(new osg::Uniform("osgSlug_gradientTexture", 3));
+	ss->addUniform(new osg::Uniform("osgSlug_gradientTexture", 2));
+	ss->addUniform(new osg::Uniform("osgSlug_effectTexture", 4));
 	ss->addUniform(new osg::Uniform("osgSlug_gradientCount", static_cast<int>(getGradients().size())));
 	ss->addUniform(new osg::Uniform("osgSlug_texWidth", static_cast<int>(std::countr_zero(getTextureWidth()))));
 	ss->addUniform(new osg::Uniform("osgSlug_emTile", osg::Vec2(1.0f, 1.0f)));
@@ -371,7 +371,7 @@ osg::StateSet* Atlas::createDefaultStateSet(
 	ss->setTextureAttributeAndModes(1, _bandTexture, osg::StateAttribute::ON);
 
 	if(_gradientTexture.valid()) ss->setTextureAttributeAndModes(
-		3,
+		2,
 		_gradientTexture,
 		osg::StateAttribute::ON
 	);
