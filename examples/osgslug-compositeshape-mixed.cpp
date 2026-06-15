@@ -268,7 +268,7 @@ int main(int argc, char** argv) {
 		atlas
 	);
 
-	font->load();
+	if(!font->load()) return 1;
 
 	atlas->build();
 	atlas->packTextures();
