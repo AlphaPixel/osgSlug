@@ -8,10 +8,15 @@ OSGSLUG_DISABLE_WARNINGS
 
 #include <osg/Referenced>
 #include <osg/Texture2D>
+#include <osg/Texture2DArray>
 #include <osg/BufferObject>
 #include <osg/BufferIndexBinding>
 
 OSGSLUG_ENABLE_WARNINGS
+
+#ifdef SLUGHORN_HAS_MSDF
+#include "slughorn/render.hpp"
+#endif
 
 #include <filesystem>
 #include <unordered_map>
@@ -51,6 +56,9 @@ public:
 	osg::Texture2D* getCurveTexture() const { return _curveTexture.get(); }
 	osg::Texture2D* getBandTexture() const { return _bandTexture.get(); }
 	osg::Texture2D* getGradientTexture() const { return _gradientTexture.get(); }
+
+	// Valid after packTextures(); null when no shapes have MSDF registered.
+	osg::Texture2DArray* getMSDFTexture() const { return _msdfTexture.get(); }
 
 	// Atlas-level shape SSBO (binding 0). Valid after packTextures().
 	// Returns the 0-based index of key in the shape buffer, or throws if not found.
@@ -102,6 +110,8 @@ private:
 	osg::ref_ptr<osg::Texture2D> _curveTexture;
 	osg::ref_ptr<osg::Texture2D> _bandTexture;
 	osg::ref_ptr<osg::Texture2D> _gradientTexture; // null when no gradients registered
+
+	osg::ref_ptr<osg::Texture2DArray> _msdfTexture; // null when no shapes have MSDF registered
 
 	osg::ref_ptr<osgx::Vec4Array> _shapeBuffer; // atlas shape SSBO, binding 0
 	std::unordered_map<slughorn::Key, uint32_t, slughorn::KeyHash> _shapeIndex;

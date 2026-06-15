@@ -7,6 +7,16 @@ namespace osgSlug {
 
 namespace {
 
+// Encode msdfLayer and range into a single float: float(layer + 1) + clamp(range, 0, 0.999).
+// Shader unpacks with: layer = int(value) - 1, range = fract(value).
+// Sentinel: -1.0f means "no MSDF" (effectData.z < 0 in the shader).
+// range must be in [0, 1); typical values are 0.05–0.3, so this is always satisfied.
+static float packMSDFData(int msdfLayer, float msdfRange) {
+    if(msdfLayer < 0) return -1.0f;
+
+    return float(msdfLayer + 1) + std::clamp(msdfRange, 0.0f, 0.999f);
+}
+
 struct GradientData {
 	Vec4 meta {0.0f, 0.0f, 0.0f, 0.0f};
 	Vec4 xform {0.0f, 0.0f, 0.0f, 0.0f};
@@ -659,7 +669,7 @@ void SSBOShapeDrawable::compile() {
 		layerBuf->push_back({layer.color.r, layer.color.g, layer.color.b, layer.color.a});
 		layerBuf->push_back(gmeta);
 		layerBuf->push_back(gxform);
-		layerBuf->push_back({cv(layer.effectId), shapeIdx, 0_cv, 0_cv});
+		layerBuf->push_back({cv(layer.effectId), shapeIdx, cv(packMSDFData(shape->msdfLayer, shape->msdfRange)), 0_cv});
 		layerBuf->setBufferObject(ssbo);
 
 		_layerBuffers.push_back(std::move(layerBuf));
@@ -745,7 +755,7 @@ void SSBOShapeDrawable::updateLayer(size_t index, const slughorn::Layer& layer) 
 	buf[0] = Vec4(layer.color.r, layer.color.g, layer.color.b, layer.color.a);
 	buf[1] = gmeta;
 	buf[2] = gxform;
-	buf[3] = Vec4(cv(layer.effectId), shapeIdx, 0_cv, buf[3].w());
+	buf[3] = Vec4(cv(layer.effectId), shapeIdx, buf[3].z(), buf[3].w());
 }
 
 void SSBOShapeDrawable::dirtyLayers() {
@@ -830,7 +840,7 @@ void SSBOSubdividedDrawable::compile() {
 		layerBuf->push_back({layer.color.r, layer.color.g, layer.color.b, layer.color.a});
 		layerBuf->push_back(gmeta);
 		layerBuf->push_back(gxform);
-		layerBuf->push_back({cv(layer.effectId), shapeIdx, 0_cv, q.x1 - q.x0});
+		layerBuf->push_back({cv(layer.effectId), shapeIdx, cv(packMSDFData(shape->msdfLayer, shape->msdfRange)), q.x1 - q.x0});
 		layerBuf->setBufferObject(ssbo);
 
 		_layerBuffers.push_back(std::move(layerBuf));
@@ -905,7 +915,7 @@ void SSBOSubdividedDrawable::updateLayer(size_t index, const slughorn::Layer& la
 	buf[0] = Vec4(layer.color.r, layer.color.g, layer.color.b, layer.color.a);
 	buf[1] = gmeta;
 	buf[2] = gxform;
-	buf[3] = Vec4(cv(layer.effectId), shapeIdx, 0_cv, buf[3].w());
+	buf[3] = Vec4(cv(layer.effectId), shapeIdx, buf[3].z(), buf[3].w());
 }
 
 void SSBOSubdividedDrawable::setLayerGradientTransform(size_t index, const slughorn::Matrix& m) {
@@ -1140,7 +1150,7 @@ void SSBODecalDrawable::compile() {
 		layerBuf->push_back({layer.color.r, layer.color.g, layer.color.b, layer.color.a}); // [0]
 		layerBuf->push_back(gmeta); // [1]
 		layerBuf->push_back(gxform); // [2]
-		layerBuf->push_back({cv(layer.effectId), shapeIdx, 0_cv, q.x1 - q.x0}); // [3]
+		layerBuf->push_back({cv(layer.effectId), shapeIdx, cv(packMSDFData(shape->msdfLayer, shape->msdfRange)), q.x1 - q.x0}); // [3]
 
 		osg::Vec4 center, tangentEast, tangentNorth;
 

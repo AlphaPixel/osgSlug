@@ -17,6 +17,9 @@ flat out vec4 v_bandXform;
 flat out vec4 v_shapeData;
 flat out int v_effectId;
 flat out int v_gradientId;
+flat out int v_msdfLayer;
+flat out float v_msdfRange;
+flat out float v_effectParam;
 out vec4 v_gradientMeta;
 out vec4 v_gradientXform;
 
@@ -55,6 +58,15 @@ void main() {
 	v_bandXform     = sd.bandXform;
 	v_shapeData     = sd.shapeData;
 	v_effectId      = effectId;
+	if(ld.effectData.z < 0.0) {
+		v_msdfLayer = -1;
+		v_msdfRange = 0.0;
+	}
+	else {
+		v_msdfLayer = int(ld.effectData.z) - 1;
+		v_msdfRange = fract(ld.effectData.z);
+	}
+	v_effectParam   = ld.effectData.w;
 	v_gradientId    = int(ld.gradientMeta.x + 0.5);
 	v_gradientMeta  = ld.gradientMeta;
 	v_gradientXform = ld.gradientXform;

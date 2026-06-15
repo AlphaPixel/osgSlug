@@ -22,6 +22,9 @@ OSGSLUG_ENABLE_WARNINGS
 #ifndef GL_RGBA32F_ARB
 #define GL_RGBA32F_ARB 0x8814
 #endif
+#ifndef GL_RGB32F
+#define GL_RGB32F 0x8815
+#endif
 
 namespace {
 
@@ -175,6 +178,104 @@ vec3 osgSlug_Vertex_Scale(vec3 pos, vec2 emCoord, vec2 origin, float scale) {
 
 // Optional fragment helper library; include via: #pragma osgSlug lib_fragment
 const std::string Atlas::SHADER_LIB_FRAGMENT = R"(
+// --- Base-shader helper declarations ---
+
+// Signed distance from MSDF atlas [0,1]; 0.5=edge, >0.5=interior.
+// Returns 0.5 (neutral) when v_msdfLayer < 0.
+float osgSlug_SampleMSDF();
+
+// Per-layer float set via setLayerEffectParam(). Defaults to 0.
+float osgSlug_EffectParam();
+
+// Effect texture (unit 4). Bind any osg::Texture2D to unit 4 in the StateSet.
+uniform sampler2D osgSlug_effectTexture;
+
+// --- Tier 1 fill effects ---
+
+// Two-tone checkerboard grid in em-space.
+vec4 osgSlug_Effect_Checkerboard(float fill, vec2 emCoord, vec4 layerColor) {
+	const float kScale = 300.0;
+	vec2 s = emCoord * kScale;
+	float check = mod(floor(s.x) + floor(s.y), 2.0);
+	vec3 colorA = layerColor.rgb;
+	vec3 colorB = min(layerColor.rgb + vec3(0.25), vec3(1.0));
+	return vec4(mix(colorA, colorB, check), fill * layerColor.a);
+}
+
+// Anti-aliased 1px grid lines in em-space.
+vec4 osgSlug_Effect_PixelGrid(float fill, vec2 emCoord, vec4 layerColor) {
+	const float kScale = 200.0;
+	vec2 s = emCoord * kScale;
+	vec2 f = fract(s);
+	vec2 edgeDist = min(f, 1.0 - f);
+	vec2 fw = fwidth(s);
+	vec2 lineMask = smoothstep(fw, vec2(0.0), edgeDist);
+	float atLine = max(lineMask.x, lineMask.y);
+	vec3 cellColor = min(layerColor.rgb + vec3(0.12), vec3(1.0));
+	vec3 lineColor = layerColor.rgb * 0.55;
+	return vec4(mix(cellColor, lineColor, atLine), fill * layerColor.a);
+}
+
+// Sample osgSlug_effectTexture (unit 4) at UV; alpha-blend over layerColor.
+vec4 osgSlug_Effect_TextureFill(float fill, vec2 uv, vec4 layerColor) {
+	vec4 s = texture(osgSlug_effectTexture, uv);
+	return vec4(mix(layerColor.rgb, s.rgb, s.a), fill * layerColor.a);
+}
+
+// Two-tone fill split by an animated sine wave.
+vec4 osgSlug_Effect_Wave(float fill, vec2 uv, vec4 layerColor, float time) {
+	float scrolled = uv.x + time * 0.3;
+	float wave = sin(scrolled * 6.28318 * 3.0) * 0.15 + 0.5;
+	float dist = abs(uv.y - wave);
+	float edge = smoothstep(0.04, 0.01, dist);
+	vec3 colorTop    = vec3(1.0, 0.6, 0.1);
+	vec3 colorBottom = vec3(0.1, 0.5, 1.0);
+	vec3 waveFill = uv.y > wave ? colorTop : colorBottom;
+	return vec4(mix(waveFill, vec3(1.0), edge), fill * layerColor.a);
+}
+
+// --- Tier 1 stroke effects ---
+
+// PUKUU-style neon glow on a circular stroke. Circle-specific (Tier 1).
+// circleR: circle radius in p-space [-1,1]; derive as arc_R / (arc_R + strokeHalf + expand).
+// Set per-instance via setLayerEffectParam() after compile().
+// Requires strokeWidth >= 3.4 * kGlowSigma so the Gaussian fades before the stroke boundary.
+vec4 osgSlug_Effect_Glow(float fill, vec2 uv, vec4 layerColor, float time, float circleR) {
+	vec2 p = uv * 2.0 - 1.0;
+	float dist = abs(length(p) - circleR);
+
+	vec2 lightDir = normalize(vec2(sin(time), cos(time)));
+	float spotlight = dot(p, lightDir) + 1.0;
+
+	float glow = 0.09 / (dist + 0.008);
+
+	const float kGlowSigma = 0.22;
+	float fade = exp(-dist * dist / (kGlowSigma * kGlowSigma));
+
+	return vec4(layerColor.rgb * spotlight * glow, fill * layerColor.a * fade);
+}
+
+// --- Tier 2 MSDF effects ---
+
+// PUKUU-style neon glow driven by the registered MSDF tile. Shape-agnostic.
+// Requires atlas->registerMSDF(key) called between build() and packTextures().
+// Use the same wide-stroke rule as osgSlug_Effect_Glow for the coverage region.
+vec4 osgSlug_Effect_GlowMSDF(float fill, vec2 uv, vec4 layerColor, float time) {
+	// 0.5 = edge, >0.5 = interior, <0.5 = exterior; dist = 0 at boundary.
+	float msdf = osgSlug_SampleMSDF();
+	float dist = abs(msdf - 0.5);
+
+	vec2 p = uv * 2.0 - 1.0;
+	vec2 lightDir = normalize(vec2(sin(time), cos(time)));
+	float spotlight = dot(p, lightDir) + 1.0;
+
+	float glow = 0.09 / (dist + 0.008);
+
+	const float kGlowSigma = 0.22;
+	float fade = exp(-dist * dist / (kGlowSigma * kGlowSigma));
+
+	return vec4(layerColor.rgb * spotlight * glow, fill * layerColor.a * fade);
+}
 )";
 
 // The VERTEX shader injection point; perform any position animation here.
@@ -251,6 +352,40 @@ void Atlas::packTextures() {
 		_gradientTexture = _makeTexture(getGradientTextureData());
 	}
 
+#ifdef SLUGHORN_HAS_MSDF
+	{
+		const auto& msdfData = getMSDFTextureData();
+
+		if(!msdfData.empty() && msdfData.depth > 0) {
+			const auto W = static_cast<int>(msdfData.width);
+			const auto H = static_cast<int>(msdfData.height);
+			const auto numLayers = static_cast<int>(msdfData.depth);
+			const size_t floatsPerLayer = static_cast<size_t>(W) * static_cast<size_t>(H) * 3;
+			const auto* src = reinterpret_cast<const float*>(msdfData.bytes.data());
+
+			auto tex = new osg::Texture2DArray();
+
+			tex->setTextureSize(W, H, numLayers);
+			tex->setFilter(osg::Texture::MIN_FILTER, osg::Texture::LINEAR);
+			tex->setFilter(osg::Texture::MAG_FILTER, osg::Texture::LINEAR);
+			tex->setWrap(osg::Texture::WRAP_S, osg::Texture::CLAMP_TO_EDGE);
+			tex->setWrap(osg::Texture::WRAP_T, osg::Texture::CLAMP_TO_EDGE);
+
+			for(int l = 0; l < numLayers; l++) {
+				auto img = new osg::Image();
+
+				img->allocateImage(W, H, 1, GL_RGB, GL_FLOAT);
+				img->setInternalTextureFormat(GL_RGB32F);
+				std::memcpy(img->data(), src + l * floatsPerLayer, floatsPerLayer * sizeof(float));
+
+				tex->setImage(l, img);
+			}
+
+			_msdfTexture = tex;
+		}
+	}
+#endif
+
 	// Build the atlas-level shape SSBO (binding 0). One entry per unique shape;
 	// 3 vec4s = 48 bytes per entry: bandXform, shapeData, originData.
 	_shapeBuffer = osgx::make_ref<osgx::Vec4Array>();
@@ -275,6 +410,7 @@ uint32_t Atlas::getShapeIndex(const slughorn::Key& key) const {
 
 	return it->second;
 }
+
 
 osg::ref_ptr<osg::Texture2D> Atlas::_makeTexture(const slughorn::Atlas::TextureData& data) {
 	osg::ref_ptr<osg::Image> img = new osg::Image();
@@ -363,6 +499,7 @@ osg::StateSet* Atlas::createDefaultStateSet(
 	ss->addUniform(new osg::Uniform("osgSlug_curveTexture", 0));
 	ss->addUniform(new osg::Uniform("osgSlug_bandTexture", 1));
 	ss->addUniform(new osg::Uniform("osgSlug_gradientTexture", 2));
+	ss->addUniform(new osg::Uniform("osgSlug_msdfTexture", 3));
 	ss->addUniform(new osg::Uniform("osgSlug_effectTexture", 4));
 	ss->addUniform(new osg::Uniform("osgSlug_gradientCount", static_cast<int>(getGradients().size())));
 	ss->addUniform(new osg::Uniform("osgSlug_texWidth", static_cast<int>(std::countr_zero(getTextureWidth()))));
@@ -375,6 +512,14 @@ osg::StateSet* Atlas::createDefaultStateSet(
 		_gradientTexture,
 		osg::StateAttribute::ON
 	);
+
+#ifdef SLUGHORN_HAS_MSDF
+	if(_msdfTexture.valid()) ss->setTextureAttributeAndModes(
+		3,
+		_msdfTexture,
+		osg::StateAttribute::ON
+	);
+#endif
 
 	if(_shapeBuffer.valid()) {
 		ss->setAttributeAndModes(

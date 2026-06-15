@@ -9,6 +9,9 @@ flat in vec4 v_bandXform;
 flat in vec4 v_shapeData;
 flat in int v_effectId;
 flat in int v_gradientId;
+flat in int v_msdfLayer;
+flat in float v_msdfRange;
+flat in float v_effectParam;
 in vec4 v_gradientMeta;
 in vec4 v_gradientXform;
 
@@ -17,6 +20,7 @@ uniform float osg_SimulationTime;
 uniform sampler2D osgSlug_curveTexture;
 uniform usampler2D osgSlug_bandTexture;
 uniform sampler2D osgSlug_gradientTexture;
+uniform sampler2DArray osgSlug_msdfTexture;
 uniform sampler2D osgSlug_effectTexture;
 uniform int osgSlug_gradientCount;
 uniform int osgSlug_debugMode;
@@ -422,6 +426,28 @@ float slug_StemDarken(float coverage, float brightness, float ppem) {
 
 	return pow(coverage, k);
 }
+
+// Sample the MSDF atlas for the current fragment.
+// Computes tileUV from v_emCoord + v_bandXform, accounting for the range margin baked
+// into the tile by renderMSDFTile (tile covers tight bbox expanded by v_msdfRange on all sides).
+// Returns 0.5 (neutral) when no MSDF tile is registered for this shape (v_msdfLayer < 0).
+// Callable from any fragment hook linked into the same program.
+#define SLUG_INDIRECTION_SIZE 32
+float osgSlug_SampleMSDF() {
+	if(v_msdfLayer < 0) return 0.5;
+
+	vec2 emOrigin = -v_bandXform.zw / v_bandXform.xy;
+	vec2 emSize   = float(SLUG_INDIRECTION_SIZE) / v_bandXform.xy;
+	vec2 tileUV   = (v_emCoord - emOrigin + v_msdfRange) / (emSize + 2.0 * v_msdfRange);
+
+	vec3 msd = texture(osgSlug_msdfTexture, vec3(tileUV, float(v_msdfLayer))).rgb;
+
+	return max(min(msd.r, msd.g), min(max(msd.r, msd.g), msd.b));
+}
+
+// Returns the per-layer float set via setLayerEffectParam().
+// Defaults to 0 unless the caller sets it after compile().
+float osgSlug_EffectParam() { return v_effectParam; }
 
 // Defined in the linked effects or noop unit.
 vec2 osgSlug_FragEmCoord(vec2 emCoord, inout vec2 emsPerPixel, int effectId, float time);
