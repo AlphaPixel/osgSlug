@@ -90,10 +90,12 @@ int main(int argc, char** argv) {
 
 	bool randomColors = false;
 	bool smallText = false;
+	float gamma = 1.0f;
 
 	if(args.read("--input-file", inputFile)) {}
 	if(args.read("--random-colors")) randomColors = true;
 	if(args.read("--small-text")) smallText = true;
+	while(args.read("--gamma", gamma)) {}
 
 	int fontSize = 16;
 
@@ -178,6 +180,12 @@ int main(int argc, char** argv) {
 		text->getOrCreateStateSet()->addUniform(new osg::Uniform("osgSlug_textMode", true));
 		text->getOrCreateStateSet()->addUniform(new osg::Uniform("osgSlug_stemDarken", true));
 		text->getOrCreateStateSet()->addUniform(new osg::Uniform("osgSlug_gamma", 0.454f));
+	}
+
+	if(gamma != 1.0f) {
+		text->getOrCreateStateSet()->addUniform(new osg::Uniform("osgSlug_textMode", true));
+		text->getOrCreateStateSet()->addUniform(new osg::Uniform("osgSlug_stemDarken", false));
+		text->getOrCreateStateSet()->addUniform(new osg::Uniform("osgSlug_gamma", gamma));
 	}
 
 	if(args.read("--perspective")) return example::run(viewer, args, text);
