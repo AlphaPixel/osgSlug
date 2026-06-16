@@ -316,6 +316,29 @@ vec4 osgSlug_Fragment(
 
 )";
 
+// Default for osgSlug_FragmentExt (see osgSlug-frag.glsl): contributes nothing, so
+// drawables render identically to before the hook existed unless they opt in.
+const std::string Atlas::SHADER_NOOP_FRAGMENT_EXT = R"(
+#version 330 core
+
+vec4 osgSlug_FragmentExt(
+	float fill,
+	float msdfSd,
+	int msdfLayer,
+	vec2 emCoord,
+	vec2 uv,
+	vec4 layerColor,
+	int effectId,
+	float time,
+	vec2 emsPerPixel,
+	out int blendMode
+) {
+	blendMode = 0;
+
+	return vec4(0.0);
+}
+)";
+
 Atlas::Atlas(uint32_t texWidth):
 slughorn::Atlas(texWidth) {
 }
@@ -456,7 +479,8 @@ osg::ref_ptr<osg::Texture2D> Atlas::_makeTexture(const slughorn::Atlas::TextureD
 osg::StateSet* Atlas::createDefaultStateSet(
 	bool useGL3,
 	const std::string& vertEffects,
-	const std::string& fragEffects
+	const std::string& fragEffects,
+	const std::string& fragExt
 ) const {
 	auto* ss = new osg::StateSet();
 	auto* program = new osg::Program();
@@ -494,6 +518,7 @@ osg::StateSet* Atlas::createDefaultStateSet(
 	));
 
 	program->addShader(new osg::Shader(osg::Shader::FRAGMENT, resolveLibs(fragEffects)));
+	program->addShader(new osg::Shader(osg::Shader::FRAGMENT, resolveLibs(fragExt)));
 
 	ss->setAttributeAndModes(program, osg::StateAttribute::ON);
 	ss->addUniform(new osg::Uniform("osgSlug_curveTexture", 0));
@@ -550,7 +575,8 @@ osg::StateSet* Atlas::createDefaultStateSet(
 
 osg::Program* Atlas::createDecalProgram(
 	const std::string& vertEffects,
-	const std::string& fragEffects
+	const std::string& fragEffects,
+	const std::string& fragExt
 ) const {
 	auto* program = new osg::Program();
 
@@ -563,6 +589,7 @@ osg::Program* Atlas::createDecalProgram(
 		"../src/osgSlug-frag.glsl"
 	));
 	program->addShader(new osg::Shader(osg::Shader::FRAGMENT, resolveLibs(fragEffects)));
+	program->addShader(new osg::Shader(osg::Shader::FRAGMENT, resolveLibs(fragExt)));
 
 	return program;
 }

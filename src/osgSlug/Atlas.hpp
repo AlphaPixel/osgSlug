@@ -67,6 +67,10 @@ public:
 
 	static const std::string SHADER_NOOP_VERTEX;
 	static const std::string SHADER_NOOP_FRAGMENT;
+	// Default for osgSlug_FragmentExt's pre-discard hook (see osgSlug-frag.glsl). Always
+	// linked as its own shader unit, independent of fragEffects, so existing custom
+	// fragEffects units never need to know this hook exists.
+	static const std::string SHADER_NOOP_FRAGMENT_EXT;
 	static const std::string SHADER_ATLAS_TYPES; // AtlasShapeData + binding 0 only
 	static const std::string SHADER_TYPES; // SHADER_ATLAS_TYPES + LayerData + binding 1
 	static const std::string SHADER_LIB_VERTEX;
@@ -75,7 +79,8 @@ public:
 	osg::StateSet* createDefaultStateSet(
 		bool useGL3=false,
 		const std::string& vertEffects=SHADER_NOOP_VERTEX,
-		const std::string& fragEffects=SHADER_NOOP_FRAGMENT
+		const std::string& fragEffects=SHADER_NOOP_FRAGMENT,
+		const std::string& fragExt=SHADER_NOOP_FRAGMENT_EXT
 	) const;
 
 	// Returns a Program that uses the tangent-plane decal vertex shader.
@@ -83,7 +88,8 @@ public:
 	// (SSBODecalDrawable::compile() calls this automatically.)
 	osg::Program* createDecalProgram(
 		const std::string& vertEffects=SHADER_NOOP_VERTEX,
-		const std::string& fragEffects=SHADER_NOOP_FRAGMENT
+		const std::string& fragEffects=SHADER_NOOP_FRAGMENT,
+		const std::string& fragExt=SHADER_NOOP_FRAGMENT_EXT
 	) const;
 
 	static osg::ref_ptr<Atlas> fromAtlas(const slughorn::Atlas& src) {

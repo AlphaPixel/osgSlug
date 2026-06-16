@@ -461,6 +461,50 @@ vec4 osgSlug_Fragment(
 	float time
 );
 
+// Pre-discard hook: fires for EVERY quad fragment, even where fill < 0.001 (outside Slug's
+// own coverage). This is what lets exterior-fragment effects (glow, halos) attach to a
+// standard Slug drawable without a separate MSDF-only program — contrast with
+// osgSlug_Fragment(), which only ever sees fragments Slug already considers covered.
+// Defined in its own always-linked unit (see Atlas::SHADER_NOOP_FRAGMENT_EXT), independent
+// of osgSlug_Fragment's effects unit, so existing custom effects units never need to know
+// this hook exists.
+//
+// msdfSd: median-of-three MSDF reconstruction for this fragment — same convention as
+// osgSlug_SampleMSDF() (0.5=edge, >0.5=interior, <0.5=exterior), or -1.0 if this shape has
+// no MSDF tile registered.
+//
+// Return value: STRAIGHT (non-premultiplied) alpha, matching osgSlug_Fragment()'s existing
+// convention — rgb is the true color, alpha is coverage. main() premultiplies internally to
+// combine this with the normal fill result, then unpremultiplies once before writing color;
+// do not pre-weight rgb by alpha yourself, or the result gets weighted twice.
+//
+// blendMode (out, callee MUST set it): how main() combines the returned color with the
+// normal fill result.
+//   0 = "over"     — composited behind fillColor; correct for backdrops, drop shadows,
+//                     anything that should be occluded normally by solid fill.
+//   1 = "additive" — added directly into the result; correct for glow/bloom/any emissive
+//                     effect that should brighten the result even where fill already covers it.
+// The noop default sets blendMode = 0 and returns vec4(0.0) — contributes nothing, so
+// existing drawables render identically to before this hook existed.
+// emsPerPixel: fwidth(v_emCoord) — em-space units spanning one screen pixel at this
+// fragment. Effects with an em-space-fixed extent (a glow radius, a falloff width) will
+// shrink below a pixel and alias/flicker once the shape is rendered small/far away;
+// multiplying a target pixel-width by emsPerPixel keeps that extent a constant SCREEN size
+// regardless of zoom instead. Always the raw, unmapped value (fwidth of v_emCoord directly,
+// not whatever osgSlug_FragEmCoord may have remapped it to for tiling-style effects).
+vec4 osgSlug_FragmentExt(
+	float fill,
+	float msdfSd,
+	int msdfLayer,
+	vec2 emCoord,
+	vec2 uv,
+	vec4 layerColor,
+	int effectId,
+	float time,
+	vec2 emsPerPixel,
+	out int blendMode
+);
+
 void main() {
 	// Layer mask: 0 = all visible (default). Non-zero: discard if the layer's bit is clear.
 	// Decode 1-based layer index (packed as float in a_position.w by Drawable::compile()).
@@ -570,18 +614,67 @@ void main() {
 		return;
 	}
 
+	// msdfSd reuses osgSlug_SampleMSDF()'s sentinel convention (-1.0 = no tile registered)
+	// rather than its 0.5-neutral one — that 0.5 default is a separate documented contract
+	// other effects already rely on (see osgSlug_SampleMSDF() above), so it's computed
+	// independently here instead of reusing the function's return value directly.
+	float msdfSd = (v_msdfLayer >= 0) ? osgSlug_SampleMSDF() : -1.0;
+	int extBlendMode;
+	vec4 extColor = osgSlug_FragmentExt(
+		fill, msdfSd, v_msdfLayer, v_emCoord, v_uv, effectiveColor, v_effectId, osg_SimulationTime,
+		fwidth(v_emCoord), extBlendMode
+	);
+
 	// Using the "half white" line helps show 3D shapes, so... leaving it in for now.
-	if(fill < 0.001) {
+	if(fill < 0.001 && extColor.a < 0.001) {
 		if(osgSlug_debugMode == 6) color = vec4(0.5, 0.5, 0.5, 0.5);
 
 		else discard;
 	}
 
-	else {
+	// No ext contribution (the overwhelmingly common case while no drawable overrides the
+	// noop default) — identical to pre-osgSlug_FragmentExt behavior, byte for byte.
+	else if(extColor.a < 0.001) {
 		color = (osgSlug_debugMode == 0 || osgSlug_debugMode == 6)
 			? osgSlug_Fragment(fill, v_emCoord, v_uv, effectiveColor, v_effectId, osg_SimulationTime)
 			: slug_ApplyDebug(fill, v_emCoord, effectiveColor, glyphLoc, v_bandXform, iterations)
 		;
+	}
+
+	else {
+		vec4 fillColor = fill < 0.001
+			? vec4(0.0)
+			: (
+				(osgSlug_debugMode == 0 || osgSlug_debugMode == 6)
+					? osgSlug_Fragment(fill, v_emCoord, v_uv, effectiveColor, v_effectId, osg_SimulationTime)
+					: slug_ApplyDebug(fill, v_emCoord, effectiveColor, glyphLoc, v_bandXform, iterations)
+			)
+		;
+
+		// Combine in premultiplied space — the only space where alpha compositing/addition
+		// is well-defined — then unpremultiply back to the straight-alpha convention main()
+		// has always used. Skipping the unpremultiply hands the GL blend func
+		// (GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA) an already alpha-weighted color, which it
+		// then weights by alpha AGAIN — alpha gets squared, visibly distorting the falloff
+		// right at the edge (reads as jagged/banded, not blurry).
+		vec3 fillPremul = fillColor.rgb * fillColor.a;
+		vec3 extPremul = extColor.rgb * extColor.a;
+		vec3 outPremul;
+		float outAlpha;
+
+		// blendMode 1 = additive: brightens through fillColor too (glow/bloom).
+		if(extBlendMode == 1) {
+			outPremul = fillPremul + extPremul;
+			outAlpha = clamp(fillColor.a + extColor.a, 0.0, 1.0);
+		}
+
+		// blendMode 0 = standard "over": fillColor occludes extColor normally.
+		else {
+			outPremul = fillPremul + extPremul * (1.0 - fillColor.a);
+			outAlpha = fillColor.a + extColor.a * (1.0 - fillColor.a);
+		}
+
+		color = vec4(outAlpha > 0.0001 ? outPremul / outAlpha : vec3(0.0), outAlpha);
 	}
 
 	// TODO: This line is required when using PREMULTIPLIED ALPHA!
