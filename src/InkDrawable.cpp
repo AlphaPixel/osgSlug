@@ -120,8 +120,8 @@ static const char* INK_MITER_MAIN = R"GLSL(
 // Sluggit
 //
 // em-X is pinned to the shape midpoint so fwidth(emCoord.x) stays near zero. Without this the
-// 0.99→0.01 discontinuity at quad boundaries causes the 2×2 derivative group to compute
-// fwidth ≈ 0.98, giving pixelsPerEm.x ≈ 1 and dropping coverage to ~0.48 (dark stripe).
+// 0.99->0.01 discontinuity at quad boundaries causes the 2x2 derivative group to compute
+// fwidth ? 0.98, giving pixelsPerEm.x ? 1 and dropping coverage to ~0.48 (dark stripe).
 static const char* INK_SLUGGIT_MAIN = R"GLSL(
 	uniform vec4 u_emCorners; // x=emX0, y=emY0, z=emX1, w=emY1
 	uniform vec4 u_bandXform; // x=bandScaleX, y=bandScaleY, z=bandOffsetX, w=bandOffsetY
@@ -164,7 +164,7 @@ static const char* INK_SLUGGIT_MAIN = R"GLSL(
 
 // Stamp mode: one instanced quad per point, centered at points[i].xy and rotated by points[i].z.
 // Uses the full Slug SDF pipeline against a caller-defined shape (setShapeKey).
-// emCoords vary fully over both axes — unlike Sluggit, which pins emX to the midpoint.
+// emCoords vary fully over both axes - unlike Sluggit, which pins emX to the midpoint.
 static const char* INK_STAMP_VERT = R"GLSL(
 	#version 430 core
 
@@ -201,8 +201,7 @@ static const char* INK_STAMP_VERT = R"GLSL(
 		vec2 local = (q - 0.5) * (u_halfWidth * 2.0);
 		float cosA = cos(angle);
 		float sinA = sin(angle);
-		vec2 pos = center + vec2(local.x * cosA - local.y * sinA,
-		                             local.x * sinA + local.y * cosA);
+		vec2 pos = center + vec2(local.x * cosA - local.y * sinA, local.x * sinA + local.y * cosA);
 
 		v_emCoord = mix(u_emCorners.xy, u_emCorners.zw, q);
 		v_uv = q;
@@ -219,7 +218,7 @@ static const char* INK_STAMP_VERT = R"GLSL(
 	}
 )GLSL";
 
-// Analytical SDF fragment shader — used by Overlap and Miter modes.
+// Analytical SDF fragment shader - used by Overlap and Miter modes.
 static const char* INK_SDF_FRAG = R"GLSL(
 	#version 430 core
 
@@ -317,12 +316,12 @@ void InkDrawable::compile() {
 		const auto shape = _atlas->getShape(_shapeKey);
 
 		if(!shape) {
-			OSG_WARN << "InkDrawable: Stamp mode requires a valid shape key — call setShapeKey() before compile()\n";
+			OSG_WARN << "InkDrawable: Stamp mode requires a valid shape key - call setShapeKey() before compile()\n";
 			return;
 		}
 
 		if(!_atlas->getCurveTexture()) {
-			OSG_WARN << "InkDrawable: curve texture is null — was atlas->packTextures() called?\n";
+			OSG_WARN << "InkDrawable: curve texture is null - was atlas->packTextures() called?\n";
 			return;
 		}
 
@@ -367,12 +366,12 @@ void InkDrawable::compile() {
 		const auto shape = _atlas->getShape(INK_UNIT_SQ);
 
 		if(!shape) {
-			OSG_WARN << "InkDrawable: _ink_unit_sq not found — was atlas->build() called after the constructor?\n";
+			OSG_WARN << "InkDrawable: _ink_unit_sq not found - was atlas->build() called after the constructor?\n";
 			return;
 		}
 
 		if(!_atlas->getCurveTexture()) {
-			OSG_WARN << "InkDrawable: curve texture is null — was atlas->packTextures() called?\n";
+			OSG_WARN << "InkDrawable: curve texture is null - was atlas->packTextures() called?\n";
 			return;
 		}
 

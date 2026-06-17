@@ -10,11 +10,11 @@ namespace {
 // Encode msdfLayer and range into a single float: float(layer + 1) + clamp(range, 0, 0.999).
 // Shader unpacks with: layer = int(value) - 1, range = fract(value).
 // Sentinel: -1.0f means "no MSDF" (effectData.z < 0 in the shader).
-// range must be in [0, 1); typical values are 0.05–0.3, so this is always satisfied.
+// range must be in [0, 1); typical values are 0.05-0.3, so this is always satisfied.
 static float packMSDFData(int msdfLayer, float msdfRange) {
-    if(msdfLayer < 0) return -1.0f;
+	if(msdfLayer < 0) return -1.0f;
 
-    return float(msdfLayer + 1) + std::clamp(msdfRange, 0.0f, 0.999f);
+	return float(msdfLayer + 1) + std::clamp(msdfRange, 0.0f, 0.999f);
 }
 
 struct GradientData {
@@ -1126,7 +1126,7 @@ void SSBODecalDrawable::compile() {
 		}
 
 		// Vertex data: normalized [0,1]2 grid. World position is computed in the vertex shader
-		// from the tangent frame in the SSBO -- no sphere math on the CPU.
+		// from the tangent frame in the SSBO - no sphere math on the CPU.
 		for(index_element_type sv = 0; sv <= _stepsV; sv++) {
 			const slug_t lv = cv(sv) / cv(_stepsV);
 

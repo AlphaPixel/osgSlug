@@ -148,16 +148,17 @@ struct osgSlug_VertexData {
 	float time; // osg_SimulationTime
 };
 
-// Helper prototypes (implementations live in the main vertex shader only — one definition per program).
+// Helper prototypes (implementations live in the main vertex shader only - one definition per program).
 vec3 osgSlug_Vertex_Rotate(vec3 pos, vec2 emCoord, vec2 origin, float angle);
 vec3 osgSlug_Vertex_Scale(vec3 pos, vec2 emCoord, vec2 origin, float scale);
 )";
 
 // Optional fragment helper library; include via: #pragma osgSlug lib_fragment
 const std::string Atlas::SHADER_LIB_FRAGMENT = R"(
-// --- Context structs for hook functions ---
+// Context structs for hook functions
+//
 // Defined once here so every shader unit that includes this lib sees the same
-// definition — no manual sync across compilation units.
+// definition - no manual sync across compilation units.
 
 // All per-fragment data the osgSlug_Fragment hook receives.
 struct osgSlug_FragmentData {
@@ -183,13 +184,13 @@ struct osgSlug_FragmentExtData {
 	int effectId; // per-layer effect selector
 	float effectParam; // per-layer float (set via setLayerEffectParam)
 	float time; // osg_SimulationTime
-	vec2 emsPerPixel; // fwidth(emCoord) — em-space per screen pixel
+	vec2 emsPerPixel; // fwidth(emCoord) - em-space per screen pixel
 };
 
 // Effect texture (unit 4). Bind any osg::Texture2D to unit 4 in the StateSet.
 uniform sampler2D osgSlug_effectTexture;
 
-// --- Effect helper prototypes (implementations live in the main fragment shader only) ---
+// Effect helper prototypes (implementations live in the main fragment shader only)
 vec4 osgSlug_Effect_Checkerboard(float fill, vec2 emCoord, vec4 layerColor);
 vec4 osgSlug_Effect_PixelGrid(float fill, vec2 emCoord, vec4 layerColor);
 vec4 osgSlug_Effect_TextureFill(float fill, vec2 uv, vec4 layerColor);
@@ -298,7 +299,7 @@ void main() {
 
 // GL3 vertex shader (attribute arrays, no SSBOs). SHADER_ATLAS_TYPES is injected
 // by makeVertShader; #pragma osgSlug lib_vertex is resolved there.
-// Note: v_msdfLayer and v_msdfRange are hard-coded to -1/0 — GL3 path has no MSDF support.
+// Note: v_msdfLayer and v_msdfRange are hard-coded to -1/0 - GL3 path has no MSDF support.
 const std::string Atlas::SHADER_VERT_GL3 = R"(
 #version 330 core
 
@@ -494,7 +495,7 @@ void main() {
 )";
 
 // Main fragment shader. Stored pre-resolved so InkDrawable.cpp can use it directly.
-// The #pragma osgSlug lib_fragment is expanded at static init time — SHADER_FRAG always
+// The #pragma osgSlug lib_fragment is expanded at static init time - SHADER_FRAG always
 // contains the fully substituted SHADER_LIB_FRAGMENT content (struct defs + effect helpers).
 const std::string Atlas::SHADER_FRAG = resolveLibs(R"(
 #version 330 core
@@ -926,28 +927,28 @@ vec4 osgSlug_Fragment(osgSlug_FragmentData data);
 
 // Pre-discard hook: fires for EVERY quad fragment, even where fill < 0.001 (outside Slug's
 // own coverage). This is what lets exterior-fragment effects (glow, halos) attach to a
-// standard Slug drawable without a separate MSDF-only program — contrast with
+// standard Slug drawable without a separate MSDF-only program - contrast with
 // osgSlug_Fragment(), which only ever sees fragments Slug already considers covered.
 // Defined in its own always-linked unit (see Atlas::SHADER_NOOP_FRAGMENT_EXT), independent
 // of osgSlug_Fragment's effects unit, so existing custom effects units never need to know
 // this hook exists.
 //
-// data.msdfSd: median-of-three MSDF reconstruction for this fragment — 0.5=edge, >0.5=interior,
+// data.msdfSd: median-of-three MSDF reconstruction for this fragment - 0.5=edge, >0.5=interior,
 // or -1.0 if this shape has no MSDF tile registered.
 //
-// Return value: STRAIGHT (non-premultiplied) alpha — rgb is the true color, alpha is coverage.
+// Return value: STRAIGHT (non-premultiplied) alpha - rgb is the true color, alpha is coverage.
 // main() premultiplies internally to combine this with the normal fill result, then
 // unpremultiplies once before writing color; do not pre-weight rgb by alpha yourself.
 //
 // blendMode (out, callee MUST set it): how main() combines the returned color with fill.
 //
-// 0 = "over" — composited behind fillColor; correct for backdrops, drop shadows,
+// 0 = "over" - composited behind fillColor; correct for backdrops, drop shadows,
 // anything that should be occluded normally by solid fill.
 //
-// 1 = "additive" — added directly into the result; correct for glow/bloom effects
+// 1 = "additive" - added directly into the result; correct for glow/bloom effects
 // that should brighten the result even where fill already covers it.
 //
-// The noop default sets blendMode = 0 and returns vec4(0.0) — contributes nothing.
+// The noop default sets blendMode = 0 and returns vec4(0.0) - contributes nothing.
 //
 // data.emsPerPixel: fwidth(v_emCoord) in the raw (untiled) coordinate space. Multiply a
 // target em-space width by emsPerPixel to get a constant screen-size effect at any zoom.
@@ -1104,7 +1105,7 @@ void main() {
 		else discard;
 	}
 
-	// No ext contribution (the overwhelmingly common case) — identical to pre-hook behavior.
+	// No ext contribution (the overwhelmingly common case) - identical to pre-hook behavior.
 	else if(extColor.a < 0.001) {
 		color = (osgSlug_debugMode == 0 || osgSlug_debugMode == 6)
 			? osgSlug_Fragment(fData)
@@ -1123,11 +1124,11 @@ void main() {
 			)
 		;
 
-		// Combine in premultiplied space — the only space where alpha compositing/addition
-		// is well-defined — then unpremultiply back to the straight-alpha convention main()
+		// Combine in premultiplied space - the only space where alpha compositing/addition
+		// is well-defined - then unpremultiply back to the straight-alpha convention main()
 		// has always used. Skipping the unpremultiply hands the GL blend func
 		// (GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA) an already alpha-weighted color, which it
-		// then weights by alpha AGAIN — alpha gets squared, visibly distorting the falloff
+		// then weights by alpha AGAIN - alpha gets squared, visibly distorting the falloff
 		// right at the edge (reads as jagged/banded, not blurry).
 		vec3 fillPremul = fillColor.rgb * fillColor.a;
 		vec3 extPremul = extColor.rgb * extColor.a;
