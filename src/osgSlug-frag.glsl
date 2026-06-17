@@ -496,10 +496,12 @@ vec4 osgSlug_FragmentExt(
 	float fill,
 	float msdfSd,
 	int msdfLayer,
+	float msdfRange,
 	vec2 emCoord,
 	vec2 uv,
 	vec4 layerColor,
 	int effectId,
+	float effectParam,
 	float time,
 	vec2 emsPerPixel,
 	out int blendMode
@@ -621,8 +623,10 @@ void main() {
 	float msdfSd = (v_msdfLayer >= 0) ? osgSlug_SampleMSDF() : -1.0;
 	int extBlendMode;
 	vec4 extColor = osgSlug_FragmentExt(
-		fill, msdfSd, v_msdfLayer, v_emCoord, v_uv, effectiveColor, v_effectId, osg_SimulationTime,
-		fwidth(v_emCoord), extBlendMode
+		fill, msdfSd, v_msdfLayer, v_msdfRange,
+		v_emCoord, v_uv, effectiveColor,
+		v_effectId, v_effectParam, osg_SimulationTime, emsPerPixel,
+		extBlendMode
 	);
 
 	// Using the "half white" line helps show 3D shapes, so... leaving it in for now.

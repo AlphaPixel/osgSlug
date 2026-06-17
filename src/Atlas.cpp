@@ -180,6 +180,7 @@ const std::string Atlas::SHADER_LIB_FRAGMENT = R"(
 float osgSlug_SampleMSDF();
 
 // Per-layer float set via setLayerEffectParam(). Defaults to 0.
+// In osgSlug_FragmentExt hooks, prefer the explicit effectParam parameter instead.
 float osgSlug_EffectParam();
 
 // Effect texture (unit 4). Bind any osg::Texture2D to unit 4 in the StateSet.
@@ -250,26 +251,53 @@ vec4 osgSlug_Effect_Glow(float fill, vec2 uv, vec4 layerColor, float time, float
 	return vec4(layerColor.rgb * spotlight * glow, fill * layerColor.a * fade);
 }
 
-// --- Tier 2 MSDF effects ---
+// --- Tier 2 MSDF exterior-fragment effects ---
+// Called from inside osgSlug_FragmentExt hooks, not osgSlug_Fragment.
+// Requires atlas->registerMSDF(key) and Layer.expand >= msdfRange before packTextures().
 
-// PUKUU-style neon glow driven by the registered MSDF tile. Shape-agnostic.
-// Requires atlas->registerMSDF(key) called between build() and packTextures().
-// Use the same wide-stroke rule as osgSlug_Effect_Glow for the coverage region.
-vec4 osgSlug_Effect_GlowMSDF(float fill, vec2 uv, vec4 layerColor, float time) {
-	// 0.5 = edge, >0.5 = interior, <0.5 = exterior; dist = 0 at boundary.
-	float msdf = osgSlug_SampleMSDF();
-	float dist = abs(msdf - 0.5);
+// Soft exterior glow/halo. Shape-agnostic — works on any registered MSDF shape.
+//
+// layerColor.rgb — glow tint (set the layer's color to the desired halo color)
+// effectParam    — outer fade reach in em-space; falls back to msdfRange * 0.5 if 0
+// msdfRange      — must match the range passed to registerMSDF() (passed explicitly so the
+//                  hook doesn't need to read the v_msdfRange varying directly)
+//
+// blendMode is set to 0 (over) — glow occluded normally by the solid interior.
+// For a glow that brightens through fill (bloom/emissive), override blendMode = 1 after.
+//
+// Seam note: Slug's analytic edge and the MSDF tile's discretized edge don't agree
+// pixel-for-pixel. The smoothstep band straddling distEm=0 closes the coverage gap;
+// keep kSeamHalfEm small — it is a correctness fix, not a style knob.
+//
+// Unit note: dist = 0.5 - msdfSd is NOT em-space distance; needs *2*msdfRange.
+// See osgSlug/ai/context-todo-sdf.md Phase 10 hard-won bugs for the full derivation.
+vec4 osgSlug_Effect_GlowMSDF(
+	float msdfSd,
+	int msdfLayer,
+	float msdfRange,
+	vec4 layerColor,
+	float effectParam,
+	out int blendMode
+) {
+	blendMode = 0;
 
-	vec2 p = uv * 2.0 - 1.0;
-	vec2 lightDir = normalize(vec2(sin(time), cos(time)));
-	float spotlight = dot(p, lightDir) + 1.0;
+	if(msdfLayer < 0) return vec4(0.0);
 
-	float glow = 0.09 / (dist + 0.008);
+	float dist   = 0.5 - msdfSd;
+	float distEm = dist * 2.0 * msdfRange;
 
-	const float kGlowSigma = 0.22;
-	float fade = exp(-dist * dist / (kGlowSigma * kGlowSigma));
+	const float kSeamHalfEm = 0.005;
+	float glowMask = smoothstep(-kSeamHalfEm, kSeamHalfEm, distEm);
 
-	return vec4(layerColor.rgb * spotlight * glow, fill * layerColor.a * fade);
+	const float kEaseWidthEm = 0.02;
+	float ease = smoothstep(0.0, kEaseWidthEm, distEm);
+
+	float outerFadeEm = effectParam > 0.0 ? effectParam : msdfRange * 0.5;
+	float alpha = (1.0 - smoothstep(0.0, outerFadeEm, distEm)) * glowMask * ease;
+
+	if(alpha < 0.001) return vec4(0.0);
+
+	return vec4(layerColor.rgb, alpha);
 }
 )";
 
@@ -320,10 +348,12 @@ vec4 osgSlug_FragmentExt(
 	float fill,
 	float msdfSd,
 	int msdfLayer,
+	float msdfRange,
 	vec2 emCoord,
 	vec2 uv,
 	vec4 layerColor,
 	int effectId,
+	float effectParam,
 	float time,
 	vec2 emsPerPixel,
 	out int blendMode
