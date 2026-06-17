@@ -8,26 +8,20 @@
 static const std::string VERT_SHADER = R"(
 #version 430 core
 
-vec3 osgSlug_Vertex(
-	vec3 pos,
-	vec2 emCoord,
-	vec2 uv,
-	int effectId,
-	vec2 origin,
-	float effectParam,
-	float time
-) {
-	if(effectId == 1) {
-		// Wave: pos.x varies smoothly across the string, giving a continuous ripple.
-		pos.y += sin(pos.x * 2.0 + time * 4.0) * 0.1;
+#pragma osgSlug lib_vertex
 
-		// Scale: origin.x is identical for all 4 vertices of a glyph, so each
+vec3 osgSlug_Vertex(osgSlug_VertexData data) {
+	if(data.effectId == 1) {
+		// Wave: data.pos.x varies smoothly across the string, giving a continuous ripple.
+		data.pos.y += sin(data.pos.x * 2.0 + data.time * 4.0) * 0.1;
+
+		// Scale: data.origin.x is identical for all 4 vertices of a glyph, so each
 		// letter pulses uniformly (no shear). Different time rate = compound motion.
-		float s = 1.0 + 0.4 * sin(origin.x * 2.0 + time * 3.0);
-		pos.xy = origin + (pos.xy - origin) * s;
+		float s = 1.0 + 0.4 * sin(data.origin.x * 2.0 + data.time * 3.0);
+		data.pos.xy = data.origin + (data.pos.xy - data.origin) * s;
 	}
 
-	return pos;
+	return data.pos;
 }
 )";
 

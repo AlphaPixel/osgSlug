@@ -111,23 +111,18 @@ void buildJigsawPiecePath(cairo_t* cr) {
 static const std::string FRAG_SHADER = R"(
 #version 330 core
 
+#pragma osgSlug lib_fragment
+
 vec2 osgSlug_FragEmCoord(vec2 emCoord, inout vec2 emsPerPixel, int effectId, float time) {
 	return emCoord;
 }
 
-vec4 osgSlug_Fragment(
-	float fill,
-	vec2 emCoord,
-	vec2 uv,
-	vec4 layerColor,
-	int effectId,
-	float time
-) {
-	if(effectId == 1) {
+vec4 osgSlug_Fragment(osgSlug_FragmentData data) {
+	if(data.effectId == 1) {
 		const float kGrid = 22.0;
 
 		// Stagger every other row by half a cell (classic halftone offset).
-		vec2 cell = uv * kGrid;
+		vec2 cell = data.uv * kGrid;
 		float row = floor(cell.y);
 		cell.x += mod(row, 2.0) * 0.5;
 
@@ -135,7 +130,7 @@ vec4 osgSlug_Fragment(
 		float dist = length(local);
 
 		// Diagonal brightness ramp: small dots at top-left, large at bottom-right.
-		float brightness = clamp(dot(uv, vec2(0.6, 0.4)), 0.0, 1.0);
+		float brightness = clamp(dot(data.uv, vec2(0.6, 0.4)), 0.0, 1.0);
 		float radius = 0.04 + brightness * 0.42;
 
 		// Smoothstep over one screen-pixel for anti-aliased sphere edges.
@@ -143,12 +138,12 @@ vec4 osgSlug_Fragment(
 		float dotMask = 1.0 - smoothstep(radius - edge, radius + edge, dist);
 
 		vec3 paper = vec3(0.97, 0.94, 0.87);
-		vec3 ink = layerColor.rgb * 0.15;
+		vec3 ink = data.layerColor.rgb * 0.15;
 
-		return vec4(mix(paper, ink, dotMask), fill * layerColor.a);
+		return vec4(mix(paper, ink, dotMask), data.fill * data.layerColor.a);
 	}
 
-	return vec4(layerColor.rgb, fill * layerColor.a);
+	return vec4(data.layerColor.rgb, data.fill * data.layerColor.a);
 }
 )";
 

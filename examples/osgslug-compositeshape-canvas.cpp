@@ -12,26 +12,20 @@
 static const std::string VERT_SHADER = R"(
 #version 430 core
 
-vec3 osgSlug_Vertex(
-	vec3 pos,
-	vec2 emCoord,
-	vec2 uv,
-	int effectId,
-	vec2 origin,
-	float effectParam,
-	float time
-) {
-	if(effectId == 1) {
+#pragma osgSlug lib_vertex
+
+vec3 osgSlug_Vertex(osgSlug_VertexData data) {
+	if(data.effectId == 1) {
 		// effectParam (effectData.w) carries the per-bar index set via setLayerEffectParam().
 		// The actual bar width is constant: roundedRect(0.1, 0.1, 0.8, ...) * scale=1 + expand*2.
-		float i = effectParam;
+		float i = data.effectParam;
 		const float barWidth = 0.82;
 
-		float amp = 0.5 + 0.5 * sin(time * 4.0 + i * 0.7);
+		float amp = 0.5 + 0.5 * sin(data.time * 4.0 + i * 0.7);
 		float sx = 0.15 + amp * 0.85;
 
-		float uv_x = uv.x;
-		float leftX = pos.x - uv_x * barWidth;
+		float uv_x = data.uv.x;
+		float leftX = data.pos.x - uv_x * barWidth;
 
 		const float capFrac = 0.122;
 		float capW = capFrac * barWidth;
@@ -39,16 +33,16 @@ vec3 osgSlug_Vertex(
 
 		if(uv_x > (1.0 - capFrac)) {
 			float localT = (uv_x - (1.0 - capFrac)) / capFrac;
-			pos.x = leftX + capW + sx * bodyW + localT * capW;
+			data.pos.x = leftX + capW + sx * bodyW + localT * capW;
 		}
 
 		else if(uv_x > capFrac) {
 			float bodyT = (uv_x - capFrac) / (1.0 - 2.0 * capFrac);
-			pos.x = leftX + capW + bodyT * sx * bodyW;
+			data.pos.x = leftX + capW + bodyT * sx * bodyW;
 		}
 	}
 
-	return pos;
+	return data.pos;
 }
 )";
 

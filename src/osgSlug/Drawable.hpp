@@ -152,7 +152,8 @@ public:
 // vertex attribute arrays (a_position at loc 0, a_emCoord at loc 1) and packs all per-shape
 // data into a GL_SHADER_STORAGE_BUFFER indexed by a_position.w.
 //
-// Requires GL 4.3+ and the osgSlug-ssbo-{vert,frag}.glsl shaders.
+// Requires GL 4.3+
+//
 // The drawable sets its own program via getOrCreateStateSet(); textures and uniforms are
 // still inherited from the geode's state set (createDefaultStateSet()) as normal.
 // ------------------------------------------------------------------------------------------------
@@ -214,8 +215,6 @@ protected:
 // Extends SSBOSubdividedDrawable for sphere-surface decals. Each layer is placed at a lat/lon
 // position using a tangent-frame SSBO (7 Vec4s per layer instead of 4). The vertex shader
 // reconstructs world-space position from the tangent frame - no per-vertex sphere math on CPU.
-//
-// Requires the osgSlug-ssbo-decal-{vert,frag}.glsl shaders (set automatically in compile()).
 // ------------------------------------------------------------------------------------------------
 class SSBODecalDrawable: public SSBOSubdividedDrawable {
 public:

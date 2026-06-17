@@ -8,21 +8,15 @@
 static const std::string VERT_SHADER = R"(
 #version 430 core
 
-vec3 osgSlug_Vertex(
-	vec3 pos,
-	vec2 emCoord,
-	vec2 uv,
-	int effectId,
-	vec2 origin,
-	float effectParam,
-	float time
-) {
-	if(effectId == 1) {
-		pos.x += sin(emCoord.y * 6.0 + time * 2.0) * 0.2;
-		pos.y += sin(emCoord.x * 4.0 + time * 1.5) * 0.1;
+#pragma osgSlug lib_vertex
+
+vec3 osgSlug_Vertex(osgSlug_VertexData data) {
+	if(data.effectId == 1) {
+		data.pos.x += sin(data.emCoord.y * 6.0 + data.time * 2.0) * 0.2;
+		data.pos.y += sin(data.emCoord.x * 4.0 + data.time * 1.5) * 0.1;
 	}
 
-	return pos;
+	return data.pos;
 }
 )";
 

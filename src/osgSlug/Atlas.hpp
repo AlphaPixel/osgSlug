@@ -72,14 +72,18 @@ public:
 	static const std::string SHADER_NOOP_VERTEX_HOOK;
 	// Fragment hook no-op; osgSlug_Fragment() returns coverage unchanged.
 	static const std::string SHADER_NOOP_FRAGMENT_HOOK;
-	// Default for osgSlug_FragmentExt's pre-discard hook (see osgSlug-frag.glsl). Always
-	// linked as its own shader unit, independent of fragEffects, so existing custom
-	// fragEffects units never need to know this hook exists.
+	// Default for osgSlug_FragmentExt's pre-discard hook. Always linked as its own shader unit,
+	// independent of fragEffects, so existing custom fragEffects units never need to know this hook
+	// exists.
 	static const std::string SHADER_NOOP_FRAGMENT_EXT_HOOK;
 	static const std::string SHADER_ATLAS_TYPES; // AtlasShapeData + binding 0 only
 	static const std::string SHADER_TYPES; // SHADER_ATLAS_TYPES + LayerData + binding 1
 	static const std::string SHADER_LIB_VERTEX;
 	static const std::string SHADER_LIB_FRAGMENT;
+	static const std::string SHADER_VERT; // main SSBO vertex shader (embedded)
+	static const std::string SHADER_VERT_GL3; // GL3 attrib-based vertex shader (embedded)
+	static const std::string SHADER_VERT_DECAL; // tangent-plane decal vertex shader (embedded)
+	static const std::string SHADER_FRAG; // main fragment shader (embedded, resolved)
 
 	enum Hook { VertexHook, FragmentHook, FragmentExtHook };
 

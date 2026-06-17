@@ -13,20 +13,12 @@ static const std::string VERT_SHADER = R"(
 
 #pragma osgSlug lib_vertex
 
-vec3 osgSlug_Vertex(
-	vec3 pos,
-	vec2 emCoord,
-	vec2 uv,
-	int effectId,
-	vec2 origin,
-	float effectParam,
-	float time
-) {
-	if(effectId == 2) {
-		pos.xy += effectParam * origin;
+vec3 osgSlug_Vertex(osgSlug_VertexData data) {
+	if(data.effectId == 2) {
+		data.pos.xy += data.effectParam * data.origin;
 	}
 
-	return pos;
+	return data.pos;
 }
 )";
 

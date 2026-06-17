@@ -258,64 +258,57 @@ slughorn::CompositeShape buildPixelLogo(osgSlug::Atlas* atlas) {
 static const std::string FRAG_SHADER = R"(
 #version 330 core
 
-uniform sampler2D osgSlug_effectTexture;
+#pragma osgSlug lib_fragment
 
 vec2 osgSlug_FragEmCoord(vec2 emCoord, inout vec2 emsPerPixel, int effectId, float time) {
 	return emCoord;
 }
 
-vec4 osgSlug_Fragment(
-	float fill,
-	vec2 emCoord,
-	vec2 uv,
-	vec4 layerColor,
-	int effectId,
-	float time
-) {
-	if(effectId == 1) {
+vec4 osgSlug_Fragment(osgSlug_FragmentData data) {
+	if(data.effectId == 1) {
 		// Checkerboard: two-tone grid in em-space.
-		const float kScale = 300.0;
-		vec2 emScaled = emCoord * kScale;
+		const float SCALE = 300.0;
+		vec2 emScaled = data.emCoord * SCALE;
 		float check = mod(floor(emScaled.x) + floor(emScaled.y), 2.0);
-		vec3 colorA = layerColor.rgb;
-		vec3 colorB = min(layerColor.rgb + vec3(0.25), vec3(1.0));
-		return vec4(mix(colorA, colorB, check), fill * layerColor.a);
+		vec3 colorA = data.layerColor.rgb;
+		vec3 colorB = min(data.layerColor.rgb + vec3(0.25), vec3(1.0));
+		return vec4(mix(colorA, colorB, check), data.fill * data.layerColor.a);
 	}
 
-	if(effectId == 2) {
+	if(data.effectId == 2) {
 		// Pixel grid: anti-aliased 1px grid lines in em-space.
 		const float kGridScale = 200.0;
-		vec2 emScaled = emCoord * kGridScale;
+		vec2 emScaled = data.emCoord * kGridScale;
 		vec2 emFrac = fract(emScaled);
 		vec2 edgeDist = min(emFrac, 1.0 - emFrac);
 		vec2 fw = fwidth(emScaled);
 		vec2 lineMask = smoothstep(fw, vec2(0.0), edgeDist);
 		float atLine = max(lineMask.x, lineMask.y);
-		vec3 cellColor = min(layerColor.rgb + vec3(0.12), vec3(1.0));
-		vec3 lineColor = layerColor.rgb * 0.55;
-		return vec4(mix(cellColor, lineColor, atLine), fill * layerColor.a);
+		vec3 cellColor = min(data.layerColor.rgb + vec3(0.12), vec3(1.0));
+		vec3 lineColor = data.layerColor.rgb * 0.55;
+		return vec4(mix(cellColor, lineColor, atLine), data.fill * data.layerColor.a);
 	}
 
-	if(effectId == 3) {
-		// Texture fill: sample osgSlug_effectTexture at UV; bind any osg::Texture2D to unit 4.
-		vec4 s = texture(osgSlug_effectTexture, uv);
-		vec3 blended = mix(layerColor.rgb, s.rgb, s.a);
-		return vec4(blended, fill * layerColor.a);
+	if(data.effectId == 3) {
+		// Texture fill: sample osgSlug_effectTexture (from lib_fragment) at UV.
+		vec4 s = texture(osgSlug_effectTexture, data.uv);
+		vec3 blended = mix(data.layerColor.rgb, s.rgb, s.a);
+		return vec4(blended, data.fill * data.layerColor.a);
 	}
 
-	if(effectId == 4) {
+	if(data.effectId == 4) {
 		// Scrolling wave: two-tone fill split by an animated sine wave.
-		float scrolled = uv.x + time * 0.3;
+		float scrolled = data.uv.x + data.time * 0.3;
 		float wave = sin(scrolled * 6.28 * 3.0) * 0.15 + 0.5;
-		float dist = abs(uv.y - wave);
+		float dist = abs(data.uv.y - wave);
 		float stroke = smoothstep(0.04, 0.01, dist);
 		vec3 colorTop = vec3(1.0, 0.6, 0.1);
 		vec3 colorBottom = vec3(0.1, 0.5, 1.0);
-		vec3 waveFill = uv.y > wave ? colorTop : colorBottom;
-		return vec4(mix(waveFill, vec3(1.0), stroke), fill * layerColor.a);
+		vec3 waveFill = data.uv.y > wave ? colorTop : colorBottom;
+		return vec4(mix(waveFill, vec3(1.0), stroke), data.fill * data.layerColor.a);
 	}
 
-	return vec4(layerColor.rgb, fill * layerColor.a);
+	return vec4(data.layerColor.rgb, data.fill * data.layerColor.a);
 }
 )";
 
