@@ -22,6 +22,7 @@
 // =============================================================================
 
 #include "osgslug-example.hpp"
+#include "osgSlug/Util.hpp"
 
 #include "slughorn/serial.hpp"
 
@@ -356,8 +357,7 @@ int main(int argc, char** argv) {
 
 	auto* ss = atlas->createDefaultStateSet(
 		example::USE_GL3,
-		osgSlug::Atlas::SHADER_NOOP_VERTEX,
-		FRAG_SHADER
+		{{osgSlug::Atlas::FragmentHook, FRAG_SHADER}}
 	);
 
 	ss->setTextureAttributeAndModes(4, tex, osg::StateAttribute::ON);
@@ -367,5 +367,10 @@ int main(int argc, char** argv) {
 	geode->addDrawable(sd);
 	geode->setStateSet(ss);
 
-	return example::run(viewer, args, geode);
+	auto mat = osgx::make_ref<osg::MatrixTransform>();
+
+	mat->setMatrix(osgSlug::util::yDownToOSG());
+	mat->addChild(geode);
+
+	return example::run(viewer, args, mat);
 }

@@ -128,7 +128,7 @@ int main(int argc, char** argv) {
 	auto sdg = osgx::make_ref<osg::Geode>();
 
 	sdg->addDrawable(sd);
-	sdg->setStateSet(atlas->createDefaultStateSet(example::USE_GL3, VERT_SHADER));
+	sdg->setStateSet(atlas->createDefaultStateSet(example::USE_GL3, {{osgSlug::Atlas::VertexHook, VERT_SHADER}}));
 
 	return example::run(viewer, args, sdg);
 }

@@ -177,7 +177,7 @@ int main(int argc, char** argv) {
 
 	auto root = osgx::make_ref<osg::MatrixTransform>();
 
-	root->setMatrix(osgSlug::Matrix::rotate(osg::DegreesToRadians(90.0f), osgSlug::Vec3(1.0_cv, 0.0_cv, 0.0_cv)));
+	// root->setMatrix(osgSlug::Matrix::rotate(osg::DegreesToRadians(90.0f), osgSlug::Vec3(1.0_cv, 0.0_cv, 0.0_cv)));
 
 	// root->addChild(sdg);
 	root->addChild(mat);
@@ -185,5 +185,5 @@ int main(int argc, char** argv) {
 
 	viewer.getCamera()->setClearColor(osg::Vec4(0.2f, 0.2f, 0.2f, 1.0f));
 
-	return example::run(viewer, args, root, false);
+	return example::run(viewer, args, root);
 }

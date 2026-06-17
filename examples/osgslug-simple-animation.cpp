@@ -101,7 +101,7 @@ int main(int argc, char** argv) {
 	sd->compile();
 
 	sdg->addDrawable(sd);
-	sdg->setStateSet(atlas->createDefaultStateSet(example::USE_GL3, VERT_SHADER));
+	sdg->setStateSet(atlas->createDefaultStateSet(example::USE_GL3, {{osgSlug::Atlas::VertexHook, VERT_SHADER}}));
 
 	return example::run(viewer, args, sdg);
 }

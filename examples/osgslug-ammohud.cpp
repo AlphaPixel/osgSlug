@@ -260,7 +260,7 @@ int main(int argc, char** argv) {
 	auto sdg = osgx::make_ref<osg::Geode>();
 
 	sdg->addDrawable(sd);
-	sd->getOrCreateStateSet()->merge(*atlas->createDefaultStateSet(false, VERT_SHADER));
+	sd->getOrCreateStateSet()->merge(*atlas->createDefaultStateSet(false, {{osgSlug::Atlas::VertexHook, VERT_SHADER}}));
 
 	return example::run(viewer, args, sdg);
 }

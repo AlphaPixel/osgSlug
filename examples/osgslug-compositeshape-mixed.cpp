@@ -375,7 +375,7 @@ int main(int argc, char** argv) {
 
 	// compile() writes program + layer SSBO (binding 1); merge() adds the atlas
 	// shape SSBO (binding 0) + textures + uniforms without clobbering binding 1.
-	sd->getOrCreateStateSet()->merge(*atlas->createDefaultStateSet(example::USE_GL3, VERT_SHADER));
+	sd->getOrCreateStateSet()->merge(*atlas->createDefaultStateSet(example::USE_GL3, {{osgSlug::Atlas::VertexHook, VERT_SHADER}}));
 	sd->getOrCreateStateSet()->setRenderBinDetails(0, "RenderBin");
 	sdtext->getOrCreateStateSet()->merge(*atlas2->createDefaultStateSet(example::USE_GL3));
 	sdtext->getOrCreateStateSet()->setRenderBinDetails(1, "RenderBin");

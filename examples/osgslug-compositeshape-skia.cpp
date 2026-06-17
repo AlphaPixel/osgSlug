@@ -1,6 +1,7 @@
 //vimrun! ./osgslug-compositeshape-skia
 
 #include "osgslug-example.hpp"
+#include "osgSlug/Util.hpp"
 
 #define SLUGHORN_SKIA_IMPLEMENTATION
 #include "slughorn/skia.hpp"
@@ -232,5 +233,10 @@ int main(int argc, char** argv) {
 	sdg->addDrawable(sd);
 	sdg->setStateSet(atlas->createDefaultStateSet(example::USE_GL3));
 
-	return example::run(viewer, args, sdg);
+	auto mat = osgx::make_ref<osg::MatrixTransform>();
+
+	mat->setMatrix(osgSlug::util::yDownToOSG());
+	mat->addChild(sdg);
+
+	return example::run(viewer, args, mat);
 }

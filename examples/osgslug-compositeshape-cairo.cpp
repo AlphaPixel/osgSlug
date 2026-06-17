@@ -21,6 +21,7 @@
 // ================================================================================================
 
 #include "osgslug-example.hpp"
+#include "osgSlug/Util.hpp"
 
 #include "slughorn/serial.hpp"
 
@@ -195,10 +196,6 @@ slughorn::CompositeShape buildAxolotl(osgSlug::Atlas* atlas) {
 	cairo_surface_t* surf = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, 1, 1);
 	cairo_t* cr = cairo_create(surf);
 
-	// TODO: This seems to make NO DIFFERENCE...
-	// cairo_translate(cr, 0.0, H);
-	// cairo_scale(cr, 1.0, -1.0);
-
 	uint32_t key = 0xA0000;
 
 	auto addLayer = [&](void (*buildPath)(cairo_t*), slughorn::Color color) {
@@ -246,10 +243,6 @@ slughorn::CompositeShape buildTriangles(osgSlug::Atlas* atlas) {
 
 	cairo_surface_t* surf = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, 1, 1);
 	cairo_t* cr = cairo_create(surf);
-
-	// TODO: This seems to make NO DIFFERENCE...
-	// cairo_translate(cr, 0.0, H);
-	// cairo_scale(cr, 1.0, -1.0);
 
 	uint32_t key = 0xA0000;
 
@@ -335,15 +328,10 @@ int main(int argc, char** argv) {
 	geode->addDrawable(sd);
 	geode->setStateSet(atlas->createDefaultStateSet(example::USE_GL3));
 
-	auto root = osgx::make_ref<osg::MatrixTransform>();
+	auto mat = osgx::make_ref<osg::MatrixTransform>();
 
-	// NOTE: The shape was AUTHORED "upside down", so for this example only there's no need to
-	// invert/flip the Y axis.
-	root->setMatrix(
-		// osg::Matrix::scale(1.0, -1.0, 1.0) *
-		osgSlug::Matrix::rotate(osg::DegreesToRadians(90.0f), osgSlug::Vec3(1.0_cv, 0.0_cv, 0.0_cv))
-	);
-	root->addChild(geode);
+	mat->setMatrix(osgSlug::util::yDownToOSG());
+	mat->addChild(geode);
 
-	return example::run(viewer, args, root, false);
+	return example::run(viewer, args, mat);
 }

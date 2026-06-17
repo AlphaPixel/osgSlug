@@ -77,6 +77,10 @@ int main(int argc, char** argv) {
 				"Font color to use (RGBA 0.0-1.0)"
 			},
 			{
+				"--random-colors",
+				"All lines of text receive a random color (for funsies)"
+			},
+			{
 				"--perspective",
 				"Use a traditional 3D perspective view (instead of ortho2D)"
 			}
@@ -191,15 +195,20 @@ int main(int argc, char** argv) {
 	if(args.read("--perspective")) return example::run(viewer, args, text);
 
 	else {
+		// auto bb = text->getBoundingBox();
 		auto mat = osgx::make_ref<osg::MatrixTransform>();
 
 		mat->addChild(text);
-		// mat->setMatrix(osg::Matrix::translate(osgSlug::Vec3(3_cv, 440_cv, 0)));
+		mat->setMatrix(osg::Matrix::translate(osgSlug::Vec3(
+			10_cv,
+			590_cv - osgSlug::Text::fromPixels(cv(fontSize)),
+			0_cv
+		)));
 
 		auto* project2d = createOrthoCamera(800_cv, 600_cv);
 
 		project2d->addChild(mat);
 
-		return example::run(viewer, args, project2d, false);
+		return example::run(viewer, args, project2d);
 	}
 }

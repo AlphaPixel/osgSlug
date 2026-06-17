@@ -1,6 +1,7 @@
 //vimrun! ./osgslug-shape-skia
 
 #include "osgslug-example.hpp"
+#include "osgSlug/Util.hpp"
 
 #define SLUGHORN_SKIA_IMPLEMENTATION
 #include "slughorn/skia.hpp"
@@ -132,6 +133,49 @@ SkPath buildJigsawPiecePath() {
 } */
 
 // =============================================================================
+// Plasma fragment hook: three offset sine waves drive an HSV hue cycle.
+// The stroke-expanded outline becomes an animated neon ring.
+// =============================================================================
+
+static const std::string FRAG_SHADER = R"(
+#version 330 core
+
+vec2 osgSlug_FragEmCoord(vec2 emCoord, inout vec2 emsPerPixel, int effectId, float time) {
+    return emCoord;
+}
+
+vec4 osgSlug_Fragment(
+    float fill,
+    vec2 emCoord,
+    vec2 uv,
+    vec4 layerColor,
+    int effectId,
+    float time
+) {
+    if(effectId == 1) {
+        float t = time * 0.4;
+        vec2  p = emCoord * 8.0;
+
+        float v = sin(p.x              + t)
+                + sin(p.y * 0.9        + t * 0.7)
+                + sin((p.x + p.y) * 0.7 + t * 1.1)
+                + sin(length(p - 4.0)  + t * 1.3);
+
+        float hue = v * 0.125 + 0.5;
+
+        vec3 rgb = clamp(
+            abs(mod(hue * 6.0 + vec3(0.0, 4.0, 2.0), 6.0) - 3.0) - 1.0,
+            0.0, 1.0
+        );
+
+        return vec4(rgb, fill * layerColor.a);
+    }
+
+    return vec4(layerColor.rgb, fill * layerColor.a);
+}
+)";
+
+// =============================================================================
 // main
 // =============================================================================
 int main(int argc, char** argv) {
@@ -189,15 +233,23 @@ int main(int argc, char** argv) {
 
 	sd->setAtlas(atlas);
 	// sd->addShape({PIECE_KEY, {250,0}, osg::Vec4(1.0f, 0.5f, 0.0f, 1.0f), 200.0f});
-	sd->addLayer({PIECE_KEY, {1.0_cv, 0.5_cv, 0.0_cv, 1.0_cv}, {}, 200.0_cv});
+	sd->addLayer({PIECE_KEY, {1.0_cv, 0.5_cv, 0.0_cv, 1.0_cv}, {}, 200.0_cv, 1});
 	sd->compile();
 
 	auto sdg = osgx::make_ref<osg::Geode>();
 
 	sdg->addDrawable(sd);
-	sdg->setStateSet(atlas->createDefaultStateSet(example::USE_GL3));
+	sdg->setStateSet(atlas->createDefaultStateSet(
+		example::USE_GL3,
+		{{osgSlug::Atlas::FragmentHook, FRAG_SHADER}}
+	));
 	// sdg->setStateSet(createStateSetForAtlas(atlas));
 	// sdg->getOrCreateStateSet()->addUniform(new osg::Uniform("slug_debugMode", 4));
 
-	return example::run(viewer, args, sdg);
+	auto mat = osgx::make_ref<osg::MatrixTransform>();
+
+	mat->setMatrix(osgSlug::util::yDownToOSG());
+	mat->addChild(sdg);
+
+	return example::run(viewer, args, mat);
 }

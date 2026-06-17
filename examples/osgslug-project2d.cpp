@@ -537,6 +537,6 @@ int main(int argc, char** argv) {
 
 		project2d->addChild(mat);
 
-		return example::run(viewer, args, project2d, false);
+		return example::run(viewer, args, project2d);
 	}
 }

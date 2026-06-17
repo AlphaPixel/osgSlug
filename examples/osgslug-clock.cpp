@@ -205,7 +205,7 @@ int main(int argc, char** argv) {
 
 	sdg->addDrawable(sd);
 
-	auto* ss = atlas->createDefaultStateSet(example::USE_GL3, VERT_SHADER);
+	auto* ss = atlas->createDefaultStateSet(example::USE_GL3, {{osgSlug::Atlas::VertexHook, VERT_SHADER}});
 
 	sdg->setStateSet(ss);
 

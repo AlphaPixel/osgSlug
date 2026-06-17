@@ -10,9 +10,12 @@ OSGSLUG_DISABLE_WARNINGS
 
 #include <osg/MatrixTransform>
 #include <osg/Uniform>
+#include <osg/io_utils>
 
 #include <osgGA/GUIEventHandler>
+#include <osgGA/OrbitManipulator>
 #include <osgGA/StateSetManipulator>
+#include <osgGA/TrackballManipulator>
 
 #include <osgViewer/Viewer>
 #include <osgViewer/ViewerEventHandlers>
@@ -38,10 +41,14 @@ struct DebugModeHandler: public osgGA::GUIEventHandler {
 		"half-white"
 	};
 
+	osg::ref_ptr<osg::StateSet> _ss;
 	osg::ref_ptr<osg::Uniform> _uniform;
 	int _mode = 0;
+	bool _msaa = true;
 
-	DebugModeHandler(osg::StateSet* ss) {
+	DebugModeHandler(osg::StateSet* ss) : _ss(ss) {
+		_ss->setMode(GL_MULTISAMPLE, osg::StateAttribute::ON);
+
 		_uniform = ss->getUniform("osgSlug_debugMode");
 
 		if(!_uniform) {
@@ -67,6 +74,19 @@ struct DebugModeHandler: public osgGA::GUIEventHandler {
 	bool handle(const osgGA::GUIEventAdapter& ea, osgGA::GUIActionAdapter&) override {
 		if(ea.getEventType() != osgGA::GUIEventAdapter::KEYDOWN) return false;
 
+		if(ea.getKey() == 'm') {
+			_msaa = !_msaa;
+
+			_ss->setMode(GL_MULTISAMPLE, _msaa
+				? osg::StateAttribute::ON
+				: osg::StateAttribute::OFF
+			);
+
+			OSG_NOTICE << "MSAA: " << (_msaa ? "ON" : "OFF") << std::endl;
+
+			return true;
+		}
+
 		int target = -1;
 
 		switch(ea.getKey()) {
@@ -85,10 +105,81 @@ struct DebugModeHandler: public osgGA::GUIEventHandler {
 	}
 };
 
-struct AtlasExportVisitor: public osg::NodeVisitor {
+// Positions a TrackballManipulator to look at the XY plane from +Z (Y-up), so
+// content built in XY space is visible face-on without a scene-graph rotation.
+inline osgGA::TrackballManipulator* makeTrackball(osg::Node* scene) {
+	auto* m = new osgGA::TrackballManipulator();
+	auto bs = scene->getBound();
+
+	m->setHomePosition(
+		bs.center() + osg::Vec3d(0.0, 0.0, bs.radius() * 3.5),
+		bs.center(),
+		osg::Vec3d(0.0, 1.0, 0.0)
+	);
+
+	return m;
+}
+
+struct ManipulatorToggleHandler: public osgGA::GUIEventHandler {
+	osg::Matrixd _savedProjection;
+	bool _hasSavedProjection = false;
+
+	bool handle(const osgGA::GUIEventAdapter& ea, osgGA::GUIActionAdapter& aa) override {
+		if(ea.getEventType() != osgGA::GUIEventAdapter::KEYDOWN) return false;
+		if(ea.getKey() != osgGA::GUIEventAdapter::KEY_F12) return false;
+
+		auto* view = dynamic_cast<osgViewer::View*>(&aa);
+
+		if(!view) return false;
+
+		auto* cam = view->getCamera();
+
+		if(dynamic_cast<osgx::Ortho2DManipulator*>(view->getCameraManipulator())) {
+			// Ortho2DManipulator sets DO_NOT_COMPUTE_NEAR_FAR; restore OSG's default
+			// before handing off to TrackballManipulator or it will clip the scene.
+			cam->setComputeNearFarMode(
+				osg::CullSettings::COMPUTE_NEAR_FAR_USING_BOUNDING_VOLUMES
+			);
+
+			// Restore the perspective projection Ortho2DManipulator replaced.
+			// If we never saved one (started with ortho), fall back to a sensible default.
+			if(_hasSavedProjection) cam->setProjectionMatrix(_savedProjection);
+
+			else {
+				const auto* vp = cam->getViewport();
+				// double aspect = (vp && vp->height() > 0.0) ? vp->width() / vp->height() : 1.0;
+
+				cam->setProjectionMatrixAsPerspective(
+					30.0,
+					(vp && vp->height() > 0.0) ? vp->width() / vp->height() : 1.0,
+					1.0,
+					10000.0
+				);
+			}
+
+			view->setCameraManipulator(makeTrackball(view->getSceneData()));
+
+			OSG_NOTICE << "Manipulator: TrackballManipulator" << std::endl;
+		}
+
+		else {
+			// Save the perspective projection before Ortho2DManipulator overwrites it.
+			_savedProjection = cam->getProjectionMatrix();
+			_hasSavedProjection = true;
+
+			view->setCameraManipulator(new osgx::Ortho2DManipulator());
+
+			OSG_NOTICE << "Manipulator: Ortho2DManipulator" << std::endl;
+		}
+
+		return true;
+	}
+};
+
+struct AtlasVisitor: public osg::NodeVisitor {
 	std::vector<osgSlug::Atlas*> atlases;
 
-	AtlasExportVisitor(): osg::NodeVisitor(TRAVERSE_ALL_CHILDREN) {}
+	AtlasVisitor(): osg::NodeVisitor(TRAVERSE_ALL_CHILDREN) {}
 
 	void apply(osg::Geometry& geom) override {
 		if(auto* sd = dynamic_cast<osgSlug::ShapeDrawable*>(&geom)) {
@@ -163,37 +254,6 @@ inline bool validatePositional(osg::ArgumentParser& args, int num, const std::st
 	return true;
 }
 
-/* inline bool validatePositional(
-	osg::ArgumentParser& args,
-	int num,
-	const std::string& name="POSITIONAL"
-) {
-	if(args.argc() != num + 1) {
-		args.reportError(
-			"Invalid number of positional args for " + name +
-			": expected " + std::to_string(num) +
-			", got " + std::to_string(args.argc() - 1)
-		);
-		args.writeErrorMessages(std::cerr);
-
-		return false;
-	}
-
-	for(int i = 1; i <= num; ++i) {
-		if(!args.isString(i)) {
-			args.reportError(
-				"Invalid positional arg for " + name +
-				": " + std::string(args[i])
-			);
-			args.writeErrorMessages(std::cerr);
-
-			return false;
-		}
-	}
-
-	return true;
-} */
-
 inline bool setupArguments(
 	osg::ArgumentParser& args,
 	const std::string& description,
@@ -239,54 +299,21 @@ inline bool setupArguments(
 
 	USE_GL3 = args.read("--gl3");
 
+	if(USE_GL3) OSG_NOTICE << "GL3 mode requested..." << std::endl;
+
 	return true;
 }
-
-/* inline auto run(
-	osg::ArgumentParser& args,
-	osg::ref_ptr<osg::Node> sceneData,
-	bool rot90x=true
-) {
-	osgViewer::Viewer viewer(args);
-
-	// if(args.read("--help")) return fail(args, 0);
-
-	// By default, MOST backends want the resultant "scene" rotated 90 degrees; however, there might
-	// be some cases (ortho2D, 3D) where you DON'T want to override OSG's "z-up" convention...
-	if(rot90x) {
-		auto root = osgx::make_ref<osg::MatrixTransform>();
-
-		root->setMatrix(osgSlug::Matrix::rotate(osg::DegreesToRadians(90.0f), osgSlug::Vec3(1.0_cv, 0.0_cv, 0.0_cv)));
-		root->addChild(sceneData);
-
-		viewer.setSceneData(root);
-	}
-
-	else viewer.setSceneData(sceneData);
-
-	viewer.addEventHandler(new osgViewer::StatsHandler());
-
-	return viewer.run();
-} */
 
 inline auto run(
 	osgViewer::Viewer& viewer,
 	osg::ArgumentParser& args,
-	osg::ref_ptr<osg::Node> sceneData,
-	bool rot90x=true
+	osg::ref_ptr<osg::Node> sceneData
 ) {
-	// By default, MOST backends want the resultant "scene" rotated 90 degrees; however, there might
-	// be some cases (ortho2D, 3D) where you DON'T want to override OSG's "z-up" convention...
-	if(rot90x) {
-		auto root = osgx::make_ref<osg::MatrixTransform>();
+	auto b = sceneData->getBound();
 
-		root->setMatrix(osgSlug::Matrix::rotate(osg::DegreesToRadians(90.0f), osgSlug::Vec3(1.0_cv, 0.0_cv, 0.0_cv)));
-		root->addChild(sceneData);
+	OSG_NOTICE << "Bounds: center=" << b.center() << " radius=" << b.radius() << std::endl;
 
-		viewer.setSceneData(root);
-	}
-
-	else viewer.setSceneData(sceneData);
+	viewer.setSceneData(sceneData);
 
 	if(args.read("--profile")) {
 		// TODO: Is there a better way to do this!?
@@ -306,17 +333,44 @@ inline auto run(
 		viewer.getCamera()->setFinalDrawCallback(new osgDebug::FinalDrawCallback());
 	}
 
+	if(args.read("--trackball")) {
+		viewer.setCameraManipulator(makeTrackball(sceneData.get()));
+
+		OSG_NOTICE << "Manipulator: TrackballManipulator" << std::endl;
+	}
+
+	else {
+		auto* m = new osgx::Ortho2DManipulator();
+
+		viewer.setCameraManipulator(m);
+
+		OSG_NOTICE
+			<< "Manipulator: Ortho2DManipulator"
+			<< "\n  center=" << m->getCenter()
+			<< "\n  halfExtentY=" << m->getHalfExtentY()
+			<< "\n  matrix=\n" << m->getMatrix()
+			<< std::endl
+		;
+	}
+
 	viewer.addEventHandler(new osgViewer::StatsHandler());
 	viewer.addEventHandler(new osgGA::StateSetManipulator(viewer.getCamera()->getOrCreateStateSet()));
 	viewer.addEventHandler(new DebugModeHandler(viewer.getCamera()->getOrCreateStateSet()));
+	viewer.addEventHandler(new ManipulatorToggleHandler());
+	viewer.setUpViewInWindow(50, 50, 800, 600);
+
+	// Grab all the atlases in the scene.
+	AtlasVisitor visitor;
+
+	sceneData->accept(visitor);
+
+	for(const auto& a : visitor.atlases) {
+		OSG_WARN << "PackingStats: " << a->getPackingStats() << std::endl;
+	}
 
 	std::string dumpAtlasPath;
 
 	if(args.read("--dump-atlas", dumpAtlasPath)) {
-		AtlasExportVisitor visitor;
-
-		sceneData->accept(visitor);
-
 		if(visitor.atlases.empty()) {
 			OSG_WARN << "dump-atlas: no ShapeDrawable found" << std::endl;
 		}

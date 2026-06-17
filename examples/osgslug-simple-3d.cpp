@@ -138,5 +138,5 @@ int main(int argc, char** argv) {
 	// OPTIONAL, but helpful when learning. :)
 	// sdg->getOrCreateStateSet()->addUniform(new osg::Uniform("osgSlug_debugMode", 6));
 
-	return example::run(viewer, args, sdg, false);
+	return example::run(viewer, args, sdg);
 }
