@@ -72,20 +72,6 @@ std::string_view::size_type caseInsensitiveFind(
 	);
 }
 
-/* size_t caseInsensitiveFind(const std::string& hay, const std::string& needle, size_t pos=0) {
-	auto it = std::search(
-		hay.begin() + pos,
-		hay.end(),
-		needle.begin(),
-		needle.end(),
-		[](char a, char b) { return std::tolower(
-			static_cast<unsigned char>(a) == std::tolower(static_cast<unsigned char>(b)
-		); }
-	);
-
-	return it == hay.end() ? std::string::npos : static_cast<size_t>(std::distance(hay.begin(), it));
-} */
-
 std::string resolveLib(std::string src, const std::string& pragma, const std::string& lib) {
 	size_t pos = 0;
 
@@ -99,8 +85,17 @@ std::string resolveLib(std::string src, const std::string& pragma, const std::st
 }
 
 std::string resolveLibs(std::string src) {
-	src = resolveLib(std::move(src), "#pragma osgSlug lib_vertex", osgSlug::Atlas::SHADER_LIB_VERTEX);
-	src = resolveLib(std::move(src), "#pragma osgSlug lib_fragment", osgSlug::Atlas::SHADER_LIB_FRAGMENT);
+	src = resolveLib(
+		std::move(src),
+		"#pragma osgSlug lib_vertex",
+		osgSlug::Atlas::SHADER_LIB_VERTEX
+	);
+
+	src = resolveLib(
+		std::move(src),
+		"#pragma osgSlug lib_fragment",
+		osgSlug::Atlas::SHADER_LIB_FRAGMENT
+	);
 
 	return src;
 }
@@ -127,8 +122,8 @@ namespace osgSlug {
 // without conflicting with binding 1 declarations (LayerData vs DecalLayerData).
 const std::string Atlas::SHADER_ATLAS_TYPES = R"(
 struct AtlasShapeData {
-	vec4 bandXform;  // xy = bandScaleX/Y, zw = bandOffsetX/Y
-	vec4 shapeData;  // xy = glyphLoc (ivec2), zw = bandMax (ivec2)
+	vec4 bandXform; // xy = bandScaleX/Y, zw = bandOffsetX/Y
+	vec4 shapeData; // xy = glyphLoc (ivec2), zw = bandMax (ivec2)
 	vec4 originData; // xy = originX/Y, zw = unused
 };
 
@@ -228,7 +223,7 @@ vec4 osgSlug_Effect_Wave(float fill, vec2 uv, vec4 layerColor, float time) {
 	float wave = sin(scrolled * 6.28318 * 3.0) * 0.15 + 0.5;
 	float dist = abs(uv.y - wave);
 	float edge = smoothstep(0.04, 0.01, dist);
-	vec3 colorTop    = vec3(1.0, 0.6, 0.1);
+	vec3 colorTop = vec3(1.0, 0.6, 0.1);
 	vec3 colorBottom = vec3(0.1, 0.5, 1.0);
 	vec3 waveFill = uv.y > wave ? colorTop : colorBottom;
 	return vec4(mix(waveFill, vec3(1.0), edge), fill * layerColor.a);
@@ -279,7 +274,7 @@ vec4 osgSlug_Effect_GlowMSDF(float fill, vec2 uv, vec4 layerColor, float time) {
 )";
 
 // The VERTEX shader injection point; perform any position animation here.
-const std::string Atlas::SHADER_NOOP_VERTEX = R"(
+const std::string Atlas::SHADER_NOOP_VERTEX_HOOK = R"(
 #version 430 core
 
 vec3 osgSlug_Vertex(
@@ -296,7 +291,7 @@ vec3 osgSlug_Vertex(
 )";
 
 // The FRAGMENT shader injection point; controls w
-const std::string Atlas::SHADER_NOOP_FRAGMENT = R"(
+const std::string Atlas::SHADER_NOOP_FRAGMENT_HOOK = R"(
 #version 330 core
 
 vec2 osgSlug_FragEmCoord(vec2 emCoord, inout vec2 emsPerPixel, int effectId, float time) {
@@ -318,7 +313,7 @@ vec4 osgSlug_Fragment(
 
 // Default for osgSlug_FragmentExt (see osgSlug-frag.glsl): contributes nothing, so
 // drawables render identically to before the hook existed unless they opt in.
-const std::string Atlas::SHADER_NOOP_FRAGMENT_EXT = R"(
+const std::string Atlas::SHADER_NOOP_FRAGMENT_EXT_HOOK = R"(
 #version 330 core
 
 vec4 osgSlug_FragmentExt(
@@ -399,6 +394,7 @@ void Atlas::packTextures() {
 
 				img->allocateImage(W, H, 1, GL_RGB, GL_FLOAT);
 				img->setInternalTextureFormat(GL_RGB32F);
+
 				std::memcpy(img->data(), src + l * floatsPerLayer, floatsPerLayer * sizeof(float));
 
 				tex->setImage(l, img);
@@ -418,9 +414,19 @@ void Atlas::packTextures() {
 	for(const auto& [key, shape] : getShapes()) {
 		_shapeIndex[key] = idx++;
 
-		_shapeBuffer->push_back({shape.bandScaleX, shape.bandScaleY, shape.bandOffsetX, shape.bandOffsetY});
-		_shapeBuffer->push_back({cv(shape.bandTexX), cv(shape.bandTexY), cv(shape.bandMaxX), cv(shape.bandMaxY)});
-		_shapeBuffer->push_back({cv(shape.originX), cv(shape.originY), 0.0f, 0.0f});
+		_shapeBuffer->push_back({
+			shape.bandScaleX,
+			shape.bandScaleY,
+			shape.bandOffsetX,
+			shape.bandOffsetY
+		});
+		_shapeBuffer->push_back({
+			cv(shape.bandTexX),
+			cv(shape.bandTexY),
+			cv(shape.bandMaxX),
+			cv(shape.bandMaxY)
+		});
+		_shapeBuffer->push_back({cv(shape.originX), cv(shape.originY), 0_cv, 0_cv});
 	}
 
 	_shapeBuffer->setBufferObject(new osg::ShaderStorageBufferObject());
@@ -476,12 +482,17 @@ osg::ref_ptr<osg::Texture2D> Atlas::_makeTexture(const slughorn::Atlas::TextureD
 	return tex;
 }
 
-osg::StateSet* Atlas::createDefaultStateSet(
-	bool useGL3,
-	const std::string& vertEffects,
-	const std::string& fragEffects,
-	const std::string& fragExt
-) const {
+osg::StateSet* Atlas::createDefaultStateSet(bool useGL3, HookList hooks) const {
+	const std::string* vertEffects = &SHADER_NOOP_VERTEX_HOOK;
+	const std::string* fragEffects = &SHADER_NOOP_FRAGMENT_HOOK;
+	const std::string* fragExt = &SHADER_NOOP_FRAGMENT_EXT_HOOK;
+
+	for(const auto& [hook, src] : hooks) {
+		if(hook == VertexHook) vertEffects = &src;
+		else if(hook == FragmentHook) fragEffects = &src;
+		else if(hook == FragmentExtHook) fragExt = &src;
+	}
+
 	auto* ss = new osg::StateSet();
 	auto* program = new osg::Program();
 
@@ -502,23 +513,23 @@ osg::StateSet* Atlas::createDefaultStateSet(
 
 	if(useGL3) {
 		program->addShader(osg::Shader::readShaderFile(
-			osg::Shader::VERTEX, "../src/osgSlug-gl3-vert.glsl"
+			osg::Shader::VERTEX, "../src/osgSlug-vert-gl3.glsl"
 		));
 
-		program->addShader(makeGL3EffectShader(vertEffects));
+		program->addShader(makeGL3EffectShader(*vertEffects));
 	}
 
 	else {
 		program->addShader(makeVertShader(readFile("../src/osgSlug-vert.glsl"), SHADER_TYPES));
-		program->addShader(makeVertShader(vertEffects, SHADER_TYPES));
+		program->addShader(makeVertShader(*vertEffects, SHADER_TYPES));
 	}
 
 	program->addShader(osg::Shader::readShaderFile(
 		osg::Shader::FRAGMENT, "../src/osgSlug-frag.glsl"
 	));
 
-	program->addShader(new osg::Shader(osg::Shader::FRAGMENT, resolveLibs(fragEffects)));
-	program->addShader(new osg::Shader(osg::Shader::FRAGMENT, resolveLibs(fragExt)));
+	program->addShader(new osg::Shader(osg::Shader::FRAGMENT, resolveLibs(*fragEffects)));
+	program->addShader(new osg::Shader(osg::Shader::FRAGMENT, resolveLibs(*fragExt)));
 
 	ss->setAttributeAndModes(program, osg::StateAttribute::ON);
 	ss->addUniform(new osg::Uniform("osgSlug_curveTexture", 0));
@@ -526,8 +537,14 @@ osg::StateSet* Atlas::createDefaultStateSet(
 	ss->addUniform(new osg::Uniform("osgSlug_gradientTexture", 2));
 	ss->addUniform(new osg::Uniform("osgSlug_msdfTexture", 3));
 	ss->addUniform(new osg::Uniform("osgSlug_effectTexture", 4));
-	ss->addUniform(new osg::Uniform("osgSlug_gradientCount", static_cast<int>(getGradients().size())));
-	ss->addUniform(new osg::Uniform("osgSlug_texWidth", static_cast<int>(std::countr_zero(getTextureWidth()))));
+	ss->addUniform(new osg::Uniform(
+		"osgSlug_gradientCount",
+		static_cast<int>(getGradients().size())
+	));
+	ss->addUniform(new osg::Uniform(
+		"osgSlug_texWidth",
+		static_cast<int>(std::countr_zero(getTextureWidth()))
+	));
 	ss->addUniform(new osg::Uniform("osgSlug_emTile", osg::Vec2(1.0f, 1.0f)));
 	ss->setTextureAttributeAndModes(0, _curveTexture, osg::StateAttribute::ON);
 	ss->setTextureAttributeAndModes(1, _bandTexture, osg::StateAttribute::ON);
@@ -573,23 +590,32 @@ osg::StateSet* Atlas::createDefaultStateSet(
 	return ss;
 }
 
-osg::Program* Atlas::createDecalProgram(
-	const std::string& vertEffects,
-	const std::string& fragEffects,
-	const std::string& fragExt
-) const {
+osg::Program* Atlas::createDecalProgram(HookList hooks) const {
+	const std::string* vertEffects = &SHADER_NOOP_VERTEX_HOOK;
+	const std::string* fragEffects = &SHADER_NOOP_FRAGMENT_HOOK;
+	const std::string* fragExt = &SHADER_NOOP_FRAGMENT_EXT_HOOK;
+
+	for(const auto& [hook, src] : hooks) {
+		if(hook == VertexHook) vertEffects = &src;
+		else if(hook == FragmentHook) fragEffects = &src;
+		else if(hook == FragmentExtHook) fragExt = &src;
+	}
+
 	auto* program = new osg::Program();
 
 	// Inject only SHADER_ATLAS_TYPES (binding 0); the decal shader defines DecalLayerData
 	// and binding 1 itself, avoiding conflict with the standard LayerData / binding 1.
-	program->addShader(makeVertShader(readFile("../src/osgSlug-decal-vert.glsl"), SHADER_ATLAS_TYPES));
-	program->addShader(makeVertShader(vertEffects, SHADER_ATLAS_TYPES));
+	program->addShader(makeVertShader(
+		readFile("../src/osgSlug-vert-decal.glsl"),
+		SHADER_ATLAS_TYPES
+	));
+	program->addShader(makeVertShader(*vertEffects, SHADER_ATLAS_TYPES));
 	program->addShader(osg::Shader::readShaderFile(
 		osg::Shader::FRAGMENT,
 		"../src/osgSlug-frag.glsl"
 	));
-	program->addShader(new osg::Shader(osg::Shader::FRAGMENT, resolveLibs(fragEffects)));
-	program->addShader(new osg::Shader(osg::Shader::FRAGMENT, resolveLibs(fragExt)));
+	program->addShader(new osg::Shader(osg::Shader::FRAGMENT, resolveLibs(*fragEffects)));
+	program->addShader(new osg::Shader(osg::Shader::FRAGMENT, resolveLibs(*fragExt)));
 
 	return program;
 }

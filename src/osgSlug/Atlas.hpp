@@ -19,7 +19,10 @@ OSGSLUG_ENABLE_WARNINGS
 #endif
 
 #include <filesystem>
+#include <string>
 #include <unordered_map>
+#include <utility>
+#include <vector>
 
 namespace osgSlug {
 
@@ -65,32 +68,29 @@ public:
 	uint32_t getShapeIndex(const slughorn::Key& key) const;
 	osgx::Vec4Array* getShapeBuffer() const { return _shapeBuffer.get(); }
 
-	static const std::string SHADER_NOOP_VERTEX;
-	static const std::string SHADER_NOOP_FRAGMENT;
+	// Vertex hook no-op; osgSlug_Vertex() passes pos through unchanged.
+	static const std::string SHADER_NOOP_VERTEX_HOOK;
+	// Fragment hook no-op; osgSlug_Fragment() returns coverage unchanged.
+	static const std::string SHADER_NOOP_FRAGMENT_HOOK;
 	// Default for osgSlug_FragmentExt's pre-discard hook (see osgSlug-frag.glsl). Always
 	// linked as its own shader unit, independent of fragEffects, so existing custom
 	// fragEffects units never need to know this hook exists.
-	static const std::string SHADER_NOOP_FRAGMENT_EXT;
+	static const std::string SHADER_NOOP_FRAGMENT_EXT_HOOK;
 	static const std::string SHADER_ATLAS_TYPES; // AtlasShapeData + binding 0 only
 	static const std::string SHADER_TYPES; // SHADER_ATLAS_TYPES + LayerData + binding 1
 	static const std::string SHADER_LIB_VERTEX;
 	static const std::string SHADER_LIB_FRAGMENT;
 
-	osg::StateSet* createDefaultStateSet(
-		bool useGL3=false,
-		const std::string& vertEffects=SHADER_NOOP_VERTEX,
-		const std::string& fragEffects=SHADER_NOOP_FRAGMENT,
-		const std::string& fragExt=SHADER_NOOP_FRAGMENT_EXT
-	) const;
+	enum Hook { VertexHook, FragmentHook, FragmentExtHook };
+
+	using HookList = std::vector<std::pair<Hook, std::string>>;
+
+	osg::StateSet* createDefaultStateSet(bool useGL3=false, HookList hooks={}) const;
 
 	// Returns a Program that uses the tangent-plane decal vertex shader.
 	// Set this on an SSBODecalDrawable's StateSet to override the parent Geode's program.
 	// (SSBODecalDrawable::compile() calls this automatically.)
-	osg::Program* createDecalProgram(
-		const std::string& vertEffects=SHADER_NOOP_VERTEX,
-		const std::string& fragEffects=SHADER_NOOP_FRAGMENT,
-		const std::string& fragExt=SHADER_NOOP_FRAGMENT_EXT
-	) const;
+	osg::Program* createDecalProgram(HookList hooks={}) const;
 
 	static osg::ref_ptr<Atlas> fromAtlas(const slughorn::Atlas& src) {
 		osg::ref_ptr<Atlas> atlas = new osgSlug::Atlas();
