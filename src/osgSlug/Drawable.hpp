@@ -129,9 +129,17 @@ public:
 	// Set the position callback; called once per vertex with u,v in [0, 1].
 	void setPositionCallback(PositionCallback cb) { _positionCallback = std::move(cb); }
 
+	// When true, each cell gets its own 4 vertices (no boundary sharing). Cost: 4x vertex
+	// count. Benefit: gl_FrontFacing is reliable per-cell, enabling per-tile rotation/flip
+	// effects without affecting neighbors.
+	void setIsolatedVertices(bool isolated) { _isolatedVertices = isolated; }
+	bool getIsolatedVertices() const { return _isolatedVertices; }
+
 protected:
 	index_element_type _stepsU = 64;
 	index_element_type _stepsV = 64;
+
+	bool _isolatedVertices = false;
 
 	PositionCallback _positionCallback;
 };

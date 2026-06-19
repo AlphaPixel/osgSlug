@@ -254,8 +254,9 @@ int main(int argc, char** argv) {
 		{6, {"gill_r2", "gill_r2_b0", "gill_r2_b1", "gill_r2_b2"}},
 	};
 
-	for(const auto& g : groups)
+	for(const auto& g : groups) {
 		for(const char* k : g.keys) axo.layer(k).effectId = g.id;
+	}
 
 	auto font = osgx::make_ref<osgSlug::Font>(
 		"font/EB_Garamond/EBGaramond-VariableFont_wght.ttf",

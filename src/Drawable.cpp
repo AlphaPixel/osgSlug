@@ -22,8 +22,12 @@ struct GradientData {
 	Vec4 xform {0.0f, 0.0f, 0.0f, 0.0f};
 };
 
-static GradientData buildGradientDataFromInfo(uint32_t gradientId, const slughorn::GradientInfo& grad) {
+static GradientData buildGradientDataFromInfo(
+	uint32_t gradientId,
+	const slughorn::GradientInfo& grad
+) {
 	GradientData data;
+
 	data.meta.x() = cv(gradientId);
 
 	const auto& m = grad.transform;
@@ -188,7 +192,12 @@ void GL3ShapeDrawable::compile() {
 			cv(shape->bandMaxY)
 		});
 
-		effectData->append_n<4>(osg::Vec4(cv(layer.effectId), cv(shape->originX), cv(shape->originY), 0_cv));
+		effectData->append_n<4>(osg::Vec4(
+			cv(layer.effectId),
+			cv(shape->originX),
+			cv(shape->originY),
+			0_cv
+		));
 
 		const auto [gmeta, gxform] = buildGradientData(*_atlas, layer);
 
@@ -287,7 +296,12 @@ void GL3ShapeDrawable::updateLayer(size_t index, const slughorn::Layer& layer) {
 	const auto [gmeta, gxform] = buildGradientData(*_atlas, layer);
 
 	const Vec4 c(layer.color.r, layer.color.g, layer.color.b, layer.color.a);
-	const Vec4 eid(cv(layer.effectId), shape ? cv(shape->originX) : 0_cv, shape ? cv(shape->originY) : 0_cv, 0_cv);
+	const Vec4 eid(
+		cv(layer.effectId),
+		shape ? cv(shape->originX) : 0_cv,
+		shape ? cv(shape->originY) : 0_cv,
+		0_cv
+	);
 
 	for(size_t v = 0; v < 4; v++) {
 		(*colors)[index * 4 + v] = c;
@@ -501,8 +515,9 @@ void GL3SubdividedDrawable::compile() {
 		const auto [gmeta, gxform] = buildGradientData(*_atlas, layer);
 
 		// Guard against the running total exceeding the uint16 index range.
-		const size_t ni =
-			static_cast<size_t>(_stepsU + 1) * static_cast<size_t>(_stepsV + 1)
+		const size_t ni = _isolatedVertices
+			? static_cast<size_t>(_stepsU) * static_cast<size_t>(_stepsV) * 4
+			: static_cast<size_t>(_stepsU + 1) * static_cast<size_t>(_stepsV + 1)
 		;
 
 		if(
@@ -512,51 +527,80 @@ void GL3SubdividedDrawable::compile() {
 			throw std::runtime_error("SubdividedDrawable: mesh exceeds index capacity");
 		}
 
-		// Vertex grid: (_stepsV + 1) rows x (_stepsU + 1) cols.
-		// em-coords are computed purely from (u,v), independent of the position callback.
-		// This means the position callback can distort world-space geometry freely (cylinder,
-		// sphere, 9-slice remap) without affecting the em-coord/Slug coverage mapping.
-		for(index_element_type sv = 0; sv <= _stepsV; sv++) {
-			const slug_t v = cv(sv) / cv(_stepsV);
+		auto pushVertex = [&](slug_t u, slug_t v) {
+			const auto p = posFn(u, v);
 
-			for(index_element_type su = 0; su <= _stepsU; su++) {
-				const slug_t u = cv(su) / cv(_stepsU);
+			vertices->push_back(osg::Vec4(p.x(), p.y(), p.z(), lidx));
+			emCoords->push_back({emX0 + u * (emX1 - emX0), emY0 + v * (emY1 - emY0), u, v});
+			colors->push_back(color);
+			bandXform->push_back(bx);
+			shapeData->push_back(sd);
+			effectData->push_back(eid);
+			gradientMeta->push_back(gmeta);
+			gradientXforms->push_back(gxform);
+		};
 
-				const auto p = posFn(u, v);
+		if(_isolatedVertices) {
+			for(index_element_type sv = 0; sv < _stepsV; sv++) {
+				for(index_element_type su = 0; su < _stepsU; su++) {
+					const slug_t u0 = cv(su) / cv(_stepsU);
+					const slug_t u1 = cv(su + 1) / cv(_stepsU);
+					const slug_t v0 = cv(sv) / cv(_stepsV);
+					const slug_t v1 = cv(sv + 1) / cv(_stepsV);
 
-				vertices->push_back(osg::Vec4(p.x(), p.y(), p.z(), lidx));
+					pushVertex(u0, v0); // BL
+					pushVertex(u1, v0); // BR
+					pushVertex(u0, v1); // TL
+					pushVertex(u1, v1); // TR
+				}
+			}
+		}
 
-				emCoords->push_back({
-					emX0 + u * (emX1 - emX0),
-					emY0 + v * (emY1 - emY0),
-					u,
-					v
-				});
+		else {
+			for(index_element_type sv = 0; sv <= _stepsV; sv++) {
+				const slug_t v = cv(sv) / cv(_stepsV);
 
-				colors->push_back(color);
-				bandXform->push_back(bx);
-				shapeData->push_back(sd);
-				effectData->push_back(eid);
-				gradientMeta->push_back(gmeta);
-				gradientXforms->push_back(gxform);
+				for(index_element_type su = 0; su <= _stepsU; su++) {
+					const slug_t u = cv(su) / cv(_stepsU);
+					pushVertex(u, v);
+				}
 			}
 		}
 
 		// Index stitching - offset by layerBase so all layers share one index buffer.
 		const index_element_type layerBase = base;
 
-		for(index_element_type sv = 0; sv < _stepsV; sv++) {
-			for(index_element_type su = 0; su < _stepsU; su++) {
-				const auto row0 = static_cast<index_element_type>(layerBase + sv * (_stepsU + 1));
-				const auto row1 = static_cast<index_element_type>(layerBase + (sv + 1) * (_stepsU + 1));
-				const auto bl = static_cast<index_element_type>(row0 + su);
-				const auto br = static_cast<index_element_type>(row0 + su + 1);
-				const auto tl = static_cast<index_element_type>(row1 + su);
-				const auto tr = static_cast<index_element_type>(row1 + su + 1);
+		if(_isolatedVertices) {
+			for(index_element_type sv = 0; sv < _stepsV; sv++) {
+				for(index_element_type su = 0; su < _stepsU; su++) {
+					const auto cell = static_cast<index_element_type>(
+						layerBase + (sv * _stepsU + su) * 4
+					);
 
-				if(!((su + sv) & 1)) indices->append_range({tl, br, bl, tl, tr, br});
+					const auto bl = static_cast<index_element_type>(cell + 0);
+					const auto br = static_cast<index_element_type>(cell + 1);
+					const auto tl = static_cast<index_element_type>(cell + 2);
+					const auto tr = static_cast<index_element_type>(cell + 3);
 
-				else indices->append_range({tr, br, bl, tl, tr, bl});
+					if(!((su + sv) & 1)) indices->append_range({tl, br, bl, tl, tr, br});
+					else indices->append_range({tr, br, bl, tl, tr, bl});
+				}
+			}
+		}
+
+		else {
+			for(index_element_type sv = 0; sv < _stepsV; sv++) {
+				for(index_element_type su = 0; su < _stepsU; su++) {
+					const auto row0 = static_cast<index_element_type>(layerBase + sv * (_stepsU + 1));
+					const auto row1 = static_cast<index_element_type>(layerBase + (sv + 1) * (_stepsU + 1));
+					const auto bl = static_cast<index_element_type>(row0 + su);
+					const auto br = static_cast<index_element_type>(row0 + su + 1);
+					const auto tl = static_cast<index_element_type>(row1 + su);
+					const auto tr = static_cast<index_element_type>(row1 + su + 1);
+
+					if(!((su + sv) & 1)) indices->append_range({tl, br, bl, tl, tr, br});
+					else indices->append_range({tr, br, bl, tl, tr, bl});
+				}
 			}
 		}
 
@@ -669,7 +713,12 @@ void SSBOShapeDrawable::compile() {
 		layerBuf->push_back({layer.color.r, layer.color.g, layer.color.b, layer.color.a});
 		layerBuf->push_back(gmeta);
 		layerBuf->push_back(gxform);
-		layerBuf->push_back({cv(layer.effectId), shapeIdx, cv(packMSDFData(shape->msdfLayer, shape->msdfRange)), 0_cv});
+		layerBuf->push_back({
+			cv(layer.effectId),
+			shapeIdx,
+			cv(packMSDFData(shape->msdfLayer, shape->msdfRange)),
+			0_cv
+		});
 		layerBuf->setBufferObject(ssbo);
 
 		_layerBuffers.push_back(std::move(layerBuf));
@@ -806,8 +855,9 @@ void SSBOSubdividedDrawable::compile() {
 
 		const slug_t lidx = cv(index + 1);
 
-		const size_t ni =
-			static_cast<size_t>(_stepsU + 1) * static_cast<size_t>(_stepsV + 1)
+		const size_t ni = _isolatedVertices
+			? static_cast<size_t>(_stepsU) * static_cast<size_t>(_stepsV) * 4
+			: static_cast<size_t>(_stepsU + 1) * static_cast<size_t>(_stepsV + 1)
 		;
 
 		if(
@@ -817,19 +867,38 @@ void SSBOSubdividedDrawable::compile() {
 			throw std::runtime_error("SSBOSubdividedDrawable: mesh exceeds index capacity");
 		}
 
-		for(index_element_type sv = 0; sv <= _stepsV; sv++) {
-			const slug_t v = cv(sv) / cv(_stepsV);
+		auto pushVertex = [&](slug_t u, slug_t v) {
+			const auto p = posFn(u, v);
 
-			for(index_element_type su = 0; su <= _stepsU; su++) {
-				const slug_t u = cv(su) / cv(_stepsU);
-				const auto p = posFn(u, v);
+			vertices->push_back({p.x(), p.y(), p.z(), lidx});
+			emCoords->push_back({emX0 + u * (emX1 - emX0), emY0 + v * (emY1 - emY0), u, v});
+		};
 
-				vertices->push_back({p.x(), p.y(), p.z(), lidx});
-				emCoords->push_back({
-					emX0 + u * (emX1 - emX0),
-					emY0 + v * (emY1 - emY0),
-					u, v
-				});
+		if(_isolatedVertices) {
+			for(index_element_type sv = 0; sv < _stepsV; sv++) {
+				for(index_element_type su = 0; su < _stepsU; su++) {
+					const slug_t u0 = cv(su) / cv(_stepsU);
+					const slug_t u1 = cv(su + 1) / cv(_stepsU);
+					const slug_t v0 = cv(sv) / cv(_stepsV);
+					const slug_t v1 = cv(sv + 1) / cv(_stepsV);
+
+					pushVertex(u0, v0); // BL
+					pushVertex(u1, v0); // BR
+					pushVertex(u0, v1); // TL
+					pushVertex(u1, v1); // TR
+				}
+			}
+		}
+
+		else {
+			for(index_element_type sv = 0; sv <= _stepsV; sv++) {
+				const slug_t v = cv(sv) / cv(_stepsV);
+
+				for(index_element_type su = 0; su <= _stepsU; su++) {
+					const slug_t u = cv(su) / cv(_stepsU);
+
+					pushVertex(u, v);
+				}
 			}
 		}
 
@@ -840,25 +909,49 @@ void SSBOSubdividedDrawable::compile() {
 		layerBuf->push_back({layer.color.r, layer.color.g, layer.color.b, layer.color.a});
 		layerBuf->push_back(gmeta);
 		layerBuf->push_back(gxform);
-		layerBuf->push_back({cv(layer.effectId), shapeIdx, cv(packMSDFData(shape->msdfLayer, shape->msdfRange)), q.x1 - q.x0});
+		layerBuf->push_back({
+			cv(layer.effectId),
+			shapeIdx,
+			cv(packMSDFData(shape->msdfLayer, shape->msdfRange)),
+			q.x1 - q.x0
+		});
 		layerBuf->setBufferObject(ssbo);
 
 		_layerBuffers.push_back(std::move(layerBuf));
 
 		const index_element_type layerBase = base;
 
-		for(index_element_type sv = 0; sv < _stepsV; sv++) {
-			for(index_element_type su = 0; su < _stepsU; su++) {
-				const auto row0 = static_cast<index_element_type>(layerBase + sv * (_stepsU + 1));
-				const auto row1 = static_cast<index_element_type>(layerBase + (sv + 1) * (_stepsU + 1));
-				const auto bl = static_cast<index_element_type>(row0 + su);
-				const auto br = static_cast<index_element_type>(row0 + su + 1);
-				const auto tl = static_cast<index_element_type>(row1 + su);
-				const auto tr = static_cast<index_element_type>(row1 + su + 1);
+		if(_isolatedVertices) {
+			for(index_element_type sv = 0; sv < _stepsV; sv++) {
+				for(index_element_type su = 0; su < _stepsU; su++) {
+					const auto cell = static_cast<index_element_type>(
+						layerBase + (sv * _stepsU + su) * 4
+					);
 
-				if(!((su + sv) & 1)) indices->append_range({tl, br, bl, tl, tr, br});
+					const auto bl = static_cast<index_element_type>(cell + 0);
+					const auto br = static_cast<index_element_type>(cell + 1);
+					const auto tl = static_cast<index_element_type>(cell + 2);
+					const auto tr = static_cast<index_element_type>(cell + 3);
 
-				else indices->append_range({tr, br, bl, tl, tr, bl});
+					if(!((su + sv) & 1)) indices->append_range({tl, br, bl, tl, tr, br});
+					else indices->append_range({tr, br, bl, tl, tr, bl});
+				}
+			}
+		}
+
+		else {
+			for(index_element_type sv = 0; sv < _stepsV; sv++) {
+				for(index_element_type su = 0; su < _stepsU; su++) {
+					const auto row0 = static_cast<index_element_type>(layerBase + sv * (_stepsU + 1));
+					const auto row1 = static_cast<index_element_type>(layerBase + (sv + 1) * (_stepsU + 1));
+					const auto bl = static_cast<index_element_type>(row0 + su);
+					const auto br = static_cast<index_element_type>(row0 + su + 1);
+					const auto tl = static_cast<index_element_type>(row1 + su);
+					const auto tr = static_cast<index_element_type>(row1 + su + 1);
+
+					if(!((su + sv) & 1)) indices->append_range({tl, br, bl, tl, tr, br});
+					else indices->append_range({tr, br, bl, tl, tr, bl});
+				}
 			}
 		}
 
@@ -1019,7 +1112,16 @@ void SSBODecalDrawable::updateDecalPosition(
 
 	osg::Vec4 center, tangentEast, tangentNorth;
 
-	computeDecalTangentFrame(latDeg, lonDeg, halfWidthDeg, halfH, cv(_radius), center, tangentEast, tangentNorth);
+	computeDecalTangentFrame(
+		latDeg,
+		lonDeg,
+		halfWidthDeg,
+		halfH,
+		cv(_radius),
+		center,
+		tangentEast,
+		tangentNorth
+	);
 
 	auto& buf = *_layerBuffers[index];
 
@@ -1150,7 +1252,12 @@ void SSBODecalDrawable::compile() {
 		layerBuf->push_back({layer.color.r, layer.color.g, layer.color.b, layer.color.a}); // [0]
 		layerBuf->push_back(gmeta); // [1]
 		layerBuf->push_back(gxform); // [2]
-		layerBuf->push_back({cv(layer.effectId), shapeIdx, cv(packMSDFData(shape->msdfLayer, shape->msdfRange)), q.x1 - q.x0}); // [3]
+		layerBuf->push_back({
+			cv(layer.effectId),
+			shapeIdx,
+			cv(packMSDFData(shape->msdfLayer, shape->msdfRange)),
+			q.x1 - q.x0
+		}); // [3]
 
 		osg::Vec4 center, tangentEast, tangentNorth;
 
