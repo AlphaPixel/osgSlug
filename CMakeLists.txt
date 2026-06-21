@@ -2,17 +2,20 @@ cmake_minimum_required(VERSION 3.28)
 
 project(osgSlug)
 
-# if(NOT EXISTS "${CMAKE_SOURCE_DIR}/ext/slughorn/slughorn.hpp")
-# 	message(FATAL_ERROR
-# 		"slughorn submodule is missing. Run:\n"
-# 		"  git submodule update --init --recursive"
-# 	)
-# endif()
+set(SLUGHORN_DIR "${CMAKE_CURRENT_SOURCE_DIR}/ext/slughorn" CACHE PATH
+	"Path to the slughorn source tree (submodule or external checkout)")
+
+if(NOT EXISTS "${SLUGHORN_DIR}/CMakeLists.txt")
+	message(FATAL_ERROR
+		"slughorn not found at SLUGHORN_DIR='${SLUGHORN_DIR}'.\n"
+		"Run:  git submodule update --init --recursive\n"
+		"Or:   cmake -DSLUGHORN_DIR=/path/to/slughorn"
+	)
+endif()
 
 # include("etc/asan.cmake")
-# add_subdirectory("ext/slughorn")
-add_subdirectory("/home/cubicool/dev/slughorn" "ext/slughorn")
-add_subdirectory("/home/cubicool/dev/slughorn/ext/pybind11" "ext/pybind11")
+add_subdirectory("${SLUGHORN_DIR}" "ext/slughorn")
+add_subdirectory("${SLUGHORN_DIR}/ext/pybind11" "ext/pybind11")
 
 # # TODO CONVERT ALL `add_subdirectory` bits to something like this!
 # function(ext_cli11)
@@ -27,8 +30,8 @@ add_subdirectory("/home/cubicool/dev/slughorn/ext/pybind11" "ext/pybind11")
 
 # ext_cli11()
 
-set(SKIA_DIR "/home/cubicool/dev/skia")
-set(SKIA_BUILD_DIR "/home/cubicool/dev/skia/out/Release")
+set(SKIA_DIR "" CACHE PATH "Path to Skia source tree (leave empty to skip Skia examples)")
+set(SKIA_BUILD_DIR "" CACHE PATH "Path to Skia build directory containing libskia.a")
 
 find_package(PkgConfig REQUIRED)
 find_package(Python3 COMPONENTS Interpreter Development REQUIRED)
@@ -104,15 +107,22 @@ else(WIN32)
 	endif()
 endif()
 
-add_library(skia STATIC IMPORTED)
-set_target_properties(skia PROPERTIES
-	IMPORTED_LOCATION "${SKIA_BUILD_DIR}/libskia.a"
-)
-target_include_directories(skia INTERFACE "${SKIA_DIR}")
+if(SKIA_DIR AND SKIA_BUILD_DIR)
+	add_library(skia STATIC IMPORTED)
+	set_target_properties(skia PROPERTIES
+		IMPORTED_LOCATION "${SKIA_BUILD_DIR}/libskia.a"
+	)
+	target_include_directories(skia INTERFACE "${SKIA_DIR}")
+	set(OSGSLUG_HAS_SKIA TRUE)
+else()
+	set(OSGSLUG_HAS_SKIA FALSE)
+	message(STATUS "Skia not configured — Skia examples will be skipped (set SKIA_DIR and SKIA_BUILD_DIR to enable)")
+endif()
 
 # Main library
 add_library(osgSlug
 	"src/Atlas.cpp"
+	"src/Atlas.shaders.cpp"
 	"src/Drawable.cpp"
 	"src/InkDrawable.cpp"
 	"src/Font.cpp"
@@ -176,6 +186,14 @@ if(OSGSLUG_BUILD_EXAMPLES)
 
 	add_subdirectory("examples/tmp")
 
+	# Standalone Blend2D Porter-Duff reference (no OSG; links only blend2d).
+	# add_executable(bl-demo-porterduff "ext/bl_demo_porterduff.cpp")
+	# target_compile_features(bl-demo-porterduff PRIVATE cxx_std_20)
+	# target_include_directories(bl-demo-porterduff PRIVATE "/home/cubicool/dev/blend2d")
+	# target_link_libraries(bl-demo-porterduff PRIVATE
+	# 	"/home/cubicool/dev/blend2d/BUILD-g++-13.3.0-NOASAN/libblend2dd.so"
+	# )
+
 	osgslug_example(osgslug-ssbo SOURCES "examples/osgslug-ssbo.cpp")
 	osgslug_example(osgslug-serial SOURCES "examples/osgslug-serial.cpp")
 	osgslug_example(osgslug-text SOURCES "examples/osgslug-text.cpp")
@@ -193,10 +211,6 @@ if(OSGSLUG_BUILD_EXAMPLES)
 	osgslug_example(osgslug-emoji-ft2 SOURCES "examples/osgslug-emoji-ft2.cpp")
 	osgslug_example(osgslug-emoji-grid SOURCES "examples/osgslug-emoji-grid.cpp")
 	osgslug_example(osgslug-shape-canvas SOURCES "examples/osgslug-shape-canvas.cpp")
-	osgslug_example(osgslug-shape-skia
-		SOURCES "examples/osgslug-shape-skia.cpp"
-		LIBS "skia"
-	)
 	osgslug_example(osgslug-shape-cairo
 		SOURCES "examples/osgslug-shape-cairo.cpp"
 		LIBS "PkgConfig::CAIRO"
@@ -204,16 +218,22 @@ if(OSGSLUG_BUILD_EXAMPLES)
 	osgslug_example(osgslug-compositeshape-canvas
 		SOURCES "examples/osgslug-compositeshape-canvas.cpp"
 	)
-	osgslug_example(osgslug-compositeshape-skia
-		SOURCES "examples/osgslug-compositeshape-skia.cpp"
-		LIBS "skia"
-	)
-	osgslug_example(osgslug-compositeshape-skia-logo
-		SOURCES "examples/osgslug-compositeshape-skia-logo.cpp"
-		LIBS
-			"skia"
-			"PkgConfig::FONTCONFIG"
-	)
+	if(OSGSLUG_HAS_SKIA)
+		osgslug_example(osgslug-shape-skia
+			SOURCES "examples/osgslug-shape-skia.cpp"
+			LIBS "skia"
+		)
+		osgslug_example(osgslug-compositeshape-skia
+			SOURCES "examples/osgslug-compositeshape-skia.cpp"
+			LIBS "skia"
+		)
+		osgslug_example(osgslug-compositeshape-skia-logo
+			SOURCES "examples/osgslug-compositeshape-skia-logo.cpp"
+			LIBS
+				"skia"
+				"PkgConfig::FONTCONFIG"
+		)
+	endif()
 	osgslug_example(osgslug-compositeshape-cairo
 		SOURCES "examples/osgslug-compositeshape-cairo.cpp"
 		LIBS "PkgConfig::CAIRO"
@@ -230,9 +250,11 @@ endif()
 pybind11_add_module(osgSlug_python "ext/osgSlug-python.cpp")
 
 set_target_properties(osgSlug_python PROPERTIES OUTPUT_NAME "osgSlug")
+set(OSG_PYTHON_DIR "" CACHE PATH "Path to OpenSceneGraph.py checkout")
+
 target_include_directories(osgSlug_python PRIVATE
-	"/home/cubicool/dev/OpenSceneGraph.py"
-	"/home/cubicool/dev/OpenSceneGraph.py/etc"
+	"${OSG_PYTHON_DIR}"
+	"${OSG_PYTHON_DIR}/etc"
 )
 target_link_libraries(osgSlug_python PRIVATE osgSlug pybind11::module)
 target_compile_features(osgSlug_python PUBLIC cxx_std_20)
