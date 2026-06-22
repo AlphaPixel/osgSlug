@@ -27,7 +27,7 @@ vec3 osgSlug_Vertex(osgSlug_VertexData data) {
 }
 )";
 
-struct ClockCallback : public osg::NodeCallback {
+struct ClockCallback: public osg::NodeCallback {
 	osg::ref_ptr<osg::Uniform> _hourAngle;
 	osg::ref_ptr<osg::Uniform> _minuteAngle;
 	osg::ref_ptr<osg::Uniform> _secondAngle;
@@ -46,15 +46,15 @@ struct ClockCallback : public osg::NodeCallback {
 		const std::time_t t = std::chrono::system_clock::to_time_t(now);
 		const std::tm* tm = std::localtime(&t);
 
-		const float sec  = static_cast<float>(tm->tm_sec);
-		const float min  = static_cast<float>(tm->tm_min)  + sec  / 60.0f;
+		const float sec = static_cast<float>(tm->tm_sec);
+		const float min = static_cast<float>(tm->tm_min) + sec / 60.0f;
 		const float hour = static_cast<float>(tm->tm_hour % 12) + min / 60.0f;
 
 		static constexpr float TWO_PI = 2.0f * static_cast<float>(M_PI);
 
-		_secondAngle->set((sec  / 60.0f)  * TWO_PI);
-		_minuteAngle->set((min  / 60.0f)  * TWO_PI);
-		_hourAngle->set(  (hour / 12.0f)  * TWO_PI);
+		_secondAngle->set((sec / 60.0f) * TWO_PI);
+		_minuteAngle->set((min / 60.0f) * TWO_PI);
+		_hourAngle->set( (hour / 12.0f) * TWO_PI);
 
 		traverse(node, nv);
 	}
@@ -69,26 +69,26 @@ int main(int argc, char** argv) {
 
 	// ============================================================================================
 	// Geometry constants. Canvas is Y-up: larger Y = higher on screen.
-	// Clock positions: x = CX + r*sin(a),  y = CY + r*cos(a)  (a=0 at 12 o'clock, CW).
+	// Clock positions: x = CX + r*sin(a), y = CY + r*cos(a) (a=0 at 12 o'clock, CW).
 	// ============================================================================================
 
 	const slug_t CX = 0.5_cv, CY = 0.5_cv;
-	const slug_t FACE_R     = 0.45_cv;
+	const slug_t FACE_R = 0.45_cv;
 	const slug_t TICK_OUTER = 0.43_cv;
 	const slug_t TICK_INNER = 0.36_cv;
 	const slug_t TICK_WIDTH = 0.025_cv;
-	const slug_t NUM_R      = 0.29_cv;
-	const slug_t FONT_SIZE  = 0.07_cv;
+	const slug_t NUM_R = 0.29_cv;
+	const slug_t FONT_SIZE = 0.07_cv;
 
 	const slug_t HOUR_LENGTH = 0.24_cv, HOUR_WIDTH = 0.035_cv;
-	const slug_t MIN_LENGTH  = 0.33_cv, MIN_WIDTH  = 0.025_cv;
-	const slug_t SEC_LENGTH  = 0.38_cv, SEC_WIDTH  = 0.010_cv;
+	const slug_t MIN_LENGTH = 0.33_cv, MIN_WIDTH = 0.025_cv;
+	const slug_t SEC_LENGTH = 0.38_cv, SEC_WIDTH = 0.010_cv;
 
 	// ============================================================================================
 	// Atlas + Canvas
 	// ============================================================================================
 
-	auto atlas = osgx::make_ref<osgSlug::Atlas>();
+	auto atlas = osgx::make_ref<osgSlug::Atlas>(example::USE_GL3);
 
 	slughorn::canvas::Canvas canvas(*atlas, slughorn::KeyIterator());
 	canvas.setTolerance(slughorn::TOLERANCE_BALANCED);
@@ -179,7 +179,7 @@ int main(int argc, char** argv) {
 
 	auto clock = canvas.finalize();
 
-	clock.layer("clock_hour_hand").effectId   = 3;
+	clock.layer("clock_hour_hand").effectId = 3;
 	clock.layer("clock_minute_hand").effectId = 2;
 	clock.layer("clock_second_hand").effectId = 1;
 
@@ -188,23 +188,15 @@ int main(int argc, char** argv) {
 	// ============================================================================================
 
 	auto sd = example::makeShapeDrawable();
+	auto* ss = atlas->createHookStateSet({{osgSlug::Atlas::VertexHook, VERT_SHADER}});
 
-	sd->setAtlas(atlas);
+	sd->setStateSet(ss);
 	sd->addCompositeShape(clock);
-	sd->compile();
 
-	auto sdg = osgx::make_ref<osg::Geode>();
+	atlas->setUpdateCallback(new ClockCallback(ss));
 
-	sdg->addDrawable(sd);
+	// compile() fires automatically inside addChild() because the atlas is already Packed.
+	atlas->addChild(sd);
 
-	auto* ss = atlas->createDefaultStateSet(example::USE_GL3, {{osgSlug::Atlas::VertexHook, VERT_SHADER}});
-
-	sdg->setStateSet(ss);
-
-	auto mat = osgx::make_ref<osg::MatrixTransform>();
-
-	mat->addChild(sdg);
-	mat->setUpdateCallback(new ClockCallback(ss));
-
-	return example::run(viewer, args, mat);
+	return example::run(viewer, args, atlas);
 }

@@ -255,19 +255,13 @@ int main(int argc, char** argv) {
 
 	auto sd = example::makeShapeDrawable();
 
-	sd->setAtlas(atlas);
 	// sd->addLayer(slughorn::Layer{key, slughorn::Color{1_cv, 1_cv, 1_cv, 1_cv}});
 	sd->addCompositeShape(compositeShape);
-	sd->compile();
-
-	auto sdg = osgx::make_ref<osg::Geode>();
-
-	sdg->addDrawable(sd);
-	sdg->setStateSet(atlas->createDefaultStateSet(example::USE_GL3));
+	atlas->addChild(sd);
 
 	auto mat = osgx::make_ref<osg::MatrixTransform>();
 
-	mat->addChild(sdg);
+	mat->addChild(atlas);
 
 	return example::run(viewer, args, mat);
 }

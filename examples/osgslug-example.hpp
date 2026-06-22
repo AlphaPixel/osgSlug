@@ -365,7 +365,7 @@ inline auto run(
 	sceneData->accept(visitor);
 
 	for(const auto& a : visitor.atlases) {
-		OSG_WARN << "PackingStats: " << a->getPackingStats() << std::endl;
+		OSG_NOTICE << "PackingStats: " << a->getPackingStats() << std::endl;
 	}
 
 	std::string dumpAtlasPath;

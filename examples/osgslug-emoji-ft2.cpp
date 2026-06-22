@@ -93,22 +93,17 @@ int main(int argc, char** argv) {
 
 	// slughorn::serial::writeJSON(*atlas, std::cerr);
 
-	sd->setAtlas(atlas);
 	sd->addCompositeShape(cs);
-	sd->compile();
 	sd->setName("sd");
 	// sd->setUserValue("path", std::string("emoji"));
 
-	auto sdg = osgx::make_ref<osg::Geode>();
-
-	sdg->addDrawable(sd);
-	sdg->setStateSet(atlas->createDefaultStateSet(example::USE_GL3));
-	sdg->setName("sdg");
-	// sdg->getOrCreateStateSet()->addUniform(new osg::Uniform("osgSlug_layerMask", 2));
-
+	// osgSlug_layerMask uniform lives on the drawable's own StateSet so it affects only this sd.
 	auto* lu = new osg::Uniform("osgSlug_layerMask", 0);
 
-	sdg->getOrCreateStateSet()->addUniform(lu);
+	// sd->getOrCreateStateSet()->addUniform(new osg::Uniform("osgSlug_layerMask", 2));
+	sd->getOrCreateStateSet()->addUniform(lu);
+
+	atlas->addChild(sd);
 
 	viewer.addEventHandler(new osgx::LambdaKeyHandler('n', [&lu](auto& ea, auto& aa) {
 		int luv = 0;
@@ -124,5 +119,5 @@ int main(int argc, char** argv) {
 		return true;
 	}));
 
-	return example::run(viewer, args, sdg);
+	return example::run(viewer, args, atlas);
 }

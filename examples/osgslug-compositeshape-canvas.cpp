@@ -104,7 +104,6 @@ int main(int argc, char** argv) {
 
 	sd->setStepsU(8);
 	sd->setStepsV(1);
-	sd->setAtlas(atlas);
 	sd->addCompositeShape(compositeShape);
 	// Expand the initials bound so rotation doesn't "clip" our scene.
 	// TODO: This is a total HACK! We need some ... "official" way ... of telling OSG the shape
@@ -114,15 +113,13 @@ int main(int argc, char** argv) {
 		-1.25f, -1.25f, -1.25f,
 		 1.25f, 1.25f, 1.25f
 	));
-	sd->compile();
+	sd->setStateSet(atlas->createHookStateSet({{osgSlug::Atlas::VertexHook, VERT_SHADER}}));
+
+	// atlas->addChild triggers compile immediately; setLayerEffectParam calls are safe after.
+	atlas->addChild(sd);
 
 	// TODO: This needs to be moved into a HELPER of some kind!
 	for(size_t i = 0; i < compositeShape.layers.size(); i++) sd->setLayerEffectParam(i, cv(i));
 
-	auto sdg = osgx::make_ref<osg::Geode>();
-
-	sdg->addDrawable(sd);
-	sdg->setStateSet(atlas->createDefaultStateSet(example::USE_GL3, {{osgSlug::Atlas::VertexHook, VERT_SHADER}}));
-
-	return example::run(viewer, args, sdg);
+	return example::run(viewer, args, atlas);
 }

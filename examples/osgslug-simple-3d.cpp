@@ -127,16 +127,10 @@ int main(int argc, char** argv) {
 		sd = sdsd;
 	}
 
-	sd->setAtlas(atlas);
-	sd->compile();
+	atlas->addChild(sd);
 
-	auto sdg = osgx::make_ref<osg::Geode>();
+	// To visualize the entire 3D shape in debug mode (optional):
+	// atlas->getOrCreateStateSet()->addUniform(new osg::Uniform("osgSlug_debugMode", 6));
 
-	sdg->addDrawable(sd);
-	sdg->setStateSet(atlas->createDefaultStateSet());
-	// We go ahead and set the necessary "debugMode" to visualize the entire 3D shape; this is
-	// OPTIONAL, but helpful when learning. :)
-	// sdg->getOrCreateStateSet()->addUniform(new osg::Uniform("osgSlug_debugMode", 6));
-
-	return example::run(viewer, args, sdg);
+	return example::run(viewer, args, atlas);
 }

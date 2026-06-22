@@ -2,8 +2,31 @@
 
 #include <osg/BufferObject>
 #include <osg/BufferIndexBinding>
+#include <osg/GLExtensions>
+#include <osg/RenderInfo>
 
 namespace osgSlug {
+
+// ------------------------------------------------------------------------------------------------
+// Drawable
+// ------------------------------------------------------------------------------------------------
+
+Drawable::Drawable() {
+	setUseDisplayList(false);
+	setUseVertexBufferObjects(true);
+}
+
+Atlas* Drawable::getAtlas() const {
+	return osgx::getFirstParent<Atlas>(this);
+}
+
+void Drawable::compileGLObjects(osg::RenderInfo& renderInfo) const {
+	if(getAtlas()) const_cast<Drawable*>(this)->compile();
+
+	osg::Geometry::compileGLObjects(renderInfo);
+}
+
+// ------------------------------------------------------------------------------------------------
 
 namespace {
 
@@ -96,16 +119,87 @@ static void ssboSetLayerEffectId(
 	(*buf)[3].x() = cv(effectId);
 }
 
-static void ssboSetLayerEffectParam(osgx::Vec4Array* buf, slug_t param) {
+static void ssboSetLayerEffectParam(
+	osgx::Vec4Array* buf,
+	std::vector<slughorn::Layer>& layers,
+	size_t index,
+	slug_t param
+) {
+	layers[index].effectParam = param;
 	(*buf)[3].w() = param;
 }
 
+static void applyBlendMode(osg::State& state, slughorn::BlendMode mode) {
+	using BM = slughorn::BlendMode;
+
+	// Porter-Duff modes: reset equation to FUNC_ADD, set blend func directly.
+	// glBlendFunc is core GL 1.0 - no extension needed.
+	auto* ext = osg::GLExtensions::Get(state.getContextID(), true);
+
+	// Helper: set equation to FUNC_ADD + blend func (same src/dst for RGB and alpha).
+	auto bf = [&](GLenum src, GLenum dst) {
+		ext->glBlendEquation(GL_FUNC_ADD);
+		ext->glBlendFuncSeparate(src, dst, src, dst);
+	};
+
+	switch(mode) {
+		// Premultiplied SrcOver: out = src + (1-src_alpha)*dst.
+		// Requires fragment shader output to be premultiplied (rgb*a, a).
+		case BM::SrcOver: bf(GL_ONE, GL_ONE_MINUS_SRC_ALPHA); return;
+		case BM::Src: bf(GL_ONE, GL_ZERO); return;
+		case BM::Dst: bf(GL_ZERO, GL_ONE); return;
+		case BM::SrcIn: bf(GL_DST_ALPHA, GL_ZERO); return;
+		case BM::DstIn: bf(GL_ZERO, GL_SRC_ALPHA); return;
+		case BM::SrcOut: bf(GL_ONE_MINUS_DST_ALPHA, GL_ZERO); return;
+		case BM::DstOut: bf(GL_ZERO, GL_ONE_MINUS_SRC_ALPHA); return;
+		case BM::SrcAtop: bf(GL_DST_ALPHA, GL_ONE_MINUS_SRC_ALPHA); return;
+		case BM::DstAtop: bf(GL_ONE_MINUS_DST_ALPHA, GL_SRC_ALPHA); return;
+		case BM::Xor: bf(GL_ONE_MINUS_DST_ALPHA, GL_ONE_MINUS_SRC_ALPHA); return;
+		case BM::Clear: bf(GL_ZERO, GL_ZERO); return;
+		case BM::DstOver: bf(GL_ONE_MINUS_DST_ALPHA, GL_ONE); return;
+		default: break;
+	}
+
+	// KHR advanced modes - GL_KHR_blend_equation_advanced enum values.
+	GLenum eq = 0;
+
+	switch(mode) {
+		case BM::Multiply: eq = 0x9294; break;
+		case BM::Screen: eq = 0x9295; break;
+		case BM::Overlay: eq = 0x9296; break;
+		case BM::Darken: eq = 0x9297; break;
+		case BM::Lighten: eq = 0x9298; break;
+		case BM::ColorDodge: eq = 0x9299; break;
+		case BM::ColorBurn: eq = 0x929A; break;
+		case BM::HardLight: eq = 0x929B; break;
+		case BM::SoftLight: eq = 0x929C; break;
+		case BM::Difference: eq = 0x929E; break;
+		case BM::Exclusion: eq = 0x92A0; break;
+		default: break;
+	}
+
+	if(!eq) return;
+
+	if(!ext->glBlendEquation) {
+		OSG_WARN
+			<< "osgSlug: KHR blend mode requested but glBlendEquation unavailable; "
+			<< "falling back to SrcOver." << std::endl
+		;
+
+		ext->glBlendFuncSeparate(
+			GL_ONE, GL_ONE_MINUS_SRC_ALPHA,
+			GL_ONE, GL_ONE_MINUS_SRC_ALPHA
+		);
+
+		return;
+	}
+
+	ext->glBlendEquation(eq);
 }
 
-ShapeDrawable::ShapeDrawable() {
-	setUseDisplayList(false);
-	setUseVertexBufferObjects(true);
 }
+
+// ShapeDrawable constructor is now compiler-generated (Drawable() does the VBO setup).
 
 osg::BoundingBox ShapeDrawable::computeBoundingBox() const {
 	osg::BoundingBox bb;
@@ -117,8 +211,53 @@ osg::BoundingBox ShapeDrawable::computeBoundingBox() const {
 	return bb;
 }
 
+void ShapeDrawable::drawImplementation(osg::RenderInfo& renderInfo) const {
+	// Fast path: single SrcOver group - no state changes needed, base class handles it.
+	if(_groups.size() == 1 && _groups[0].blendMode == slughorn::BlendMode::SrcOver) {
+		osg::Geometry::drawImplementation(renderInfo);
+
+		return;
+	}
+
+	osg::State& state = *renderInfo.getState();
+
+	bool usingVBOs = state.useVertexBufferObject(_supportsVertexBufferObjects && _useVertexBufferObjects);
+	bool usingVAOs = usingVBOs && state.useVertexArrayObject(_useVertexArrayObject);
+	auto* vas = state.getCurrentVertexArrayState();
+
+	vas->setVertexBufferObjectSupported(usingVBOs);
+
+	// Bind all vertex arrays and element buffer objects once.
+	drawVertexArraysImplementation(renderInfo);
+
+	// One draw call per group with the appropriate blend state.
+	for(const auto& g : _groups) {
+		applyBlendMode(state, g.blendMode);
+
+		g.indices->draw(state, usingVBOs);
+	}
+
+	// Restore default SrcOver blend state so we don't leak into subsequent drawables.
+	applyBlendMode(state, slughorn::BlendMode::SrcOver);
+
+	if(usingVBOs && !usingVAOs) {
+		vas->unbindVertexBufferObject();
+		vas->unbindElementBufferObject();
+	}
+}
+
 void GL3ShapeDrawable::compile() {
-	if(!_atlas || !_atlas->isBuilt() || _layers.empty()) return;
+	if(_compiled) return;
+
+	auto* atlas = getAtlas();
+
+	if(!atlas) {
+		OSG_WARN << "GL3ShapeDrawable::compile(): no Atlas parent -- "
+			<< "add to an Atlas node first (e.g. atlas->addChild(drawable))" << std::endl;
+		return;
+	}
+
+	if(!atlas->isBuilt() || _layers.empty()) return;
 
 	auto vertices = osgx::make_ref<osgx::Vec4Array>();
 	auto colors = osgx::make_ref<osgx::Vec4Array>();
@@ -128,21 +267,33 @@ void GL3ShapeDrawable::compile() {
 	auto effectData = osgx::make_ref<osgx::Vec4Array>();
 	auto gradientMeta = osgx::make_ref<osgx::Vec4Array>();
 	auto gradientXforms = osgx::make_ref<osgx::Vec4Array>();
-	auto indices = osgx::make_ref<osgx::DrawElementsUShort>();
 
-	// TODO (known): clear arrays here to avoid accumulation on repeated compile() calls. Safe for
-	// now since compile() is only called once.
+	_groups.clear();
+
+	osg::ref_ptr<index_type> groupIndices;
+	slughorn::BlendMode groupBlend = slughorn::BlendMode::SrcOver;
+
+	auto flushGroup = [&]() {
+		if(groupIndices && !groupIndices->empty())
+			_groups.push_back({groupBlend, slughorn::DrawMode::Visible, groupIndices});
+	};
 
 	index_element_type base = 0;
 
 	size_t index = 0;
 
 	for(const auto& layer : _layers) {
-		if(!layer.visible) continue;
+		if(layer.drawMode != slughorn::DrawMode::Visible) continue;
 
-		const auto shape = _atlas->getShape(layer.key);
+		const auto shape = atlas->getShape(layer.key);
 
 		if(!shape) continue;
+
+		if(!groupIndices || layer.blendMode != groupBlend) {
+			flushGroup();
+			groupIndices = osgx::make_ref<index_type>();
+			groupBlend = layer.blendMode;
+		}
 
 		const slug_t expand = layer.expand;
 
@@ -196,15 +347,15 @@ void GL3ShapeDrawable::compile() {
 			cv(layer.effectId),
 			cv(shape->originX),
 			cv(shape->originY),
-			0_cv
+			layer.effectParam
 		));
 
-		const auto [gmeta, gxform] = buildGradientData(*_atlas, layer);
+		const auto [gmeta, gxform] = buildGradientData(*atlas, layer);
 
 		gradientMeta->append_n<4>(gmeta);
 		gradientXforms->append_n<4>(gxform);
 
-		indices->append_range({
+		groupIndices->append_range({
 			base, index_element_type(base + 1), index_element_type(base + 2),
 			base, index_element_type(base + 2), index_element_type(base + 3)
 		});
@@ -214,7 +365,8 @@ void GL3ShapeDrawable::compile() {
 		index++;
 	}
 
-	// TODO: Why JUST test `vertices`? Shouldn't we test them ALL!?
+	flushGroup();
+
 	if(vertices->empty()) return;
 
 	setVertexAttribArray(0, vertices);
@@ -241,7 +393,9 @@ void GL3ShapeDrawable::compile() {
 	setVertexAttribArray(7, gradientXforms);
 	setVertexAttribBinding(7, osg::Geometry::BIND_PER_VERTEX);
 
-	addPrimitiveSet(indices);
+	for(const auto& g : _groups) addPrimitiveSet(g.indices);
+
+	_compiled = true;
 }
 
 void GL3ShapeDrawable::setLayerColor(size_t index, const slughorn::Color& color) {
@@ -273,13 +427,22 @@ void GL3ShapeDrawable::setLayerEffectId(size_t index, uint32_t effectId) {
 void GL3ShapeDrawable::setLayerEffectParam(size_t index, slug_t param) {
 	auto* arr = static_cast<osgx::Vec4Array*>(getVertexAttribArray(5));
 
-	if(!arr || (index + 1) * 4 > arr->size()) return;
+	if(!arr) {
+		OSG_WARN << "GL3ShapeDrawable::setLayerEffectParam(): called before compile() -- call ignored" << std::endl;
+		return;
+	}
+
+	if((index + 1) * 4 > arr->size()) return;
+
+	_layers[index].effectParam = param;
 
 	for(size_t v = 0; v < 4; v++) (*arr)[index * 4 + v].w() = cv(param);
 }
 
 void GL3ShapeDrawable::updateLayer(size_t index, const slughorn::Layer& layer) {
-	if(index >= _layers.size() || !_atlas) return;
+	auto* atlas = getAtlas();
+
+	if(index >= _layers.size() || !atlas) return;
 
 	auto* colors = static_cast<osgx::Vec4Array*>(getVertexAttribArray(1));
 	auto* effectData = static_cast<osgx::Vec4Array*>(getVertexAttribArray(5));
@@ -292,8 +455,8 @@ void GL3ShapeDrawable::updateLayer(size_t index, const slughorn::Layer& layer) {
 
 	_layers[index] = layer;
 
-	const auto shape = _atlas->getShape(layer.key);
-	const auto [gmeta, gxform] = buildGradientData(*_atlas, layer);
+	const auto shape = atlas->getShape(layer.key);
+	const auto [gmeta, gxform] = buildGradientData(*atlas, layer);
 
 	const Vec4 c(layer.color.r, layer.color.g, layer.color.b, layer.color.a);
 	const Vec4 eid(
@@ -312,7 +475,9 @@ void GL3ShapeDrawable::updateLayer(size_t index, const slughorn::Layer& layer) {
 }
 
 void GL3ShapeDrawable::setLayerGradientTransform(size_t index, const slughorn::Matrix& m) {
-	if(index >= _layers.size() || !_atlas) return;
+	auto* atlas = getAtlas();
+
+	if(index >= _layers.size() || !atlas) return;
 
 	auto* gradMeta = static_cast<osgx::Vec4Array*>(getVertexAttribArray(6));
 	auto* gradXforms = static_cast<osgx::Vec4Array*>(getVertexAttribArray(7));
@@ -323,7 +488,7 @@ void GL3ShapeDrawable::setLayerGradientTransform(size_t index, const slughorn::M
 
 	if(layer.gradientId <= 0) return;
 
-	slughorn::GradientInfo tmp = _atlas->getGradients()[layer.gradientId - 1];
+	slughorn::GradientInfo tmp = atlas->getGradients()[layer.gradientId - 1];
 
 	tmp.transform = m;
 
@@ -342,9 +507,17 @@ void GL3ShapeDrawable::dirtyLayers() {
 }
 
 void BoxDrawable::compile() {
+	if(_compiled) return;
+
 	auto* atlas = getAtlas();
 
-	if(!atlas || !atlas->isBuilt() || _layers.empty()) return;
+	if(!atlas) {
+		OSG_WARN << "BoxDrawable::compile(): no Atlas parent -- "
+			<< "add to an Atlas node first (e.g. atlas->addChild(drawable))" << std::endl;
+		return;
+	}
+
+	if(!atlas->isBuilt() || _layers.empty()) return;
 
 	auto vertices = osgx::make_ref<osgx::Vec4Array>();
 	auto colors = osgx::make_ref<osgx::Vec4Array>();
@@ -355,7 +528,8 @@ void BoxDrawable::compile() {
 	auto gradientMeta = osgx::make_ref<osgx::Vec4Array>();
 	auto gradientXforms = osgx::make_ref<osgx::Vec4Array>();
 	// auto indices = osgx::make_ref<osgx::DrawElementsUShort>(osg::PrimitiveSet::TRIANGLES);
-	auto indices = osgx::make_ref<osgx::DrawElementsUShort>();
+	// auto indices = osgx::make_ref<osgx::DrawElementsUShort>();
+	auto indices = osgx::make_ref<index_type>();
 
 	auto addFace = [&](Vec3 p0, Vec3 p1, Vec3 p2, Vec3 p3, size_t index) {
 		const auto& layer = _layers[index];
@@ -380,10 +554,10 @@ void BoxDrawable::compile() {
 		);
 
 		const Vec4 color(layer.color.r, layer.color.g, layer.color.b, layer.color.a);
-		const osg::Vec4 eid(cv(layer.effectId), cv(shape->originX), cv(shape->originY), 0_cv);
+		const osg::Vec4 eid(cv(layer.effectId), cv(shape->originX), cv(shape->originY), layer.effectParam);
 		const slug_t lidx = cv(index + 1);
 
-		const auto [gmeta, gxform] = buildGradientData(*_atlas, layer);
+		const auto [gmeta, gxform] = buildGradientData(*atlas, layer);
 
 		auto base = static_cast<index_element_type>(vertices->size());
 
@@ -447,12 +621,22 @@ void BoxDrawable::compile() {
 	setVertexAttribBinding(7, osg::Geometry::BIND_PER_VERTEX);
 
 	addPrimitiveSet(indices);
+
+	_compiled = true;
 }
 
 void GL3SubdividedDrawable::compile() {
+	if(_compiled) return;
+
 	auto* atlas = getAtlas();
 
-	if(!atlas || !atlas->isBuilt() || _layers.empty()) return;
+	if(!atlas) {
+		OSG_WARN << "GL3SubdividedDrawable::compile(): no Atlas parent -- "
+			<< "add to an Atlas node first (e.g. atlas->addChild(drawable))" << std::endl;
+		return;
+	}
+
+	if(!atlas->isBuilt() || _layers.empty()) return;
 
 	auto vertices = osgx::make_ref<osgx::Vec4Array>();
 	auto colors = osgx::make_ref<osgx::Vec4Array>();
@@ -462,18 +646,34 @@ void GL3SubdividedDrawable::compile() {
 	auto effectData = osgx::make_ref<osgx::Vec4Array>();
 	auto gradientMeta = osgx::make_ref<osgx::Vec4Array>();
 	auto gradientXforms = osgx::make_ref<osgx::Vec4Array>();
-	auto indices = osgx::make_ref<osgx::DrawElementsUShort>();
+
+	_groups.clear();
+
+	osg::ref_ptr<index_type> groupIndices;
+
+	slughorn::BlendMode groupBlend = slughorn::BlendMode::SrcOver;
+
+	auto flushGroup = [&]() {
+		if(groupIndices && !groupIndices->empty())
+			_groups.push_back({groupBlend, slughorn::DrawMode::Visible, groupIndices});
+	};
 
 	index_element_type base = 0;
 
 	size_t index = 0;
 
 	for(const auto& layer : _layers) {
-		if(!layer.visible) continue;
+		if(layer.drawMode != slughorn::DrawMode::Visible) continue;
 
 		const auto shape = atlas->getShape(layer.key);
 
 		if(!shape) { index++; continue; }
+
+		if(!groupIndices || layer.blendMode != groupBlend) {
+			flushGroup();
+			groupIndices = osgx::make_ref<index_type>();
+			groupBlend = layer.blendMode;
+		}
 
 		const slug_t expand = layer.expand;
 		const auto q = shape->computeQuad(layer.transform, layer.scale, expand);
@@ -512,7 +712,7 @@ void GL3SubdividedDrawable::compile() {
 		const osg::Vec4 eid(cv(layer.effectId), cv(shape->originX), cv(shape->originY), q.x1 - q.x0);
 
 		const slug_t lidx = cv(index + 1);
-		const auto [gmeta, gxform] = buildGradientData(*_atlas, layer);
+		const auto [gmeta, gxform] = buildGradientData(*atlas, layer);
 
 		// Guard against the running total exceeding the uint16 index range.
 		const size_t ni = _isolatedVertices
@@ -582,8 +782,8 @@ void GL3SubdividedDrawable::compile() {
 					const auto tl = static_cast<index_element_type>(cell + 2);
 					const auto tr = static_cast<index_element_type>(cell + 3);
 
-					if(!((su + sv) & 1)) indices->append_range({tl, br, bl, tl, tr, br});
-					else indices->append_range({tr, br, bl, tl, tr, bl});
+					if(!((su + sv) & 1)) groupIndices->append_range({tl, br, bl, tl, tr, br});
+					else groupIndices->append_range({tr, br, bl, tl, tr, bl});
 				}
 			}
 		}
@@ -598,8 +798,8 @@ void GL3SubdividedDrawable::compile() {
 					const auto tl = static_cast<index_element_type>(row1 + su);
 					const auto tr = static_cast<index_element_type>(row1 + su + 1);
 
-					if(!((su + sv) & 1)) indices->append_range({tl, br, bl, tl, tr, br});
-					else indices->append_range({tr, br, bl, tl, tr, bl});
+					if(!((su + sv) & 1)) groupIndices->append_range({tl, br, bl, tl, tr, br});
+					else groupIndices->append_range({tr, br, bl, tl, tr, bl});
 				}
 			}
 		}
@@ -608,6 +808,8 @@ void GL3SubdividedDrawable::compile() {
 
 		index++;
 	}
+
+	flushGroup();
 
 	if(vertices->empty()) return;
 
@@ -635,13 +837,18 @@ void GL3SubdividedDrawable::compile() {
 	setVertexAttribArray(7, gradientXforms);
 	setVertexAttribBinding(7, osg::Geometry::BIND_PER_VERTEX);
 
-	addPrimitiveSet(indices);
+	for(const auto& g : _groups) addPrimitiveSet(g.indices);
+
+	_compiled = true;
 }
 
 void GL3SubdividedDrawable::setLayerEffectParam(size_t index, slug_t param) {
 	auto* arr = static_cast<osgx::Vec4Array*>(getVertexAttribArray(5));
 
-	if(!arr) return;
+	if(!arr) {
+		OSG_WARN << "GL3SubdividedDrawable::setLayerEffectParam(): called before compile() -- call ignored" << std::endl;
+		return;
+	}
 
 	const size_t stride =
 		static_cast<size_t>(_stepsU + 1) * static_cast<size_t>(_stepsV + 1)
@@ -654,11 +861,30 @@ void GL3SubdividedDrawable::setLayerEffectParam(size_t index, slug_t param) {
 }
 
 void SSBOShapeDrawable::compile() {
-	if(!_atlas || !_atlas->isBuilt() || _layers.empty()) return;
+	if(_compiled) return;
+
+	auto* atlas = getAtlas();
+
+	if(!atlas) {
+		OSG_WARN << "SSBOShapeDrawable::compile(): no Atlas parent -- "
+			<< "add to an Atlas node first (e.g. atlas->addChild(drawable))" << std::endl;
+		return;
+	}
+
+	if(!atlas->isBuilt() || _layers.empty()) return;
 
 	auto vertices = osgx::make_ref<osgx::Vec4Array>();
 	auto emCoords = osgx::make_ref<osgx::Vec4Array>();
-	auto indices = osgx::make_ref<osgx::DrawElementsUShort>();
+
+	_groups.clear();
+
+	osg::ref_ptr<index_type> groupIndices;
+	slughorn::BlendMode groupBlend = slughorn::BlendMode::SrcOver;
+
+	auto flushGroup = [&]() {
+		if(groupIndices && !groupIndices->empty())
+			_groups.push_back({groupBlend, slughorn::DrawMode::Visible, groupIndices});
+	};
 
 	// Layer SSBO (binding 1): one Vec4Array per layer, each holding 4 vec4s.
 	// All arrays share a single ShaderStorageBufferObject so the GPU sees one contiguous buffer,
@@ -676,11 +902,17 @@ void SSBOShapeDrawable::compile() {
 	size_t index = 0;
 
 	for(const auto& layer : _layers) {
-		if(!layer.visible) continue;
+		if(layer.drawMode != slughorn::DrawMode::Visible) continue;
 
-		const auto shape = _atlas->getShape(layer.key);
+		const auto shape = atlas->getShape(layer.key);
 
 		if(!shape) { index++; continue; }
+
+		if(!groupIndices || layer.blendMode != groupBlend) {
+			flushGroup();
+			groupIndices = osgx::make_ref<index_type>();
+			groupBlend = layer.blendMode;
+		}
 
 		const slug_t expand = layer.expand;
 		const auto q = shape->computeQuad(layer.transform, layer.scale, expand);
@@ -706,8 +938,8 @@ void SSBOShapeDrawable::compile() {
 			{emX0, emY1, 0_cv, 1_cv}
 		});
 
-		const auto [gmeta, gxform] = buildGradientData(*_atlas, layer);
-		const slug_t shapeIdx = cv(_atlas->getShapeIndex(layer.key));
+		const auto [gmeta, gxform] = buildGradientData(*atlas, layer);
+		const slug_t shapeIdx = cv(atlas->getShapeIndex(layer.key));
 		auto layerBuf = osgx::make_ref<osgx::Vec4Array>();
 
 		layerBuf->push_back({layer.color.r, layer.color.g, layer.color.b, layer.color.a});
@@ -717,13 +949,13 @@ void SSBOShapeDrawable::compile() {
 			cv(layer.effectId),
 			shapeIdx,
 			cv(packMSDFData(shape->msdfLayer, shape->msdfRange)),
-			0_cv
+			layer.effectParam
 		});
 		layerBuf->setBufferObject(ssbo);
 
 		_layerBuffers.push_back(std::move(layerBuf));
 
-		indices->append_range({
+		groupIndices->append_range({
 			base, index_element_type(base + 1), index_element_type(base + 2),
 			base, index_element_type(base + 2), index_element_type(base + 3)
 		});
@@ -731,6 +963,8 @@ void SSBOShapeDrawable::compile() {
 		base += 4;
 		index++;
 	}
+
+	flushGroup();
 
 	if(vertices->empty()) return;
 
@@ -740,7 +974,7 @@ void SSBOShapeDrawable::compile() {
 	setVertexAttribArray(1, emCoords);
 	setVertexAttribBinding(1, osg::Geometry::BIND_PER_VERTEX);
 
-	addPrimitiveSet(indices);
+	for(const auto& g : _groups) addPrimitiveSet(g.indices);
 
 	const auto totalSize = static_cast<GLsizeiptr>(_layerBuffers.size() * 4 * sizeof(osg::Vec4));
 
@@ -748,24 +982,38 @@ void SSBOShapeDrawable::compile() {
 		new osg::ShaderStorageBufferBinding(1, _layerBuffers[0], 0, totalSize),
 		osg::StateAttribute::ON
 	);
+
+	_compiled = true;
 }
 
 void SSBOShapeDrawable::setLayerColor(size_t index, const slughorn::Color& color) {
-	if(index >= _layerBuffers.size()) return;
+	if(index >= _layerBuffers.size()) {
+		if(!_compiled)
+			OSG_WARN << "SSBOShapeDrawable::setLayerColor(): called before compile() -- call ignored" << std::endl;
+		return;
+	}
 
 	ssboSetLayerColor(_layerBuffers[index].get(), _layers, index, color);
 }
 
 void SSBOShapeDrawable::setLayerEffectId(size_t index, uint32_t effectId) {
-	if(index >= _layerBuffers.size()) return;
+	if(index >= _layerBuffers.size()) {
+		if(!_compiled)
+			OSG_WARN << "SSBOShapeDrawable::setLayerEffectId(): called before compile() -- call ignored" << std::endl;
+		return;
+	}
 
 	ssboSetLayerEffectId(_layerBuffers[index].get(), _layers, index, effectId);
 }
 
 void SSBOShapeDrawable::setLayerEffectParam(size_t index, slug_t param) {
-	if(index >= _layerBuffers.size()) return;
+	if(index >= _layerBuffers.size()) {
+		if(!_compiled)
+			OSG_WARN << "SSBOShapeDrawable::setLayerEffectParam(): called before compile() -- call ignored" << std::endl;
+		return;
+	}
 
-	ssboSetLayerEffectParam(_layerBuffers[index].get(), param);
+	ssboSetLayerEffectParam(_layerBuffers[index].get(), _layers, index, param);
 }
 
 void SSBOShapeDrawable::setLayerShapeIndex(size_t index, size_t shapeIndex) {
@@ -775,13 +1023,15 @@ void SSBOShapeDrawable::setLayerShapeIndex(size_t index, size_t shapeIndex) {
 }
 
 void SSBOShapeDrawable::setLayerGradientTransform(size_t index, const slughorn::Matrix& m) {
-	if(index >= _layerBuffers.size() || !_atlas) return;
+	auto* atlas = getAtlas();
+
+	if(index >= _layerBuffers.size() || !atlas) return;
 
 	const auto& layer = _layers[index];
 
 	if(layer.gradientId <= 0) return;
 
-	slughorn::GradientInfo tmp = _atlas->getGradients()[layer.gradientId - 1];
+	slughorn::GradientInfo tmp = atlas->getGradients()[layer.gradientId - 1];
 	tmp.transform = m;
 
 	const auto [gmeta, gxform] = buildGradientDataFromInfo(layer.gradientId, tmp);
@@ -792,12 +1042,14 @@ void SSBOShapeDrawable::setLayerGradientTransform(size_t index, const slughorn::
 }
 
 void SSBOShapeDrawable::updateLayer(size_t index, const slughorn::Layer& layer) {
-	if(index >= _layerBuffers.size() || !_atlas) return;
+	auto* atlas = getAtlas();
+
+	if(index >= _layerBuffers.size() || !atlas) return;
 
 	_layers[index] = layer;
 
-	const auto [gmeta, gxform] = buildGradientData(*_atlas, layer);
-	const slug_t shapeIdx = cv(_atlas->getShapeIndex(layer.key));
+	const auto [gmeta, gxform] = buildGradientData(*atlas, layer);
+	const slug_t shapeIdx = cv(atlas->getShapeIndex(layer.key));
 
 	auto& buf = *_layerBuffers[index];
 
@@ -816,15 +1068,25 @@ void SSBOShapeDrawable::dirtyLayers(size_t index) {
 }
 
 void SSBOSubdividedDrawable::compile() {
+	if(_compiled) return;
+
 	auto* atlas = getAtlas();
 
 	if(!atlas || !atlas->isBuilt() || _layers.empty()) return;
 
 	auto vertices = osgx::make_ref<osgx::Vec4Array>();
 	auto emCoords = osgx::make_ref<osgx::Vec4Array>();
-	auto indices = osgx::make_ref<osgx::DrawElementsUShort>();
 
+	_groups.clear();
 	_layerBuffers.clear();
+
+	osg::ref_ptr<index_type> groupIndices;
+	slughorn::BlendMode groupBlend = slughorn::BlendMode::SrcOver;
+
+	auto flushGroup = [&]() {
+		if(groupIndices && !groupIndices->empty())
+			_groups.push_back({groupBlend, slughorn::DrawMode::Visible, groupIndices});
+	};
 
 	auto ssbo = osgx::make_ref<osg::ShaderStorageBufferObject>();
 
@@ -832,11 +1094,17 @@ void SSBOSubdividedDrawable::compile() {
 	size_t index = 0;
 
 	for(const auto& layer : _layers) {
-		if(!layer.visible) continue;
+		if(layer.drawMode != slughorn::DrawMode::Visible) continue;
 
 		const auto shape = atlas->getShape(layer.key);
 
 		if(!shape) { index++; continue; }
+
+		if(!groupIndices || layer.blendMode != groupBlend) {
+			flushGroup();
+			groupIndices = osgx::make_ref<index_type>();
+			groupBlend = layer.blendMode;
+		}
 
 		const slug_t expand = layer.expand;
 		const auto q = shape->computeQuad(layer.transform, layer.scale, expand);
@@ -933,8 +1201,8 @@ void SSBOSubdividedDrawable::compile() {
 					const auto tl = static_cast<index_element_type>(cell + 2);
 					const auto tr = static_cast<index_element_type>(cell + 3);
 
-					if(!((su + sv) & 1)) indices->append_range({tl, br, bl, tl, tr, br});
-					else indices->append_range({tr, br, bl, tl, tr, bl});
+					if(!((su + sv) & 1)) groupIndices->append_range({tl, br, bl, tl, tr, br});
+					else groupIndices->append_range({tr, br, bl, tl, tr, bl});
 				}
 			}
 		}
@@ -949,8 +1217,8 @@ void SSBOSubdividedDrawable::compile() {
 					const auto tl = static_cast<index_element_type>(row1 + su);
 					const auto tr = static_cast<index_element_type>(row1 + su + 1);
 
-					if(!((su + sv) & 1)) indices->append_range({tl, br, bl, tl, tr, br});
-					else indices->append_range({tr, br, bl, tl, tr, bl});
+					if(!((su + sv) & 1)) groupIndices->append_range({tl, br, bl, tl, tr, br});
+					else groupIndices->append_range({tr, br, bl, tl, tr, bl});
 				}
 			}
 		}
@@ -958,6 +1226,8 @@ void SSBOSubdividedDrawable::compile() {
 		base += static_cast<index_element_type>(ni);
 		index++;
 	}
+
+	flushGroup();
 
 	if(vertices->empty()) return;
 
@@ -967,7 +1237,7 @@ void SSBOSubdividedDrawable::compile() {
 	setVertexAttribArray(1, emCoords);
 	setVertexAttribBinding(1, osg::Geometry::BIND_PER_VERTEX);
 
-	addPrimitiveSet(indices);
+	for(const auto& g : _groups) addPrimitiveSet(g.indices);
 
 	const auto totalSize = static_cast<GLsizeiptr>(_layerBuffers.size() * 4 * sizeof(osg::Vec4));
 
@@ -975,6 +1245,8 @@ void SSBOSubdividedDrawable::compile() {
 		new osg::ShaderStorageBufferBinding(1, _layerBuffers[0], 0, totalSize),
 		osg::StateAttribute::ON
 	);
+
+	_compiled = true;
 }
 
 void SSBOSubdividedDrawable::setLayerColor(size_t index, const slughorn::Color& color) {
@@ -990,18 +1262,24 @@ void SSBOSubdividedDrawable::setLayerEffectId(size_t index, uint32_t effectId) {
 }
 
 void SSBOSubdividedDrawable::setLayerEffectParam(size_t index, slug_t param) {
-	if(index >= _layerBuffers.size()) return;
+	if(index >= _layerBuffers.size()) {
+		if(!_compiled)
+			OSG_WARN << "SSBOSubdividedDrawable::setLayerEffectParam(): called before compile() -- call ignored" << std::endl;
+		return;
+	}
 
-	ssboSetLayerEffectParam(_layerBuffers[index].get(), param);
+	ssboSetLayerEffectParam(_layerBuffers[index].get(), _layers, index, param);
 }
 
 void SSBOSubdividedDrawable::updateLayer(size_t index, const slughorn::Layer& layer) {
-	if(index >= _layerBuffers.size() || !_atlas) return;
+	auto* atlas = getAtlas();
+
+	if(index >= _layerBuffers.size() || !atlas) return;
 
 	_layers[index] = layer;
 
-	const auto [gmeta, gxform] = buildGradientData(*_atlas, layer);
-	const slug_t shapeIdx = cv(_atlas->getShapeIndex(layer.key));
+	const auto [gmeta, gxform] = buildGradientData(*atlas, layer);
+	const slug_t shapeIdx = cv(atlas->getShapeIndex(layer.key));
 
 	auto& buf = *_layerBuffers[index];
 
@@ -1012,13 +1290,15 @@ void SSBOSubdividedDrawable::updateLayer(size_t index, const slughorn::Layer& la
 }
 
 void SSBOSubdividedDrawable::setLayerGradientTransform(size_t index, const slughorn::Matrix& m) {
-	if(index >= _layerBuffers.size() || !_atlas) return;
+	auto* atlas = getAtlas();
+
+	if(index >= _layerBuffers.size() || !atlas) return;
 
 	const auto& layer = _layers[index];
 
 	if(layer.gradientId <= 0) return;
 
-	slughorn::GradientInfo tmp = _atlas->getGradients()[layer.gradientId - 1];
+	slughorn::GradientInfo tmp = atlas->getGradients()[layer.gradientId - 1];
 
 	tmp.transform = m;
 
@@ -1179,6 +1459,8 @@ void SSBODecalDrawable::updateLayer(size_t index, const slughorn::Layer& layer) 
 }
 
 void SSBODecalDrawable::compile() {
+	if(_compiled) return;
+
 	auto* atlas = getAtlas();
 
 	if(!atlas || !atlas->isBuilt() || _decalEntries.empty()) return;
@@ -1192,9 +1474,17 @@ void SSBODecalDrawable::compile() {
 
 	auto vertices = osgx::make_ref<osgx::Vec4Array>();
 	auto emCoords = osgx::make_ref<osgx::Vec4Array>();
-	auto indices = osgx::make_ref<osgx::DrawElementsUShort>();
 
+	_groups.clear();
 	_layerBuffers.clear();
+
+	osg::ref_ptr<index_type> groupIndices;
+	slughorn::BlendMode groupBlend = slughorn::BlendMode::SrcOver;
+
+	auto flushGroup = [&]() {
+		if(groupIndices && !groupIndices->empty())
+			_groups.push_back({groupBlend, slughorn::DrawMode::Visible, groupIndices});
+	};
 
 	auto ssbo = osgx::make_ref<osg::ShaderStorageBufferObject>();
 
@@ -1205,6 +1495,12 @@ void SSBODecalDrawable::compile() {
 		const auto shape = atlas->getShape(layer.key);
 
 		if(!shape) { index++; continue; }
+
+		if(!groupIndices || layer.blendMode != groupBlend) {
+			flushGroup();
+			groupIndices = osgx::make_ref<index_type>();
+			groupBlend = layer.blendMode;
+		}
 
 		const slug_t expand = layer.expand;
 		const auto q = shape->computeQuad(layer.transform, layer.scale, expand);
@@ -1292,9 +1588,9 @@ void SSBODecalDrawable::compile() {
 				const auto tl = static_cast<index_element_type>(row1 + su);
 				const auto tr = static_cast<index_element_type>(row1 + su + 1);
 
-				if(!((su + sv) & 1)) indices->append_range({tl, br, bl, tl, tr, br});
+				if(!((su + sv) & 1)) groupIndices->append_range({tl, br, bl, tl, tr, br});
 
-				else indices->append_range({tr, br, bl, tl, tr, bl});
+				else groupIndices->append_range({tr, br, bl, tl, tr, bl});
 			}
 		}
 
@@ -1302,6 +1598,8 @@ void SSBODecalDrawable::compile() {
 
 		index++;
 	}
+
+	flushGroup();
 
 	if(vertices->empty()) return;
 
@@ -1311,7 +1609,7 @@ void SSBODecalDrawable::compile() {
 	setVertexAttribArray(1, emCoords);
 	setVertexAttribBinding(1, osg::Geometry::BIND_PER_VERTEX);
 
-	addPrimitiveSet(indices);
+	for(const auto& g : _groups) addPrimitiveSet(g.indices);
 
 	const auto totalSize = static_cast<GLsizeiptr>(_layerBuffers.size() * 7 * sizeof(osg::Vec4));
 
@@ -1319,6 +1617,8 @@ void SSBODecalDrawable::compile() {
 		new osg::ShaderStorageBufferBinding(1, _layerBuffers[0], 0, totalSize),
 		osg::StateAttribute::ON
 	);
+
+	_compiled = true;
 }
 
 }

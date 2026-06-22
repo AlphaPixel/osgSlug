@@ -194,9 +194,11 @@ int main(int argc, char** argv) {
 
 	auto sd = example::makeShapeDrawable();
 
-	sd->setAtlas(atlas);
 	sd->addCompositeShape(hud);
-	sd->compile();
+	sd->setStateSet(atlas->createHookStateSet({{osgSlug::Atlas::VertexHook, VERT_EFFECTS}}));
+
+	// atlas->addChild triggers compile immediately (atlas is Packed); effectParam calls are safe after.
+	atlas->addChild(sd);
 
 	sd->setLayerEffectParam(SWEEP_IDX, SWEEP_SPEED);
 
@@ -204,10 +206,5 @@ int main(int argc, char** argv) {
 
 	sd->setLayerEffectParam(DOT_IDX, DOT_PULSE_SPEED);
 
-	auto sdg = osgx::make_ref<osg::Geode>();
-
-	sdg->addDrawable(sd);
-	sdg->setStateSet(atlas->createDefaultStateSet(example::USE_GL3, {{osgSlug::Atlas::VertexHook, VERT_EFFECTS}}));
-
-	return example::run(viewer, args, sdg);
+	return example::run(viewer, args, atlas);
 }

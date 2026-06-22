@@ -160,30 +160,29 @@ int main(int argc, char** argv) {
 
 	auto mat = osgx::make_ref<osg::MatrixTransform>();
 	auto matsd = example::makeShapeDrawable();
-	auto matsdg = osgx::make_ref<osg::Geode>();
 
 	matsd->addLayer({'F', {1_cv, 1_cv, 0_cv, 0.5_cv}, slughorn::Transform{}, 100_cv});
-	matsd->setAtlas(atlas);
-	matsd->compile();
-	matsdg->addDrawable(matsd);
-	matsdg->setStateSet(atlas->createDefaultStateSet(example::USE_GL3));
-	mat->addChild(matsdg);
+	// matsd under mat under atlas: state inherited from atlas; compileGLObjects compiles lazily.
+	mat->addChild(matsd);
 	mat->setUpdateCallback(new SpinCallback());
+	atlas->addChild(mat);
+
+	// compile() must be called explicitly here so that vertex data exists before the first update
+	// traversal. SpinCallback::computeCenter() runs on frame 0 (update precedes draw), and
+	// computeBoundingBox() reads getVertexAttribArray(0) — which is only populated after compile().
+	// Without this, the bounding box is empty, _center stays at (0,0,0), and rotation pivots around
+	// the bottom-left corner instead of the shape center.
+	matsd->compile();
 
 	// auto sdg = osgx::make_ref<osg::Geode>();
 
 	// sdg->addDrawable(sd);
 	// sdg->setStateSet(createStateSetForAtlas(atlas));
 
-	auto root = osgx::make_ref<osg::MatrixTransform>();
-
-	// root->setMatrix(osgSlug::Matrix::rotate(osg::DegreesToRadians(90.0f), osgSlug::Vec3(1.0_cv, 0.0_cv, 0.0_cv)));
-
-	// root->addChild(sdg);
-	root->addChild(mat);
-	root->addChild(text);
+	// text is osgSlug::Text — legacy, takes atlas in its ctor; add as sibling under atlas.
+	atlas->addChild(text);
 
 	viewer.getCamera()->setClearColor(osg::Vec4(0.2f, 0.2f, 0.2f, 1.0f));
 
-	return example::run(viewer, args, root);
+	return example::run(viewer, args, atlas);
 }

@@ -86,12 +86,14 @@ int main(int argc, char** argv) {
 
 	auto sd = osgx::make_ref<osgSlug::SSBOShapeDrawable>();
 
-	sd->setAtlas(atlas);
 	// sd->addLayer({shape, {1_cv, 0.5_cv, 0_cv, 0.5_cv}});
 	sd->addCompositeShape(compositeShape);
-	sd->compile();
+	sd->getOrCreateStateSet()->setRenderBinDetails(1, "RenderBin");
 
-	// Grab the layer SSBO handle after compile(); the compute shader writes into this buffer!
+	// atlas->addChild triggers compile immediately (atlas is Packed); getLayerBuffer is valid after.
+	atlas->addChild(sd);
+
+	// Grab the layer SSBO handle; the compute shader writes into this buffer!
 	// Layer 0 anchors the binding; totalSize covers the full contiguous buffer.
 	auto* layerBuf = sd->getLayerBuffer(0);
 	const auto layerTotalSize = static_cast<GLsizeiptr>(
@@ -117,16 +119,10 @@ int main(int argc, char** argv) {
 	// Barrier: compute writes must be visible before the vertex shader reads binding 1.
 	sd->setDrawCallback(new LayerBarrierCallback());
 
-	auto sdg = osgx::make_ref<osg::Geode>();
-
-	sdg->addDrawable(sd);
-	sdg->setStateSet(atlas->createDefaultStateSet());
-	sdg->getOrCreateStateSet()->setRenderBinDetails(1, "RenderBin");
-
 	auto scene = osgx::make_ref<osg::Group>();
 
 	scene->addChild(dispatch);
-	scene->addChild(sdg);
+	scene->addChild(atlas);
 
 	return example::run(viewer, args, scene);
 }

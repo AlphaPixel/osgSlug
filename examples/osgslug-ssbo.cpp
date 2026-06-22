@@ -63,21 +63,12 @@ int main(int argc, char** argv) {
 
 	auto sd = osgx::make_ref<osgSlug::SSBOShapeDrawable>();
 
-	sd->setAtlas(atlas);
 	// sd->addLayer({shape, {1_cv, 0.5_cv, 0_cv, 0.5_cv}});
 	sd->addCompositeShape(compositeShape);
-	sd->compile();
 	sd->setUpdateCallback(new ColorCallback());
+	sd->getOrCreateStateSet()->setRenderBinDetails(1, "RenderBin");
 
-	auto sdg = osgx::make_ref<osg::Geode>();
+	atlas->addChild(sd);
 
-	sdg->addDrawable(sd);
-	sdg->setStateSet(atlas->createDefaultStateSet());
-	sdg->getOrCreateStateSet()->setRenderBinDetails(1, "RenderBin");
-
-	auto scene = osgx::make_ref<osg::Group>();
-
-	scene->addChild(sdg);
-
-	return example::run(viewer, args, scene);
+	return example::run(viewer, args, atlas);
 }

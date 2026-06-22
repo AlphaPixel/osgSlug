@@ -78,8 +78,6 @@ int main(int argc, char** argv) {
 
 	auto sd = example::makeShapeDrawable();
 
-	sd->setAtlas(atlas);
-
 	lDefault.effectId = 1;
 	lCentered.effectId = 1;
 	lPivot.effectId = 1;
@@ -88,17 +86,13 @@ int main(int argc, char** argv) {
 	sd->addLayer(lCentered);
 	sd->addLayer(lPivot);
 
-	sd->compile();
-
 	// The "userParam" value that gets piped through the shader could be used to do ANYTHING (that's
 	// why it exists :)) For example, you could DOUBLE the rotation time by passing this and then
 	// uncommenting the line in the vertex shader above!
 	// for(size_t i = 0; i < 3; i++) sd->setLayerEffectParam(i, 2_cv);
 
-	auto sdg = osgx::make_ref<osg::Geode>();
+	sd->setStateSet(atlas->createHookStateSet({{osgSlug::Atlas::VertexHook, VERT_EFFECTS}}));
+	atlas->addChild(sd);
 
-	sdg->addDrawable(sd);
-	sdg->setStateSet(atlas->createDefaultStateSet(example::USE_GL3, {{osgSlug::Atlas::VertexHook, VERT_EFFECTS}}));
-
-	return example::run(viewer, args, sdg);
+	return example::run(viewer, args, atlas);
 }

@@ -48,7 +48,6 @@ int main(int argc, char** argv) {
 	atlas->packTextures();
 
 	auto sd = example::makeShapeDrawable();
-	auto sdg = osgx::make_ref<osg::Geode>();
 
 	sd->addLayer({
 		.key = key,
@@ -91,11 +90,8 @@ int main(int argc, char** argv) {
 		.effectId = 7
 	}); */
 
-	sd->setAtlas(atlas);
-	sd->compile();
+	sd->setStateSet(atlas->createHookStateSet({{osgSlug::Atlas::VertexHook, VERT_SHADER}}));
+	atlas->addChild(sd);
 
-	sdg->addDrawable(sd);
-	sdg->setStateSet(atlas->createDefaultStateSet(example::USE_GL3, {{osgSlug::Atlas::VertexHook, VERT_SHADER}}));
-
-	return example::run(viewer, args, sdg);
+	return example::run(viewer, args, atlas);
 }

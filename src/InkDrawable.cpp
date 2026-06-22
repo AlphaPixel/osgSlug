@@ -253,6 +253,7 @@ InkDrawable::InkDrawable(Atlas* atlas, InkMode mode) : _mode(mode) {
 
 void InkDrawable::setMode(InkMode mode) {
 	_mode = mode;
+	_compiled = false;
 	compile();
 }
 
@@ -286,6 +287,7 @@ void InkDrawable::setPoints(std::vector<osg::Vec4> pts) {
 }
 
 void InkDrawable::compile() {
+	if(_compiled) return;
 	if(!_atlas || !_atlas->isBuilt() || !_points || _points->size() < 2) return;
 
 	const size_t N = _points->size();
@@ -436,6 +438,7 @@ void InkDrawable::compile() {
 	ss->setMode(GL_CULL_FACE, osg::StateAttribute::OFF);
 	ss->setAttributeAndModes(new osg::Depth(osg::Depth::LESS, 0.0, 1.0, false));
 
+	_compiled = true;
 	setStateSet(ss);
 }
 

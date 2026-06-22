@@ -12,18 +12,66 @@ OSGSLUG_ENABLE_WARNINGS
 
 namespace osgSlug {
 
+// Thin base for all osgSlug drawables.
+//
+// getAtlas() walks up the OSG parent chain; no _atlas ref stored here. This means placing a
+// drawable as a child of an Atlas node (atlas->addChild(d)) is all that is needed - no explicit
+// setAtlas() call. Subclasses that must hold an explicit atlas ref (e.g. ShapeDrawable for legacy
+// callers) override getAtlas() and check their own ref before falling through to the walk.
+class Drawable: public osg::Geometry {
+public:
+	Drawable();
+
+	// Walks the OSG parent chain to find the nearest Atlas ancestor.
+	virtual Atlas* getAtlas() const;
+
+	virtual void compile() = 0;
+
+	osg::BoundingBox computeBoundingBox() const override = 0;
+
+	// Called by OSG's GLObjectsVisitor (viewer.realize()). Delegates to compile(), which is
+	// idempotent - it no-ops if the drawable is already compiled.
+	void compileGLObjects(osg::RenderInfo& renderInfo) const override;
+
+	// Optional callback fired by Atlas immediately after compile() succeeds (via addChild or
+	// packTextures). Use this for post-compile setup that requires _layerBuffers to exist,
+	// e.g. setLayerEffectParam(). Set before adding the drawable to an Atlas.
+	std::function<void(Atlas&)> onAtlasAttached;
+
+protected:
+	mutable bool _compiled = false;
+
+	friend class Atlas;
+};
+
 // ShapeDrawable renders slughorn::Layer and slughorn::CompositeShape instances.
 //
 // Scene placement is NOT handled here; wrap this node in an `osg::MatrixTransform` if you need to
 // position it in world space. All geometry is built using `slughorn` as the source of "truth."
-class ShapeDrawable: public osg::Geometry {
+class ShapeDrawable: public Drawable {
 public:
-	using index_type = osg::DrawElementsUShort;
+	using index_type = osgx::DrawElementsUShort;
 	using index_element_type = index_type::vector_type::value_type;
 
-	ShapeDrawable();
+	struct RenderGroup {
+		slughorn::BlendMode blendMode = slughorn::BlendMode::SrcOver;
+		slughorn::DrawMode drawMode = slughorn::DrawMode::Visible;
 
-	auto* getAtlas() { return _atlas.get(); }
+		osg::ref_ptr<index_type> indices;
+	};
+
+	// Returns _atlas if set (legacy path), otherwise delegates to the parent-walk in Drawable.
+	//
+	// TODO: Possibly remove this (or make it `const`)!
+	Atlas* getAtlas() const override {
+		if(_atlas) return _atlas.get();
+
+		return Drawable::getAtlas();
+	}
+
+	// Legacy: set atlas explicitly. Prefer atlas->addChild(this) for new code.
+	//
+	// TODO: REMOVE THIS!
 	void setAtlas(Atlas* atlas) { _atlas = atlas; }
 
 	// Add a single layer for rendering.
@@ -59,10 +107,15 @@ public:
 
 	osg::BoundingBox computeBoundingBox() const override;
 
+	// Per-group blend state dispatch. Calls base drawImplementation() directly when all groups
+	// are SrcOver (the common case) so there is no overhead for normal usage.
+	void drawImplementation(osg::RenderInfo& renderInfo) const override;
+
 protected:
-	osg::ref_ptr<Atlas> _atlas = nullptr;
+	osg::ref_ptr<Atlas> _atlas; // legacy fallback; prefer parent-walk via Drawable::getAtlas()
 
 	std::vector<slughorn::Layer> _layers;
+	std::vector<RenderGroup> _groups;
 };
 
 // GL3ShapeDrawable: 8-attribute vertex path, GL 3.x compatible, explicit opt-in.

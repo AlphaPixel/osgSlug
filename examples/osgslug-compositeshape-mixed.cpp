@@ -272,8 +272,6 @@ int main(int argc, char** argv) {
 
 	auto sd = example::makeShapeDrawable();
 
-	sd->setAtlas(atlas);
-
 	// Place "AXO" just below the dividing line; SVG y=305 → atlas y=215.
 	canvas.text(
 		"AXO", 70_cv, 180_cv, 305_cv,
@@ -289,7 +287,11 @@ int main(int argc, char** argv) {
 	sd->addCompositeShape(axo);
 	sd->addCompositeShape(*atlas->getCompositeShape("text"));
 
-	sd->compile();
+	sd->setStateSet(atlas->createHookStateSet({{osgSlug::Atlas::VertexHook, VERT_SHADER}}));
+	sd->getOrCreateStateSet()->setRenderBinDetails(0, "RenderBin");
+
+	// atlas->addChild triggers compile immediately; setLayerEffectParam calls are safe after.
+	atlas->addChild(sd);
 
 	// Root Y in atlas space (520 - SVG_base_y) anchors branch displacement to the
 	// same world-space origin as the parent stalk: l0/r0→368, l1/r1→379, l2/r2→386.
@@ -303,8 +305,7 @@ int main(int argc, char** argv) {
 
 	// ── SECOND ATLAS: italic flavor text ─────────────────────────────────────
 	// Separate Atlas so the italic glyphs don't collide with the regular ones
-	// already loaded above. Atlas state is merged into each drawable's StateSet
-	// (which compile() already populated) rather than replacing it.
+	// already loaded above.
 
 	auto atlas2 = osgx::make_ref<osgSlug::Atlas>();
 
@@ -361,24 +362,20 @@ int main(int argc, char** argv) {
 
 	auto sdtext = example::makeShapeDrawable();
 
-	sdtext->setAtlas(atlas2);
 	// sdtext->addCompositeShape(*atlas2->getCompositeShape("flavorBox"));
-	//sdtext->addCompositeShape(*atlas2->getCompositeShape("flavor"));
+	// sdtext->addCompositeShape(*atlas2->getCompositeShape("flavor"));
 	sdtext->addCompositeShape(fb);
 	sdtext->addCompositeShape(f);
-	sdtext->compile();
 
-	// compile() writes program + layer SSBO (binding 1); merge() adds the atlas
-	// shape SSBO (binding 0) + textures + uniforms without clobbering binding 1.
-	sd->getOrCreateStateSet()->merge(*atlas->createDefaultStateSet(example::USE_GL3, {{osgSlug::Atlas::VertexHook, VERT_SHADER}}));
-	sd->getOrCreateStateSet()->setRenderBinDetails(0, "RenderBin");
-	sdtext->getOrCreateStateSet()->merge(*atlas2->createDefaultStateSet(example::USE_GL3));
 	sdtext->getOrCreateStateSet()->setRenderBinDetails(1, "RenderBin");
 
-	auto sdg = osgx::make_ref<osg::Geode>();
+	atlas2->addChild(sdtext);
 
-	sdg->addDrawable(sd);
-	sdg->addDrawable(sdtext);
+	// Two separate atlases; both are children of a common root Group.
+	auto root = osgx::make_ref<osg::Group>();
 
-	return example::run(viewer, args, sdg);
+	root->addChild(atlas);
+	root->addChild(atlas2);
+
+	return example::run(viewer, args, root);
 }

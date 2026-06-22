@@ -199,22 +199,15 @@ int main(int argc, char** argv) {
 
 	auto sd = example::makeShapeDrawable();
 
-	sd->setAtlas(atlas);
 	sd->addLayer({PIECE_KEY, {0.2_cv, 0.8_cv, 0.4_cv, 1.0_cv}, {}, 1_cv, 1});
-	sd->compile();
+	sd->setStateSet(atlas->createHookStateSet({{osgSlug::Atlas::FragmentHook, FRAG_SHADER}}));
 
-	auto sdg = osgx::make_ref<osg::Geode>();
-
-	sdg->addDrawable(sd);
-	sdg->setStateSet(atlas->createDefaultStateSet(
-		example::USE_GL3,
-		{{osgSlug::Atlas::FragmentHook, FRAG_SHADER}}
-	));
+	atlas->addChild(sd);
 
 	auto mat = osgx::make_ref<osg::MatrixTransform>();
 
 	mat->setMatrix(osgSlug::util::yDownToOSG());
-	mat->addChild(sdg);
+	mat->addChild(atlas);
 
 	return example::run(viewer, args, mat);
 }

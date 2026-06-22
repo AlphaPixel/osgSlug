@@ -237,7 +237,6 @@ int main(int argc, char** argv) {
 
 	auto sd = osgx::make_ref<osgSlug::SSBOShapeDrawable>();
 
-	sd->setAtlas(atlas);
 	sd->addCompositeShape(*atlas->getCompositeShape("hud")); // layers 0..N+1
 
 	auto ejectComp = *atlas->getCompositeShape("eject"); // layers N+2..2N+1
@@ -246,13 +245,10 @@ int main(int argc, char** argv) {
 
 	sd->addCompositeShape(ejectComp);
 	sd->addCompositeShape(*atlas->getCompositeShape("counter")); // layers 2N+2, 2N+3
-	sd->compile();
+	sd->setStateSet(atlas->createHookStateSet({{osgSlug::Atlas::VertexHook, VERT_SHADER}}));
 	sd->setUpdateCallback(new AmmoCallback(N, atlas, N + 2, 2 * N + 2));
 
-	auto sdg = osgx::make_ref<osg::Geode>();
+	atlas->addChild(sd);
 
-	sdg->addDrawable(sd);
-	sd->getOrCreateStateSet()->merge(*atlas->createDefaultStateSet(false, {{osgSlug::Atlas::VertexHook, VERT_SHADER}}));
-
-	return example::run(viewer, args, sdg);
+	return example::run(viewer, args, atlas);
 }

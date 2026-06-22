@@ -96,15 +96,10 @@ int main(int argc, char** argv) {
 	// auto sd = osgx::make_ref<osgSlug::SSBOShapeDrawable>();
 	auto sd = example::makeShapeDrawable();
 
-	sd->setAtlas(atlas);
 	// sd->addLayer({layer.key, {0.6_cv, 0.7_cv, 0.8_cv, 1.0_cv}});
 	sd->addLayer(layer);
-	sd->compile();
 
-	auto sdg = osgx::make_ref<osg::Geode>();
+	atlas->addChild(sd);
 
-	sdg->addDrawable(sd);
-	sdg->setStateSet(atlas->createDefaultStateSet(example::USE_GL3));
-
-	return example::run(viewer, args, sdg);
+	return example::run(viewer, args, atlas);
 }

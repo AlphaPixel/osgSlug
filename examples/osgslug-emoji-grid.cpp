@@ -85,16 +85,12 @@ else {
 	atlas->build();
 	atlas->packTextures();
 
-	auto stateSet = atlas->createDefaultStateSet(example::USE_GL3);
-
 	// Grid layout: square-ish, 1.2-unit spacing, centered at origin.
 	const size_t cols = static_cast<size_t>(std::ceil(std::sqrt(static_cast<double>(codepoints.size()))));
 	const size_t rows = static_cast<size_t>(std::ceil(static_cast<double>(codepoints.size()) / static_cast<double>(cols)));
 	const float step  = 1.2f;
 	const float ox    = -step * static_cast<float>(cols - 1) / 2.0f;
 	const float oy    =  step * static_cast<float>(rows - 1) / 2.0f;
-
-	auto root = osgx::make_ref<osg::Group>();
 
 	for(size_t idx = 0; idx < codepoints.size(); idx++) {
 		const uint32_t cp = codepoints[idx];
@@ -108,14 +104,11 @@ else {
 
 		auto sd = example::makeShapeDrawable();
 
-		sd->setAtlas(atlas);
 		sd->addCompositeShape(*glyph);
-		sd->compile();
 
 		auto geode = osgx::make_ref<osg::Geode>();
 
 		geode->addDrawable(sd);
-		geode->setStateSet(stateSet);
 
 		const float col = static_cast<float>(idx % cols);
 		const float row = static_cast<float>(idx / cols);
@@ -129,8 +122,10 @@ else {
 		));
 
 		xform->addChild(geode);
-		root->addChild(xform);
+
+		// State inherited from atlas Group; compile already fired above for correct bounds.
+		atlas->addChild(xform);
 	}
 
-	return example::run(viewer, args, root);
+	return example::run(viewer, args, atlas);
 }

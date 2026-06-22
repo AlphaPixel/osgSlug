@@ -28,7 +28,7 @@ int main(int argc, char** argv) {
 
 	std::string svgFile = args[1];
 
-	auto atlas = osgx::make_ref<osgSlug::Atlas>(uint32_t{1024});
+	auto atlas = osgx::make_ref<osgSlug::Atlas>(false, uint32_t{1024});
 
 	slughorn::KeyIterator baseKey{};
 	// uint32_t baseKey = 0x0;
@@ -63,14 +63,8 @@ int main(int argc, char** argv) {
 
 	auto sd = example::makeShapeDrawable();
 
-	sd->setAtlas(atlas);
 	sd->addCompositeShape(logo);
-	sd->compile();
-
-	auto geode = osgx::make_ref<osg::Geode>();
-
-	geode->addDrawable(sd);
-	geode->setStateSet(atlas->createDefaultStateSet(example::USE_GL3));
+	atlas->addChild(sd);
 
 	auto root = osgx::make_ref<osg::MatrixTransform>();
 
@@ -78,7 +72,7 @@ int main(int argc, char** argv) {
 		osgSlug::Matrix::scale(1.0_cv, -1.0_cv, 1.0_cv)
 		// osg::Matrix::rotate(osg::DegreesToRadians(90.0), osg::Vec3(1, 0, 0))
 	);
-	root->addChild(geode);
+	root->addChild(atlas);
 	root->setName("root");
 
 	return example::run(viewer, args, root);

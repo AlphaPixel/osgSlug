@@ -85,13 +85,7 @@ int main(int argc, char** argv) {
 		else return example::fail(args, 4, "Couldn't find CompositeShape key in Atlas");
 	}
 
-	sd->setAtlas(atlas);
-	sd->compile();
+	atlas->addChild(sd);
 
-	auto sdg = osgx::make_ref<osg::Geode>();
-
-	sdg->addDrawable(sd);
-	sdg->setStateSet(atlas->createDefaultStateSet(example::USE_GL3));
-
-	return example::run(viewer, args, sdg);
+	return example::run(viewer, args, atlas);
 }

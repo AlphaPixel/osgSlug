@@ -315,23 +315,18 @@ int main(int argc, char** argv) {
 
 	auto sd = example::makeShapeDrawable();
 
-	sd->setAtlas(atlas);
 	sd->addCompositeShape(
 		*atlas->getCompositeShape(slughorn::Key("axolotl"))
 		// {0_cv, 0_cv},
 		// 300_cv
 	);
-	sd->compile();
 
-	auto geode = osgx::make_ref<osg::Geode>();
-
-	geode->addDrawable(sd);
-	geode->setStateSet(atlas->createDefaultStateSet(example::USE_GL3));
+	atlas->addChild(sd);
 
 	auto mat = osgx::make_ref<osg::MatrixTransform>();
 
 	mat->setMatrix(osgSlug::util::yDownToOSG());
-	mat->addChild(geode);
+	mat->addChild(atlas);
 
 	return example::run(viewer, args, mat);
 }

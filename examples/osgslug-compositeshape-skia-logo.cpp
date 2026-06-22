@@ -333,10 +333,8 @@ int main(int argc, char** argv) {
 
 	auto sd = example::makeShapeDrawable();
 
-	sd->setAtlas(atlas);
 	// sd->addCompositeShape(logo, { 0.0f, 0.0f }, 300.0f);
 	sd->addCompositeShape(logo);
-	sd->compile();
 
 	// Load an image and bind it to unit 4 (osgSlug_effectTexture)
 	osg::ref_ptr<osg::Image> img = osgDB::readImageFile("steel_128.png");
@@ -348,22 +346,18 @@ int main(int argc, char** argv) {
 	tex->setFilter(osg::Texture::MIN_FILTER, osg::Texture::LINEAR);
 	tex->setFilter(osg::Texture::MAG_FILTER, osg::Texture::LINEAR);
 
-	auto* ss = atlas->createDefaultStateSet(
-		example::USE_GL3,
-		{{osgSlug::Atlas::FragmentHook, FRAG_SHADER}}
-	);
+	// Hook StateSet + per-drawable effect texture (unit 4); atlas textures inherited from parent.
+	auto* ss = atlas->createHookStateSet({{osgSlug::Atlas::FragmentHook, FRAG_SHADER}});
 
 	ss->setTextureAttributeAndModes(4, tex, osg::StateAttribute::ON);
+	sd->setStateSet(ss);
 
-	auto geode = osgx::make_ref<osg::Geode>();
-
-	geode->addDrawable(sd);
-	geode->setStateSet(ss);
+	atlas->addChild(sd);
 
 	auto mat = osgx::make_ref<osg::MatrixTransform>();
 
 	mat->setMatrix(osgSlug::util::yDownToOSG());
-	mat->addChild(geode);
+	mat->addChild(atlas);
 
 	return example::run(viewer, args, mat);
 }
