@@ -2,6 +2,13 @@
 
 #include "osgSlug/Atlas.hpp"
 #include "osgSlug/Drawable.hpp"
+#include "osgSlug/Drawable/GL3ShapeDrawable.hpp"
+#include "osgSlug/Drawable/SSBOShapeDrawable.hpp"
+#include "osgSlug/Drawable/BoxDrawable.hpp"
+#include "osgSlug/Drawable/GL3SubdividedDrawable.hpp"
+#include "osgSlug/Drawable/SSBODecalDrawable.hpp"
+#include "osgSlug/Drawable/HalfCylinderDrawable.hpp"
+#include "osgSlug/Drawable/SphereDrawable.hpp"
 
 #include "pyosg/pyosg.hpp"
 

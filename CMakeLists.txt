@@ -38,8 +38,10 @@ find_package(Python3 COMPONENTS Interpreter Development REQUIRED)
 
 pkg_check_modules(CAIRO REQUIRED IMPORTED_TARGET cairo)
 pkg_check_modules(FONTCONFIG REQUIRED IMPORTED_TARGET fontconfig)
+pkg_check_modules(IMGUI imgui)
 
 find_package(Freetype REQUIRED)
+find_package(OpenGL QUIET)
 # find_package(harfbuzz REQUIRED)
 find_package(OpenSceneGraph REQUIRED
 	osg
@@ -124,7 +126,15 @@ add_library(osgSlug
 	"src/Atlas.cpp"
 	"src/Atlas.shaders.cpp"
 	"src/Drawable.cpp"
-	"src/InkDrawable.cpp"
+	"src/Drawable/ShapeDrawable.cpp"
+	"src/Drawable/GL3ShapeDrawable.cpp"
+	"src/Drawable/BoxDrawable.cpp"
+	"src/Drawable/GL3SubdividedDrawable.cpp"
+	"src/Drawable/SSBOShapeDrawable.cpp"
+	"src/Drawable/SSBOSubdividedDrawable.cpp"
+	"src/Drawable/SSBODecalDrawable.cpp"
+	"src/Drawable/PathDrawable.cpp"
+	"src/Drawable/ScanlineDrawable.cpp"
 	"src/Font.cpp"
 	"src/Text.cpp"
 )
@@ -182,6 +192,12 @@ if(OSGSLUG_BUILD_EXAMPLES)
 			"${CMAKE_SOURCE_DIR}/examples"
 			# "${CMAKE_SOURCE_DIR}/ext/nanosvg/src"
 		)
+
+		if(IMGUI_FOUND)
+			target_compile_definitions(${name} PRIVATE OSGDEBUG_IMGUI)
+			target_include_directories(${name} PRIVATE ${IMGUI_INCLUDE_DIRS})
+			target_link_libraries(${name} PRIVATE ${IMGUI_LINK_LIBRARIES} OpenGL::GL)
+		endif()
 	endfunction()
 
 	add_subdirectory("examples/tmp")

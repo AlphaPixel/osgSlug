@@ -41,14 +41,14 @@ int main(int argc, char** argv) {
 	// Collect emoji from remaining args; fall back to gradient-heavy defaults.
 	std::vector<uint32_t> codepoints;
 
-if(auto cp = slughorn::emoji::nameToCodepoint("fireworks"); cp) {
-    OSG_NOTICE << "fireworks = U+" << std::hex << *cp << std::dec << std::endl;
-}
-else {
-    OSG_WARN << "fireworks lookup failed" << std::endl;
-}
+	/* if(auto cp = slughorn::emoji::nameToCodepoint("fireworks"); cp) {
+		OSG_NOTICE << "fireworks = U+" << std::hex << *cp << std::dec << std::endl;
+	}
+	else {
+		OSG_WARN << "fireworks lookup failed" << std::endl;
+	} */
 
-	for(int i = 2; i < args.argc(); i++) {
+	/* for(int i = 2; i < args.argc(); i++) {
 		const std::string tok = args[i];
 
 		if(auto cp = slughorn::emoji::nameToCodepoint(tok); cp) {
@@ -66,7 +66,7 @@ else {
 				return example::fail(args, 2);
 			}
 		}
-	}
+	} */
 
 	if(codepoints.empty()) {
 		for(const auto& name : DEFAULT_EMOJIS) {
@@ -76,7 +76,7 @@ else {
 
 	// Load all emoji into one shared atlas before build().
 	auto atlas = osgx::make_ref<osgSlug::Atlas>();
-	auto font  = osgx::make_ref<osgSlug::Font>(atlas);
+	auto font = osgx::make_ref<osgSlug::Font>(atlas);
 
 	if(!font->loadEmoji(fontFile, codepoints)) {
 		OSG_WARN << "Some emoji may be missing from the font" << std::endl;
@@ -88,9 +88,9 @@ else {
 	// Grid layout: square-ish, 1.2-unit spacing, centered at origin.
 	const size_t cols = static_cast<size_t>(std::ceil(std::sqrt(static_cast<double>(codepoints.size()))));
 	const size_t rows = static_cast<size_t>(std::ceil(static_cast<double>(codepoints.size()) / static_cast<double>(cols)));
-	const float step  = 1.2f;
-	const float ox    = -step * static_cast<float>(cols - 1) / 2.0f;
-	const float oy    =  step * static_cast<float>(rows - 1) / 2.0f;
+	const float step = 1.2f;
+	const float ox = -step * static_cast<float>(cols - 1) / 2.0f;
+	const float oy = step * static_cast<float>(rows - 1) / 2.0f;
 
 	for(size_t idx = 0; idx < codepoints.size(); idx++) {
 		const uint32_t cp = codepoints[idx];

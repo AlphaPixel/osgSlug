@@ -149,7 +149,7 @@ int main(int argc, char** argv) {
 		;
 	};
 
-	auto manipulators = osgx::make_ref<osgx::MultiViewManipulator>();
+	auto manipulators = osgx::make_ref<osgx::MultiCameraManipulator>();
 
 	manipulators->addTarget(
 		"RTT camera",

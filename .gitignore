@@ -1,3 +1,6 @@
+examples/tmp/*.cpp
+examples/tmp/*.bk
+
 # Prerequisites
 *.d
 

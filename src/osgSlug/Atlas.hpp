@@ -77,6 +77,7 @@ public:
 	osg::Texture2D* getCurveTexture() const { return _curveTexture.get(); }
 	osg::Texture2D* getBandTexture() const { return _bandTexture.get(); }
 	osg::Texture2D* getGradientTexture() const { return _gradientTexture.get(); }
+	osg::Texture2D* getScanlineTexture() const { return _scanlineTexture.get(); }
 
 	// Valid after packTextures(); null when no shapes have MSDF registered.
 	osg::Texture2DArray* getMSDFTexture() const { return _msdfTexture.get(); }
@@ -98,10 +99,13 @@ public:
 	static const std::string SHADER_TYPES; // SHADER_ATLAS_TYPES + LayerData + binding 1
 	static const std::string SHADER_LIB_VERTEX;
 	static const std::string SHADER_LIB_FRAGMENT;
+	static const std::string SHADER_LIB_SCANLINE; // evaluate_bezier + intersect_monotonic + scanline_sweep
 	static const std::string SHADER_VERT; // main SSBO vertex shader (embedded)
 	static const std::string SHADER_VERT_GL3; // GL3 attrib-based vertex shader (embedded)
 	static const std::string SHADER_VERT_DECAL; // tangent-plane decal vertex shader (embedded)
 	static const std::string SHADER_FRAG; // main fragment shader (embedded, resolved)
+	static const std::string SHADER_SCANLINE_VERT; // ScanlineDrawable vertex shader
+	static const std::string SHADER_SCANLINE_FRAG; // ScanlineDrawable fragment shader (resolved)
 
 	enum Hook { VertexHook, FragmentHook, FragmentExtHook };
 
@@ -148,6 +152,7 @@ private:
 	osg::ref_ptr<osg::Texture2D> _curveTexture;
 	osg::ref_ptr<osg::Texture2D> _bandTexture;
 	osg::ref_ptr<osg::Texture2D> _gradientTexture; // null when no gradients registered
+	osg::ref_ptr<osg::Texture2D> _scanlineTexture; // Scanline Sweeper curve data (RGBA32F)
 
 	osg::ref_ptr<osg::Texture2DArray> _msdfTexture; // null when no shapes have MSDF registered
 

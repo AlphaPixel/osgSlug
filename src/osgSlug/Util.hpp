@@ -12,7 +12,7 @@ namespace util {
 // and the image extends upward by cfg.heightEm.
 //
 // Apply to a MatrixTransform that wraps both the CompositeShape drawable and any sibling
-// InkDrawable nodes so they share the same rectified frame.
+// PathDrawable nodes so they share the same rectified frame.
 inline Matrix svgToOSG(const slughorn::nanosvg::LoadConfig& cfg, bool bottomAtOrigin=false) {
 	if(bottomAtOrigin) return
 		Matrix::scale(1_cv, -1_cv, 1_cv) *
@@ -23,8 +23,8 @@ inline Matrix svgToOSG(const slughorn::nanosvg::LoadConfig& cfg, bool bottomAtOr
 }
 
 // Returns the translation matrix that brings a GeometryOnly shape's sampled curves from
-// local bbox-origin space into SVG canvas space. Apply as a MatrixTransform wrapping an
-// InkDrawable (or any node whose points were sampled from atlas->getShape(key)->curves).
+// local bbox-origin space into SVG canvas space. Apply as a MatrixTransform wrapping a
+// PathDrawable (or any node whose points were sampled from atlas->getShape(key)->curves).
 //
 // Must be a child of the svgToOSG() transform so it operates in the same pre-flip frame.
 // Throws std::out_of_range if key is not present in cs.

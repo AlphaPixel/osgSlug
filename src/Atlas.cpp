@@ -82,6 +82,10 @@ void Atlas::packTextures() {
 			_gradientTexture = _makeTexture(getGradientTextureData());
 		}
 
+		if(!getScanlineCurveTextureData().bytes.empty()) {
+			_scanlineTexture = _makeTexture(getScanlineCurveTextureData());
+		}
+
 #ifdef SLUGHORN_HAS_MSDF
 		{
 			const auto& msdfData = getMSDFTextureData();
@@ -107,9 +111,13 @@ void Atlas::packTextures() {
 					img->allocateImage(W, H, 1, GL_RGB, GL_FLOAT);
 					img->setInternalTextureFormat(GL_RGB32F);
 
-					std::memcpy(img->data(), src + l * floatsPerLayer, floatsPerLayer * sizeof(float));
+					std::memcpy(
+						img->data(),
+						src + static_cast<size_t>(l) * floatsPerLayer,
+						floatsPerLayer * sizeof(float)
+					);
 
-					tex->setImage(l, img);
+					tex->setImage(static_cast<unsigned int>(l), img);
 				}
 
 				_msdfTexture = tex;

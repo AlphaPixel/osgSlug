@@ -1,10 +1,14 @@
 #pragma once
 
 #include "osgSlug/Atlas.hpp"
-#include "osgSlug/Drawable.hpp"
-#include "osgDebug.hpp"
+#include "osgSlug/Drawable/GL3ShapeDrawable.hpp"
+#include "osgSlug/Drawable/SSBOShapeDrawable.hpp"
+#include "osgSlug/Drawable/GL3SubdividedDrawable.hpp"
+#include "osgSlug/Drawable/SSBOSubdividedDrawable.hpp"
 
 #include "slughorn/serial.hpp"
+
+#include "osgDebug.hpp"
 
 OSGSLUG_DISABLE_WARNINGS
 
@@ -27,6 +31,28 @@ OSGSLUG_ENABLE_WARNINGS
 namespace example {
 
 inline bool USE_GL3 = false;
+
+#ifdef OSGDEBUG_IMGUI
+// The OSG camera manipulator is dispatched in a separate loop AFTER all event
+// handlers, so Widget::handle() returning true cannot block it. This wrapper
+// deflects mouse events when ImGui has an active context and wants capture.
+struct ImGuiAwareManipulator: public osgx::Ortho2DManipulator {
+	bool handle(const osgGA::GUIEventAdapter& ea, osgGA::GUIActionAdapter& aa) override {
+		if(ImGui::GetCurrentContext() && ImGui::GetIO().WantCaptureMouse) {
+			const auto t = ea.getEventType();
+
+			if(
+				t == osgGA::GUIEventAdapter::PUSH ||
+				t == osgGA::GUIEventAdapter::DRAG ||
+				t == osgGA::GUIEventAdapter::RELEASE||
+				t == osgGA::GUIEventAdapter::SCROLL
+			) return false;
+		}
+
+		return osgx::Ortho2DManipulator::handle(ea, aa);
+	}
+};
+#endif
 
 struct DebugModeHandler: public osgGA::GUIEventHandler {
 	static constexpr int MAX_MODE = 6;
@@ -316,21 +342,28 @@ inline auto run(
 	viewer.setSceneData(sceneData);
 
 	if(args.read("--profile")) {
-		// TODO: Is there a better way to do this!?
 		setenv("__GL_SYNC_TO_VBLANK", "0", 1);
 
 		auto dsv = osgx::DescribeSceneVisitor();
-		auto dv = osgDebug::DrawVisitor();
-
-		// Adds the osgDebug::DrawCallback to every detected `Drawable` in the subgraph.
 		sceneData->accept(dsv);
+
+#ifdef OSGDEBUG_IMGUI
+		auto* gui = new osgDebug::imgui::Widget(viewer);
+
+		gui->addProfilerSection(sceneData.get());
+		gui->addTextureSection();
+#else
+
+		auto dv = osgDebug::ProfilerVisitor<>();
+
 		sceneData->accept(dv);
 
-		// auto debugSupported = osgx::make_ref<osgDebug::GraphicsOperation>();
-		// viewer.setRealizeOperation(debugSupported);
-		// viewer.realize();
-
-		viewer.getCamera()->setFinalDrawCallback(new osgDebug::FinalDrawCallback());
+		osgDebug::appendCameraDrawCallback(
+			viewer.getCamera(),
+			osgDebug::CameraDrawCallbackSlot::FINAL_DRAW,
+			new osgDebug::ProfilerFinalCallback<>()
+		);
+#endif
 	}
 
 	if(args.read("--trackball")) {
@@ -340,7 +373,12 @@ inline auto run(
 	}
 
 	else {
+
+#ifdef OSGDEBUG_IMGUI
+		auto* m = new ImGuiAwareManipulator();
+#else
 		auto* m = new osgx::Ortho2DManipulator();
+#endif
 
 		viewer.setCameraManipulator(m);
 

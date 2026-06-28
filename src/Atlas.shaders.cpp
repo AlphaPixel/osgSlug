@@ -67,6 +67,12 @@ std::string resolveLibs(std::string src) {
 		osgSlug::Atlas::SHADER_LIB_FRAGMENT
 	);
 
+	src = resolveLib(
+		std::move(src),
+		"#pragma osgSlug lib_scanline",
+		osgSlug::Atlas::SHADER_LIB_SCANLINE
+	);
+
 	return src;
 }
 
@@ -460,7 +466,7 @@ void main() {
 }
 )";
 
-// Main fragment shader. Stored pre-resolved so InkDrawable.cpp can use it directly.
+// Main fragment shader. Stored pre-resolved so PathDrawable.cpp can use it directly.
 // The #pragma osgSlug lib_fragment is expanded at static init time - SHADER_FRAG always
 // contains the fully substituted SHADER_LIB_FRAGMENT content (struct defs + effect helpers).
 const std::string Atlas::SHADER_FRAG = resolveLibs(R"(
@@ -1160,6 +1166,207 @@ vec4 osgSlug_FragmentExt(osgSlug_FragmentExtData data, out int blendMode) {
 )");
 
 // ================================================================================================
+// Scanline Sweeper library + shaders
+// ================================================================================================
+
+// Pure-math GLSL library. Include with #pragma osgSlug lib_scanline.
+// Translated from the HLSL reference implementation in Rook & Possum (2026) §8.
+const std::string Atlas::SHADER_LIB_SCANLINE = R"(
+vec2 scanline_evaluate_bezier(vec2 p0, vec2 p1, vec2 p2, float t) {
+	vec2 a = mix(p0, p1, t);
+	vec2 b = mix(p1, p2, t);
+	return mix(a, b, t);
+}
+
+// Preconditions (caller-enforced): c0 <= target <= c2; curve is monotonic (c0 <= c1 <= c2).
+// qa: second-degree coefficient of the 1-D quadratic in the chosen dimension.
+float scanline_intersect_monotonic(float qa, float c0, float c1, float c2, float target) {
+	if (abs(qa) < 1e-3) return (target - c0) / (c2 - c0);
+	float qb    = fma(2.0, c1, -2.0 * c0);
+	float qc    = c0 - target;
+	float d     = fma(qb, qb, -4.0 * qa * qc);
+	float sqrtd = d < 0.0 ? 0.0 : sqrt(d);
+	float inv2a = 0.5 / qa;
+	return fma(-qb, inv2a, sign(c2 - c0) * sqrtd * inv2a);
+}
+
+// Returns the signed swept-area contribution of one monotonic quadratic Bezier curve.
+// size:   pixel-window size in em-space (from dFdx/dFdy of v_emCoord)
+// offset: lower-left corner of the pixel window in em-space
+// p0..p2: monotonic quadratic control points — all(p0 <= p1) and all(p1 <= p2) in both axes
+// Accumulate the return values for all curves, then divide by (size.x * size.y) → coverage [0,1].
+float scanline_sweep(vec2 size, vec2 offset, vec2 p0, vec2 p1, vec2 p2) {
+	// Discard curves entirely above or below the scanline.
+	if (max(p0.y, p2.y) <= offset.y || min(p0.y, p2.y) >= offset.y + size.y) return 0.0;
+
+	vec2 delta = p2 - p0;
+
+	// Horizontal curves (all y equal) contribute zero signed area.
+	if (abs(delta.y) < 1e-6) return 0.0;
+
+	// Shift to a coordinate system with the window at the origin.
+	p0 -= offset;
+	p1 -= offset;
+	p2 -= offset;
+
+	// Fast path: strictly vertical segments (common in many fonts).
+	if (p0.x == p1.x && p0.x == p2.x) {
+		if (p0.x >= size.x) return 0.0;
+		float vTop = min(max(p0.y, p2.y), size.y);
+		float vBot = max(min(p0.y, p2.y), 0.0);
+		float h    = vTop - vBot;
+		float base = min(size.x, size.x - p0.x);
+		return sign(delta.y) * base * h;
+	}
+
+	// Second-degree coefficient for the y quadratic; find t at top and bottom of window.
+	float qa = fma(-2.0, p1.y, p0.y + p2.y);
+	float bt = scanline_intersect_monotonic(qa, p0.y, p1.y, p2.y, 0.0);
+	float tt = scanline_intersect_monotonic(qa, p0.y, p1.y, p2.y, size.y);
+
+	// v_min_t/v_max_t: t-values where the curve enters and exits the y window.
+	float v_min_t = delta.y > 0.0 ? bt : tt;
+	float v_max_t = delta.y > 0.0 ? tt : bt;
+
+	vec2 v_min = scanline_evaluate_bezier(p0, p1, p2, clamp(v_min_t, 0.0, 1.0));
+	vec2 v_max = scanline_evaluate_bezier(p0, p1, p2, clamp(v_max_t, 0.0, 1.0));
+
+	// Fast paths for curves entirely left or right of the window within the scanline.
+	if (max(v_min.x, v_max.x) <= 0.0) return (v_max.y - v_min.y) * size.x;
+	if (min(v_min.x, v_max.x) >= size.x) return 0.0;
+
+	// Solve for horizontal window crossings.
+	qa = fma(-2.0, p1.x, p0.x + p2.x);
+
+	float h_min_t;
+	float h_max_t;
+
+	// Packed check vector: (lower_x_bound, upper_x_bound, target_x, t_at_lower_x_bound).
+	// Components depend on the horizontal direction of travel.
+	vec4 h_check = delta.x > 0.0
+		? vec4(p0.x, p2.x, 0.0, 0.0)
+		: vec4(p2.x, p0.x, size.x, 1.0);
+
+	if (h_check.x >= h_check.z) {
+		h_min_t = h_check.w;
+	} else if (h_check.y <= h_check.z) {
+		h_min_t = 1.0 - h_check.w;
+	} else {
+		h_min_t = scanline_intersect_monotonic(qa, p0.x, p1.x, p2.x, h_check.z);
+	}
+
+	h_check.z = size.x - h_check.z;
+
+	if (h_check.x >= h_check.z) {
+		h_max_t = h_check.w;
+	} else if (h_check.y <= h_check.z) {
+		h_max_t = 1.0 - h_check.w;
+	} else {
+		h_max_t = scanline_intersect_monotonic(qa, p0.x, p1.x, p2.x, h_check.z);
+	}
+
+	// Combined t-range clipped to [0, 1].
+	float min_t = clamp(max(v_min_t, h_min_t), 0.0, 1.0);
+	float max_t = clamp(min(v_max_t, h_max_t), 0.0, 1.0);
+
+	// Reuse precomputed boundary evaluations where possible.
+	vec2 q0 = v_min_t >= h_min_t ? v_min : scanline_evaluate_bezier(p0, p1, p2, min_t);
+	vec2 q1 = v_max_t <= h_max_t ? v_max : scanline_evaluate_bezier(p0, p1, p2, max_t);
+
+	float coverage = 0.0;
+
+	if (min_t > 0.0 && delta.x > 0.0) {
+		// Curve enters from the left edge: integrate the left rectangle below entry.
+		float h = delta.y > 0.0
+			? q0.y - max(0.0, p0.y)
+			: min(size.y, p0.y) - q0.y;
+		coverage = sign(delta.y) * h * size.x;
+	}
+
+	if (max_t < 1.0 && delta.x < 0.0) {
+		// Curve exits on the left edge: integrate the left rectangle above exit.
+		float h = delta.y > 0.0
+			? min(size.y, p2.y) - q1.y
+			: q1.y - max(0.0, p2.y);
+		coverage += sign(delta.y) * h * size.x;
+	}
+
+	// Trapezoidal approximation for the curve segment inside the window.
+	float h = q1.y - q0.y;
+	float b = fma(-0.5, q0.x + q1.x, size.x);
+	coverage += b * h;
+
+	return coverage;
+}
+)";
+
+const std::string Atlas::SHADER_SCANLINE_VERT = R"(
+#version 430 core
+
+layout(location = 0) in vec4 a_position;   // xy = world-space 2D position
+layout(location = 1) in vec4 a_emCoord;    // xy = em-space coordinate (glyph units)
+layout(location = 2) in vec4 a_curveRange; // x = curveStart, y = curveCount (as floats)
+layout(location = 3) in vec4 a_layerColor; // per-layer RGBA
+
+uniform mat4 osg_ModelViewProjectionMatrix;
+
+out vec2 v_emCoord;
+flat out vec2 v_curveRange;
+flat out vec4 v_layerColor;
+
+void main() {
+	v_emCoord    = a_emCoord.xy;
+	v_curveRange = a_curveRange.xy;
+	v_layerColor = a_layerColor;
+	gl_Position  = osg_ModelViewProjectionMatrix * vec4(a_position.xy, 0.0, 1.0);
+}
+)";
+
+// Pre-resolved at static-init time so ScanlineDrawable can use it without re-resolving.
+const std::string Atlas::SHADER_SCANLINE_FRAG = resolveLibs(R"(
+#version 430 core
+
+#pragma osgSlug lib_scanline
+
+in vec2 v_emCoord;
+flat in vec2 v_curveRange;
+flat in vec4 v_layerColor;
+
+uniform sampler2D u_scanlineTex;
+uniform int u_texWidth;
+
+out vec4 fragColor;
+
+void main() {
+	int curveStart = int(v_curveRange.x);
+	int curveCount = int(v_curveRange.y);
+
+	vec2 emCoord  = v_emCoord;
+	vec2 size     = fwidth(emCoord);
+	vec2 offset   = emCoord - size * 0.5;
+	float winArea = size.x * size.y;
+	float coverage = 0.0;
+
+	for (int i = 0; i < curveCount; i++) {
+		int base = curveStart + i * 2;
+		vec4 t0 = texelFetch(u_scanlineTex, ivec2(base % u_texWidth, base / u_texWidth), 0);
+		vec4 t1 = texelFetch(u_scanlineTex, ivec2((base + 1) % u_texWidth, (base + 1) / u_texWidth), 0);
+		vec2 p0 = t0.xy, p1 = t0.zw, p2 = t1.xy;
+
+		// AABB y-cull (scanline_sweep also does this; saved here as an early-out).
+		if (max(p0.y, p2.y) <= offset.y || min(p0.y, p2.y) >= offset.y + size.y) continue;
+		// Right-side x-cull only; curves to the left still contribute swept area.
+		if (min(p0.x, p2.x) >= offset.x + size.x) continue;
+
+		coverage += scanline_sweep(size, offset, p0, p1, p2);
+	}
+
+	float alpha = clamp(coverage / winArea, 0.0, 1.0);
+	fragColor = vec4(v_layerColor.rgb, v_layerColor.a * alpha);
+}
+)");
+
+// ================================================================================================
 // State-set builders
 // ================================================================================================
 
@@ -1238,7 +1445,7 @@ osg::StateSet* Atlas::createDefaultStateSet(bool useGL3, HookList hooks) const {
 	);
 #endif
 
-	if(_shapeBuffer.valid()) {
+	if(_shapeBuffer.valid() && _shapeBuffer->getTotalDataSize() > 0) {
 		ss->setAttributeAndModes(
 			new osg::ShaderStorageBufferBinding(
 				0,

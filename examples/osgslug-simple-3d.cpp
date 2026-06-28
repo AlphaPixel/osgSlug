@@ -2,6 +2,10 @@
 
 #include "osgslug-example.hpp"
 
+#include "osgSlug/Drawable/SphereDrawable.hpp"
+#include "osgSlug/Drawable/BoxDrawable.hpp"
+#include "osgSlug/Drawable/HalfCylinderDrawable.hpp"
+
 #include "slughorn/canvas.hpp"
 
 int main(int argc, char** argv) {
