@@ -15,7 +15,13 @@ endif()
 
 # include("etc/asan.cmake")
 add_subdirectory("${SLUGHORN_DIR}" "ext/slughorn")
-add_subdirectory("${SLUGHORN_DIR}/ext/pybind11" "ext/pybind11")
+
+set(OSG_PYTHON_DIR "" CACHE PATH "Path to OpenSceneGraph.py checkout")
+
+if(OSG_PYTHON_DIR)
+	find_package(Python3 COMPONENTS Interpreter Development REQUIRED)
+	add_subdirectory("${SLUGHORN_DIR}/ext/pybind11" "ext/pybind11")
+endif()
 
 # # TODO CONVERT ALL `add_subdirectory` bits to something like this!
 # function(ext_cli11)
@@ -34,8 +40,6 @@ set(SKIA_DIR "" CACHE PATH "Path to Skia source tree (leave empty to skip Skia e
 set(SKIA_BUILD_DIR "" CACHE PATH "Path to Skia build directory containing libskia.a")
 
 find_package(PkgConfig REQUIRED)
-find_package(Python3 COMPONENTS Interpreter Development REQUIRED)
-
 pkg_check_modules(CAIRO REQUIRED IMPORTED_TARGET cairo)
 pkg_check_modules(FONTCONFIG REQUIRED IMPORTED_TARGET fontconfig)
 pkg_check_modules(IMGUI imgui)
@@ -265,16 +269,15 @@ if(OSGSLUG_BUILD_EXAMPLES)
 	osgslug_example(osgslug-mask SOURCES "examples/osgslug-mask.cpp")
 endif()
 
-pybind11_add_module(osgSlug_python "ext/osgSlug-python.cpp")
-
-set_target_properties(osgSlug_python PROPERTIES OUTPUT_NAME "osgSlug")
-set(OSG_PYTHON_DIR "" CACHE PATH "Path to OpenSceneGraph.py checkout")
-
-target_include_directories(osgSlug_python PRIVATE
-	"${OSG_PYTHON_DIR}"
-	"${OSG_PYTHON_DIR}/etc"
-)
-target_link_libraries(osgSlug_python PRIVATE osgSlug pybind11::module)
-target_compile_features(osgSlug_python PUBLIC cxx_std_20)
-target_compile_options(osgSlug_python PRIVATE ${SLUGHORN_COMPILE_OPTIONS})
-set_target_properties(osgSlug_python PROPERTIES POSITION_INDEPENDENT_CODE ON)
+if(OSG_PYTHON_DIR)
+	pybind11_add_module(osgSlug_python "ext/osgSlug-python.cpp")
+	set_target_properties(osgSlug_python PROPERTIES OUTPUT_NAME "osgSlug")
+	target_include_directories(osgSlug_python PRIVATE
+		"${OSG_PYTHON_DIR}"
+		"${OSG_PYTHON_DIR}/etc"
+	)
+	target_link_libraries(osgSlug_python PRIVATE osgSlug pybind11::module)
+	target_compile_features(osgSlug_python PUBLIC cxx_std_20)
+	target_compile_options(osgSlug_python PRIVATE ${SLUGHORN_COMPILE_OPTIONS})
+	set_target_properties(osgSlug_python PROPERTIES POSITION_INDEPENDENT_CODE ON)
+endif()
