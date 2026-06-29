@@ -72,6 +72,7 @@ static const std::string PATH_MITER_COMMON = R"GLSL(
 )GLSL";
 
 // Miter mode: analytical fwidth SDF coverage via v_uv.
+// Private pipeline (PATH_SDF_FRAG only) — not connected to Atlas::SHADER_FRAG.
 static const char* PATH_MITER_MAIN = R"GLSL(
 	out vec2 v_uv;
 
@@ -95,17 +96,24 @@ static const char* PATH_SLUGGIT_MAIN = R"GLSL(
 	uniform vec4 u_shapeData; // x=bandTexX, y=bandTexY, z=bandMaxX, w=bandMaxY
 	uniform vec4 u_color;
 
-	out vec2 v_emCoord;
-	out vec2 v_uv;
-	out vec4 v_color;
-	out float v_layerIndex;
+	out osgSlug_GeomBlock {
+		vec2 emCoord;
+		vec2 uv;
+		vec4 color;
+		float layerIndex;
+		vec4 gradientMeta;
+		vec4 gradientXform;
+	} geom;
 
-	flat out vec4 v_bandXform;
-	flat out vec4 v_shapeData;
-	flat out int v_effectId;
-	flat out int v_gradientId;
-	out vec4 v_gradientMeta;
-	out vec4 v_gradientXform;
+	out osgSlug_FxBlock {
+		flat int   effectId;
+		flat int   gradientId;
+		flat int   msdfLayer;
+		flat float msdfRange;
+		flat float effectParam;
+		flat vec4  bandXform;
+		flat vec4  shapeData;
+	} fx;
 
 	void main() {
 		vec2 base, offset;
@@ -114,16 +122,19 @@ static const char* PATH_SLUGGIT_MAIN = R"GLSL(
 		float emMidX = (u_emCorners.x + u_emCorners.z) * 0.5;
 		float emY = (s.y < 0.0) ? u_emCorners.y : u_emCorners.w;
 
-		v_emCoord = vec2(emMidX, emY);
-		v_uv = vec2(s.x, (s.y + 1.0) * 0.5);
-		v_color = u_color;
-		v_layerIndex = 0.0;
-		v_bandXform = u_bandXform;
-		v_shapeData = u_shapeData;
-		v_effectId = 0;
-		v_gradientId = 0;
-		v_gradientMeta = vec4(0.0);
-		v_gradientXform = vec4(0.0);
+		geom.emCoord = vec2(emMidX, emY);
+		geom.uv = vec2(s.x, (s.y + 1.0) * 0.5);
+		geom.color = u_color;
+		geom.layerIndex = 0.0;
+		geom.gradientMeta = vec4(0.0);
+		geom.gradientXform = vec4(0.0);
+		fx.bandXform = u_bandXform;
+		fx.shapeData = u_shapeData;
+		fx.effectId = 0;
+		fx.gradientId = 0;
+		fx.msdfLayer = -1;
+		fx.msdfRange = 0.0;
+		fx.effectParam = 0.0;
 
 		gl_Position = gl_ModelViewProjectionMatrix * vec4(base + offset, 0.0, 1.0);
 	}
@@ -145,17 +156,24 @@ static const char* PATH_STAMP_VERT = R"GLSL(
 		vec4 points[];
 	};
 
-	out vec2 v_emCoord;
-	out vec2 v_uv;
-	out vec4 v_color;
-	out float v_layerIndex;
+	out osgSlug_GeomBlock {
+		vec2 emCoord;
+		vec2 uv;
+		vec4 color;
+		float layerIndex;
+		vec4 gradientMeta;
+		vec4 gradientXform;
+	} geom;
 
-	flat out vec4 v_bandXform;
-	flat out vec4 v_shapeData;
-	flat out int v_effectId;
-	flat out int v_gradientId;
-	out vec4 v_gradientMeta;
-	out vec4 v_gradientXform;
+	out osgSlug_FxBlock {
+		flat int   effectId;
+		flat int   gradientId;
+		flat int   msdfLayer;
+		flat float msdfRange;
+		flat float effectParam;
+		flat vec4  bandXform;
+		flat vec4  shapeData;
+	} fx;
 
 	const vec2 CORNERS[4] = vec2[4](
 		vec2(0.0, 0.0), vec2(1.0, 0.0), vec2(1.0, 1.0), vec2(0.0, 1.0)
@@ -170,16 +188,19 @@ static const char* PATH_STAMP_VERT = R"GLSL(
 		float sinA = sin(angle);
 		vec2 pos = center + vec2(local.x * cosA - local.y * sinA, local.x * sinA + local.y * cosA);
 
-		v_emCoord = mix(u_emCorners.xy, u_emCorners.zw, q);
-		v_uv = q;
-		v_color = u_color;
-		v_layerIndex = 0.0;
-		v_bandXform = u_bandXform;
-		v_shapeData = u_shapeData;
-		v_effectId = 0;
-		v_gradientId = 0;
-		v_gradientMeta = vec4(0.0);
-		v_gradientXform = vec4(0.0);
+		geom.emCoord = mix(u_emCorners.xy, u_emCorners.zw, q);
+		geom.uv = q;
+		geom.color = u_color;
+		geom.layerIndex = 0.0;
+		geom.gradientMeta = vec4(0.0);
+		geom.gradientXform = vec4(0.0);
+		fx.bandXform = u_bandXform;
+		fx.shapeData = u_shapeData;
+		fx.effectId = 0;
+		fx.gradientId = 0;
+		fx.msdfLayer = -1;
+		fx.msdfRange = 0.0;
+		fx.effectParam = 0.0;
 
 		gl_Position = gl_ModelViewProjectionMatrix * vec4(pos, 0.0, 1.0);
 	}

@@ -122,7 +122,7 @@ else()
 endif()
 
 # Main library
-add_library(osgSlug
+add_library(osgSlug SHARED
 	"src/Atlas.cpp"
 	"src/Atlas.shaders.cpp"
 	"src/Drawable.cpp"
@@ -262,6 +262,7 @@ if(OSGSLUG_BUILD_EXAMPLES)
 	osgslug_example(osgslug-compositeshape-mixed
 		SOURCES "examples/osgslug-compositeshape-mixed.cpp"
 	)
+	osgslug_example(osgslug-mask SOURCES "examples/osgslug-mask.cpp")
 endif()
 
 pybind11_add_module(osgSlug_python "ext/osgSlug-python.cpp")

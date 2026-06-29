@@ -73,6 +73,12 @@ std::string resolveLibs(std::string src) {
 		osgSlug::Atlas::SHADER_LIB_SCANLINE
 	);
 
+	src = resolveLib(
+		std::move(src),
+		"#pragma osgSlug lib_mask",
+		osgSlug::Atlas::SHADER_LIB_MASK
+	);
+
 	return src;
 }
 
@@ -99,21 +105,21 @@ namespace osgSlug {
 // ================================================================================================
 
 const std::string Atlas::SHADER_ATLAS_TYPES = R"(
-struct AtlasShapeData {
+struct osgSlug_AtlasShapeData {
 	vec4 bandXform; // xy = bandScaleX/Y, zw = bandOffsetX/Y
 	vec4 shapeData; // xy = glyphLoc (ivec2), zw = bandMax (ivec2)
 	vec4 originData; // xy = originX/Y, zw = unused
 };
 
 layout(std430, binding = 0) readonly buffer AtlasShapeBuffer {
-	AtlasShapeData atlasShapes[];
+	osgSlug_AtlasShapeData atlasShapes[];
 };
 )";
 
 const std::string Atlas::SHADER_TYPES = SHADER_ATLAS_TYPES + R"(
 // Per-layer data: one entry per layer in each drawable, indexed by (a_position.w - 1).
 // Slot order: slughorn contract first (color, gradient), osgSlug machinery last (effectData).
-struct LayerData {
+struct osgSlug_LayerData {
 	vec4 color; // RGBA flat color
 	vec4 gradientMeta; // x = gradientId (1-based), yz = gradient center, w = r0_norm
 	vec4 gradientXform;// gradient transform (B matrix / direction / sweep)
@@ -121,7 +127,7 @@ struct LayerData {
 };
 
 layout(std430, binding = 1) buffer LayerBuffer {
-	LayerData layers[];
+	osgSlug_LayerData layers[];
 };
 )";
 
@@ -141,9 +147,50 @@ struct osgSlug_VertexData {
 // Helper prototypes (implementations live in the main vertex shader only - one definition per program).
 vec3 osgSlug_Vertex_Rotate(vec3 pos, vec2 emCoord, vec2 origin, float angle);
 vec3 osgSlug_Vertex_Scale(vec3 pos, vec2 emCoord, vec2 origin, float scale);
+
+// Vertex-to-fragment interface contracts. Declared here so hook vertex shaders share the same
+// block definition as the main vertex shader without manual duplication.
+out osgSlug_GeomBlock {
+	vec2 emCoord; // em-space coordinate
+	vec2 uv; // normalized [0,1] UV
+	vec4 color; // effective layer color
+	float layerIndex;// 1-based layer index (for osgSlug_layerMask)
+	vec4 gradientMeta;
+	vec4 gradientXform;
+} geom;
+
+out osgSlug_FxBlock {
+	flat int effectId;
+	flat int gradientId;
+	flat int msdfLayer; // -1 = no MSDF tile
+	flat float msdfRange;
+	flat float effectParam;
+	flat vec4 bandXform;
+	flat vec4 shapeData;
+} fx;
 )";
 
 const std::string Atlas::SHADER_LIB_FRAGMENT = R"(
+// Vertex-to-fragment interface contracts (matching osgSlug_GeomBlock / osgSlug_FxBlock in lib_vertex).
+in osgSlug_GeomBlock {
+	vec2 emCoord;
+	vec2 uv;
+	vec4 color;
+	float layerIndex;
+	vec4 gradientMeta;
+	vec4 gradientXform;
+} geom;
+
+in osgSlug_FxBlock {
+	flat int effectId;
+	flat int gradientId;
+	flat int msdfLayer;
+	flat float msdfRange;
+	flat float effectParam;
+	flat vec4 bandXform;
+	flat vec4 shapeData;
+} fx;
+
 // Context structs for hook functions
 //
 // Defined once here so every shader unit that includes this lib sees the same
@@ -186,6 +233,25 @@ vec4 osgSlug_Effect_TextureFill(float fill, vec2 uv, vec4 layerColor);
 vec4 osgSlug_Effect_Wave(float fill, vec2 uv, vec4 layerColor, float time);
 vec4 osgSlug_Effect_Glow(float fill, vec2 uv, vec4 layerColor, float time, float circleR);
 vec4 osgSlug_Effect_GlowMSDF(float msdfSd, int msdfLayer, float msdfRange, vec4 layerColor, float effectParam, out int blendMode);
+
+// Mask descriptor — set via osg::Uniform("osgSlug_mask.<member>", value).
+// type: 0=MSDF 1=Circle 2=Rect 3=Capsule 4=Arc 5=ArcBand
+// params: SDF [0..3]; MSDF stores cx,cy,r,range here (bbox derived in shader).
+// params2: SDF overflow [4,5]; Arc: angle_end; ArcBand: angle_end + stroke_hw.
+// msdfLayer/debug are MSDF-only fields; ignored for analytical types.
+// osgSlug_maskMsdfTexture must be bound separately to a free texture unit.
+struct osgSlug_MaskData {
+	int type;
+	bool invert;
+	bool debug;
+	vec2 contentOrigin;
+	vec4 params;
+	vec2 params2;
+	int msdfLayer;
+};
+
+uniform osgSlug_MaskData osgSlug_mask;
+uniform sampler2DArray osgSlug_maskMsdfTexture;
 )";
 
 const std::string Atlas::SHADER_VERT = R"(
@@ -213,28 +279,13 @@ layout(location = 1) in vec4 a_emCoord; // xy = em-coord, zw = UV [0,1]
 uniform mat4 osg_ModelViewProjectionMatrix;
 uniform float osg_SimulationTime;
 
-out vec2 v_emCoord;
-out vec2 v_uv;
-out vec4 v_color;
-out float v_layerIndex;
-
-flat out vec4 v_bandXform;
-flat out vec4 v_shapeData;
-flat out int v_effectId;
-flat out int v_gradientId;
-flat out int v_msdfLayer;
-flat out float v_msdfRange;
-flat out float v_effectParam;
-out vec4 v_gradientMeta;
-out vec4 v_gradientXform;
-
 // Defined in the linked effects or noop unit.
 vec3 osgSlug_Vertex(osgSlug_VertexData data);
 
 void main() {
 	int layerIdx = int(a_position.w + 0.5) - 1;
-	LayerData ld = layers[layerIdx];
-	AtlasShapeData sd = atlasShapes[int(ld.effectData.y + 0.5)];
+	osgSlug_LayerData ld = layers[layerIdx];
+	osgSlug_AtlasShapeData sd = atlasShapes[int(ld.effectData.y + 0.5)];
 
 	int effectId = int(ld.effectData.x + 0.5);
 
@@ -250,25 +301,25 @@ void main() {
 
 	vec3 pos = osgSlug_Vertex(vData);
 
-	v_emCoord = a_emCoord.xy;
-	v_uv = a_emCoord.zw;
-	v_layerIndex = a_position.w;
-	v_color = ld.color;
-	v_bandXform = sd.bandXform;
-	v_shapeData = sd.shapeData;
-	v_effectId = effectId;
+	geom.emCoord = a_emCoord.xy;
+	geom.uv = a_emCoord.zw;
+	geom.layerIndex = a_position.w;
+	geom.color = ld.color;
+	fx.bandXform = sd.bandXform;
+	fx.shapeData = sd.shapeData;
+	fx.effectId = effectId;
 	if(ld.effectData.z < 0.0) {
-		v_msdfLayer = -1;
-		v_msdfRange = 0.0;
+		fx.msdfLayer = -1;
+		fx.msdfRange = 0.0;
 	}
 	else {
-		v_msdfLayer = int(ld.effectData.z) - 1;
-		v_msdfRange = fract(ld.effectData.z);
+		fx.msdfLayer = int(ld.effectData.z) - 1;
+		fx.msdfRange = fract(ld.effectData.z);
 	}
-	v_effectParam = ld.effectData.w;
-	v_gradientId = int(ld.gradientMeta.x + 0.5);
-	v_gradientMeta = ld.gradientMeta;
-	v_gradientXform = ld.gradientXform;
+	fx.effectParam = ld.effectData.w;
+	fx.gradientId = int(ld.gradientMeta.x + 0.5);
+	geom.gradientMeta = ld.gradientMeta;
+	geom.gradientXform = ld.gradientXform;
 
 	gl_Position = osg_ModelViewProjectionMatrix * vec4(pos, 1.0);
 }
@@ -310,21 +361,6 @@ layout(location = 7) in vec4 a_gradientXform;
 uniform mat4 osg_ModelViewProjectionMatrix;
 uniform float osg_SimulationTime;
 
-out vec2 v_emCoord;
-out vec2 v_uv;
-out vec4 v_color;
-out float v_layerIndex;
-
-flat out vec4 v_bandXform;
-flat out vec4 v_shapeData;
-flat out int v_effectId;
-flat out int v_gradientId;
-flat out int v_msdfLayer;
-flat out float v_msdfRange;
-flat out float v_effectParam;
-out vec4 v_gradientMeta;
-out vec4 v_gradientXform;
-
 // Defined in the linked effects or noop unit.
 vec3 osgSlug_Vertex(osgSlug_VertexData data);
 
@@ -343,19 +379,19 @@ void main() {
 
 	vec3 pos = osgSlug_Vertex(vData);
 
-	v_emCoord = a_emCoord.xy;
-	v_uv = a_emCoord.zw;
-	v_layerIndex = a_position.w;
-	v_color = a_color;
-	v_bandXform = a_bandXform;
-	v_shapeData = a_shapeData;
-	v_effectId = effectId;
-	v_msdfLayer = -1;
-	v_msdfRange = 0.0;
-	v_effectParam = a_effectData.w;
-	v_gradientId = int(a_gradientMeta.x + 0.5);
-	v_gradientMeta = a_gradientMeta;
-	v_gradientXform = a_gradientXform;
+	geom.emCoord = a_emCoord.xy;
+	geom.uv = a_emCoord.zw;
+	geom.layerIndex = a_position.w;
+	geom.color = a_color;
+	fx.bandXform = a_bandXform;
+	fx.shapeData = a_shapeData;
+	fx.effectId = effectId;
+	fx.msdfLayer = -1;
+	fx.msdfRange = 0.0;
+	fx.effectParam = a_effectData.w;
+	fx.gradientId = int(a_gradientMeta.x + 0.5);
+	geom.gradientMeta = a_gradientMeta;
+	geom.gradientXform = a_gradientXform;
 
 	gl_Position = osg_ModelViewProjectionMatrix * vec4(pos, 1.0);
 }
@@ -391,22 +427,10 @@ layout(location = 1) in vec4 a_emCoord;
 uniform mat4 osg_ModelViewProjectionMatrix;
 uniform float osg_SimulationTime;
 
-out vec2 v_emCoord;
-out vec2 v_uv;
-out vec4 v_color;
-out float v_layerIndex;
-
-flat out vec4 v_bandXform;
-flat out vec4 v_shapeData;
-flat out int v_effectId;
-flat out int v_gradientId;
-out vec4 v_gradientMeta;
-out vec4 v_gradientXform;
-
 // Defined in the linked effects or noop unit.
 vec3 osgSlug_Vertex(osgSlug_VertexData data);
 
-struct DecalLayerData {
+struct osgSlug_DecalLayerData {
 	vec4 color;
 	vec4 gradientMeta;
 	vec4 gradientXform;
@@ -417,13 +441,13 @@ struct DecalLayerData {
 };
 
 layout(std430, binding = 1) buffer DecalLayerBuffer {
-	DecalLayerData decalLayers[];
+	osgSlug_DecalLayerData decalLayers[];
 };
 
 void main() {
 	int layerIdx = int(a_position.w + 0.5) - 1;
-	DecalLayerData ld = decalLayers[layerIdx];
-	AtlasShapeData sd = atlasShapes[int(ld.effectData.y + 0.5)];
+	osgSlug_DecalLayerData ld = decalLayers[layerIdx];
+	osgSlug_AtlasShapeData sd = atlasShapes[int(ld.effectData.y + 0.5)];
 
 	int effectId = int(ld.effectData.x + 0.5);
 
@@ -451,16 +475,19 @@ void main() {
 
 	vec3 pos = osgSlug_Vertex(vData);
 
-	v_emCoord = a_emCoord.xy;
-	v_uv = a_emCoord.zw;
-	v_layerIndex = a_position.w;
-	v_color = ld.color;
-	v_bandXform = sd.bandXform;
-	v_shapeData = sd.shapeData;
-	v_effectId = effectId;
-	v_gradientId = int(ld.gradientMeta.x + 0.5);
-	v_gradientMeta = ld.gradientMeta;
-	v_gradientXform = ld.gradientXform;
+	geom.emCoord = a_emCoord.xy;
+	geom.uv = a_emCoord.zw;
+	geom.layerIndex = a_position.w;
+	geom.color = ld.color;
+	fx.bandXform = sd.bandXform;
+	fx.shapeData = sd.shapeData;
+	fx.effectId = effectId;
+	fx.gradientId = int(ld.gradientMeta.x + 0.5);
+	fx.msdfLayer = -1;
+	fx.msdfRange = 0.0;
+	fx.effectParam = ld.effectData.w;
+	geom.gradientMeta = ld.gradientMeta;
+	geom.gradientXform = ld.gradientXform;
 
 	gl_Position = osg_ModelViewProjectionMatrix * vec4(pos, 1.0);
 }
@@ -548,21 +575,6 @@ vec4 osgSlug_Effect_GlowMSDF(float msdfSd, int msdfLayer, float msdfRange, vec4 
 
 	return vec4(layerColor.rgb, alpha);
 }
-
-in vec2 v_emCoord;
-in vec2 v_uv;
-in vec4 v_color;
-in float v_layerIndex;
-
-flat in vec4 v_bandXform;
-flat in vec4 v_shapeData;
-flat in int v_effectId;
-flat in int v_gradientId;
-flat in int v_msdfLayer;
-flat in float v_msdfRange;
-flat in float v_effectParam;
-in vec4 v_gradientMeta;
-in vec4 v_gradientXform;
 
 uniform float osg_SimulationTime;
 
@@ -922,32 +934,32 @@ vec4 osgSlug_Fragment(osgSlug_FragmentData data);
 //
 // The noop default sets blendMode = 0 and returns vec4(0.0) - contributes nothing.
 //
-// data.emsPerPixel: fwidth(v_emCoord) in the raw (untiled) coordinate space. Multiply a
+// data.emsPerPixel: fwidth(geom.emCoord) in the raw (untiled) coordinate space. Multiply a
 // target em-space width by emsPerPixel to get a constant screen-size effect at any zoom.
 vec4 osgSlug_FragmentExt(osgSlug_FragmentExtData data, out int blendMode);
 
 void main() {
 	// Layer mask: 0 = all visible (default). Non-zero: discard if the layer's bit is clear.
-	if(osgSlug_layerMask != 0 && (osgSlug_layerMask & (1 << int(v_layerIndex + 0.5))) == 0) discard;
+	if(osgSlug_layerMask != 0 && (osgSlug_layerMask & (1 << int(geom.layerIndex + 0.5))) == 0) discard;
 
-	ivec2 glyphLoc = ivec2(v_shapeData.xy);
-	ivec2 bandMax = ivec2(v_shapeData.zw);
+	ivec2 glyphLoc = ivec2(fx.shapeData.xy);
+	ivec2 bandMax = ivec2(fx.shapeData.zw);
 
 	// fwidth on the raw varying, no discontinuities. osgSlug_FragEmCoord may scale it for
 	// effects like tiling (where fract would make fwidth unreliable at tile boundaries).
-	vec2 emsPerPixel = fwidth(v_emCoord);
+	vec2 emsPerPixel = fwidth(geom.emCoord);
 
 	// Allow effects to remap em-coords (e.g. fract-based GPU tiling). Gradients and debug
-	// visualisation stay on the raw v_emCoord; only coverage sampling uses renderCoord.
-	vec2 renderCoord = osgSlug_FragEmCoord(v_emCoord, emsPerPixel, v_effectId, osg_SimulationTime);
+	// visualisation stay on the raw geom.emCoord; only coverage sampling uses renderCoord.
+	vec2 renderCoord = osgSlug_FragEmCoord(geom.emCoord, emsPerPixel, fx.effectId, osg_SimulationTime);
 
 	vec2 pixelsPerEm = 1.0 / emsPerPixel;
 
 	int iterations;
 
 	float fill = osgSlug_textMode
-		? slug_RenderText(renderCoord, emsPerPixel, pixelsPerEm, v_bandXform, glyphLoc, bandMax, iterations)
-		: slug_Render(renderCoord, pixelsPerEm, v_bandXform, glyphLoc, bandMax, iterations)
+		? slug_RenderText(renderCoord, emsPerPixel, pixelsPerEm, fx.bandXform, glyphLoc, bandMax, iterations)
+		: slug_Render(renderCoord, pixelsPerEm, fx.bandXform, glyphLoc, bandMax, iterations)
 	;
 
 	// Edge-only coverage adjustment for text: stem darkening and gamma correction.
@@ -956,7 +968,7 @@ void main() {
 		float adj = fill;
 
 		if (osgSlug_stemDarken) {
-			float brightness = dot(v_color.rgb, vec3(0.299, 0.587, 0.114));
+			float brightness = dot(geom.color.rgb, vec3(0.299, 0.587, 0.114));
 
 			adj = slug_StemDarken(adj, brightness, ppem);
 		}
@@ -966,49 +978,49 @@ void main() {
 		fill = adj;
 	}
 
-	vec4 effectiveColor = v_color;
+	vec4 effectiveColor = geom.color;
 
-	if(v_gradientId > 0 && osgSlug_gradientCount > 0) {
+	if(fx.gradientId > 0 && osgSlug_gradientCount > 0) {
 		float t;
 
-		if(v_gradientXform.w == 0.0) {
+		if(geom.gradientXform.w == 0.0) {
 			// Linear: xform = (dirX, dirY, offset, 0)
-			t = dot(v_emCoord, v_gradientXform.xy) + v_gradientXform.z;
+			t = dot(geom.emCoord, geom.gradientXform.xy) + geom.gradientXform.z;
 		}
 
-		else if(v_gradientXform.w > 0.0) {
+		else if(geom.gradientXform.w > 0.0) {
 			// Radial/AffineRadial: xform = B matrix (column-major mat2); meta.yz = center; meta.w = r0_norm
-			vec2 d = v_emCoord - v_gradientMeta.yz;
-			mat2 B = mat2(v_gradientXform);
+			vec2 d = geom.emCoord - geom.gradientMeta.yz;
+			mat2 B = mat2(geom.gradientXform);
 
-			t = length(B * d) - v_gradientMeta.w;
+			t = length(B * d) - geom.gradientMeta.w;
 		}
 
 		else {
 			// Sweep: xform = (cx, cy, startAngle, -invArcSpan)
 			float angle = atan(
-				v_emCoord.y - v_gradientXform.y,
-				v_emCoord.x - v_gradientXform.x
+				geom.emCoord.y - geom.gradientXform.y,
+				geom.emCoord.x - geom.gradientXform.x
 			);
 
-			t = (angle - v_gradientXform.z) * (-v_gradientXform.w);
+			t = (angle - geom.gradientXform.z) * (-geom.gradientXform.w);
 		}
 
 		t = clamp(t, 0.0, 1.0);
 
-		float gv = (float(v_gradientId) - 0.5) / float(osgSlug_gradientCount);
+		float gv = (float(fx.gradientId) - 0.5) / float(osgSlug_gradientCount);
 		vec4 gc = texture(osgSlug_gradientTexture, vec2(t, gv));
 
-		effectiveColor = vec4(gc.rgb, gc.a * v_color.a);
+		effectiveColor = vec4(gc.rgb, gc.a * geom.color.a);
 	}
 
 	// Compute msdfSd once; -1.0 means no tile registered. Shared by fData and feData.
 	float msdfSd = -1.0;
-	if(v_msdfLayer >= 0) {
-		vec2 emOrigin = -v_bandXform.zw / v_bandXform.xy;
-		vec2 emSize = float(SLUG_INDIRECTION_SIZE) / v_bandXform.xy;
-		vec2 tileUV = (v_emCoord - emOrigin + v_msdfRange) / (emSize + 2.0 * v_msdfRange);
-		vec3 msd = texture(osgSlug_msdfTexture, vec3(tileUV, float(v_msdfLayer))).rgb;
+	if(fx.msdfLayer >= 0) {
+		vec2 emOrigin = -fx.bandXform.zw / fx.bandXform.xy;
+		vec2 emSize = float(SLUG_INDIRECTION_SIZE) / fx.bandXform.xy;
+		vec2 tileUV = (geom.emCoord - emOrigin + fx.msdfRange) / (emSize + 2.0 * fx.msdfRange);
+		vec3 msd = texture(osgSlug_msdfTexture, vec3(tileUV, float(fx.msdfLayer))).rgb;
 		msdfSd = max(min(msd.r, msd.g), min(max(msd.r, msd.g), msd.b));
 	}
 
@@ -1016,17 +1028,17 @@ void main() {
 	osgSlug_FragmentData fData;
 
 	fData.fill = fill;
-	fData.emCoord = v_emCoord;
-	fData.uv = v_uv;
+	fData.emCoord = geom.emCoord;
+	fData.uv = geom.uv;
 	fData.layerColor = effectiveColor;
-	fData.effectId = v_effectId;
+	fData.effectId = fx.effectId;
 	fData.time = osg_SimulationTime;
 	fData.msdfSd = msdfSd;
-	fData.effectParam = v_effectParam;
+	fData.effectParam = fx.effectParam;
 
-	// Draws a pixel-perfect border around the quad using true [0,1] UV coords from v_uv.
+	// Draws a pixel-perfect border around the quad using true [0,1] UV coords.
 	if(osgSlug_debugMode == 3) {
-		vec2 uv = v_uv;
+		vec2 uv = geom.uv;
 
 		vec2 distToEdge = min(uv, 1.0 - uv);
 		float dist = min(distToEdge.x, distToEdge.y);
@@ -1041,9 +1053,9 @@ void main() {
 		vec4 fillColor = osgSlug_Fragment(fData);
 
 		vec4 borderColor = vec4(
-			fract(v_bandXform.x * 127.1),
-			fract(v_bandXform.y * 311.7),
-			fract(v_bandXform.z * 74.3 + v_bandXform.w * 19.1),
+			fract(fx.bandXform.x * 127.1),
+			fract(fx.bandXform.y * 311.7),
+			fract(fx.bandXform.z * 74.3 + fx.bandXform.w * 19.1),
 			1.0
 		);
 
@@ -1057,13 +1069,13 @@ void main() {
 
 	feData.fill = fill;
 	feData.msdfSd = msdfSd;
-	feData.msdfLayer = v_msdfLayer;
-	feData.msdfRange = v_msdfRange;
-	feData.emCoord = v_emCoord;
-	feData.uv = v_uv;
+	feData.msdfLayer = fx.msdfLayer;
+	feData.msdfRange = fx.msdfRange;
+	feData.emCoord = geom.emCoord;
+	feData.uv = geom.uv;
 	feData.layerColor = effectiveColor;
-	feData.effectId = v_effectId;
-	feData.effectParam = v_effectParam;
+	feData.effectId = fx.effectId;
+	feData.effectParam = fx.effectParam;
 	feData.time = osg_SimulationTime;
 	feData.emsPerPixel = emsPerPixel;
 
@@ -1082,7 +1094,7 @@ void main() {
 	else if(extColor.a < 0.001) {
 		color = (osgSlug_debugMode == 0 || osgSlug_debugMode == 6)
 			? osgSlug_Fragment(fData)
-			: slug_ApplyDebug(fill, v_emCoord, effectiveColor, glyphLoc, v_bandXform, iterations)
+			: slug_ApplyDebug(fill, geom.emCoord, effectiveColor, glyphLoc, fx.bandXform, iterations)
 		;
 	}
 
@@ -1092,7 +1104,7 @@ void main() {
 			: (
 				(osgSlug_debugMode == 0 || osgSlug_debugMode == 6)
 					? osgSlug_Fragment(fData)
-					: slug_ApplyDebug(fill, v_emCoord, effectiveColor, glyphLoc, v_bandXform, iterations
+					: slug_ApplyDebug(fill, geom.emCoord, effectiveColor, glyphLoc, fx.bandXform, iterations
 				)
 			)
 		;
@@ -1182,16 +1194,16 @@ vec2 scanline_evaluate_bezier(vec2 p0, vec2 p1, vec2 p2, float t) {
 // qa: second-degree coefficient of the 1-D quadratic in the chosen dimension.
 float scanline_intersect_monotonic(float qa, float c0, float c1, float c2, float target) {
 	if (abs(qa) < 1e-3) return (target - c0) / (c2 - c0);
-	float qb    = fma(2.0, c1, -2.0 * c0);
-	float qc    = c0 - target;
-	float d     = fma(qb, qb, -4.0 * qa * qc);
+	float qb = fma(2.0, c1, -2.0 * c0);
+	float qc = c0 - target;
+	float d = fma(qb, qb, -4.0 * qa * qc);
 	float sqrtd = d < 0.0 ? 0.0 : sqrt(d);
 	float inv2a = 0.5 / qa;
 	return fma(-qb, inv2a, sign(c2 - c0) * sqrtd * inv2a);
 }
 
 // Returns the signed swept-area contribution of one monotonic quadratic Bezier curve.
-// size:   pixel-window size in em-space (from dFdx/dFdy of v_emCoord)
+// size: pixel-window size in em-space (from dFdx/dFdy of v_emCoord)
 // offset: lower-left corner of the pixel window in em-space
 // p0..p2: monotonic quadratic control points — all(p0 <= p1) and all(p1 <= p2) in both axes
 // Accumulate the return values for all curves, then divide by (size.x * size.y) → coverage [0,1].
@@ -1214,7 +1226,7 @@ float scanline_sweep(vec2 size, vec2 offset, vec2 p0, vec2 p1, vec2 p2) {
 		if (p0.x >= size.x) return 0.0;
 		float vTop = min(max(p0.y, p2.y), size.y);
 		float vBot = max(min(p0.y, p2.y), 0.0);
-		float h    = vTop - vBot;
+		float h = vTop - vBot;
 		float base = min(size.x, size.x - p0.x);
 		return sign(delta.y) * base * h;
 	}
@@ -1303,8 +1315,8 @@ float scanline_sweep(vec2 size, vec2 offset, vec2 p0, vec2 p1, vec2 p2) {
 const std::string Atlas::SHADER_SCANLINE_VERT = R"(
 #version 430 core
 
-layout(location = 0) in vec4 a_position;   // xy = world-space 2D position
-layout(location = 1) in vec4 a_emCoord;    // xy = em-space coordinate (glyph units)
+layout(location = 0) in vec4 a_position; // xy = world-space 2D position
+layout(location = 1) in vec4 a_emCoord; // xy = em-space coordinate (glyph units)
 layout(location = 2) in vec4 a_curveRange; // x = curveStart, y = curveCount (as floats)
 layout(location = 3) in vec4 a_layerColor; // per-layer RGBA
 
@@ -1315,10 +1327,10 @@ flat out vec2 v_curveRange;
 flat out vec4 v_layerColor;
 
 void main() {
-	v_emCoord    = a_emCoord.xy;
+	v_emCoord = a_emCoord.xy;
 	v_curveRange = a_curveRange.xy;
 	v_layerColor = a_layerColor;
-	gl_Position  = osg_ModelViewProjectionMatrix * vec4(a_position.xy, 0.0, 1.0);
+	gl_Position = osg_ModelViewProjectionMatrix * vec4(a_position.xy, 0.0, 1.0);
 }
 )";
 
@@ -1341,9 +1353,9 @@ void main() {
 	int curveStart = int(v_curveRange.x);
 	int curveCount = int(v_curveRange.y);
 
-	vec2 emCoord  = v_emCoord;
-	vec2 size     = fwidth(emCoord);
-	vec2 offset   = emCoord - size * 0.5;
+	vec2 emCoord = v_emCoord;
+	vec2 size = fwidth(emCoord);
+	vec2 offset = emCoord - size * 0.5;
 	float winArea = size.x * size.y;
 	float coverage = 0.0;
 
@@ -1365,6 +1377,133 @@ void main() {
 	fragColor = vec4(v_layerColor.rgb, v_layerColor.a * alpha);
 }
 )");
+
+// osgSlug_SDF_* — closed-form signed distance functions (negative = inside).
+// osgSlug_Mask_* — coverage helpers + full osgSlug_mask dispatcher.
+// Opt-in via: #pragma osgSlug lib_mask
+// Prerequisites: #pragma osgSlug lib_fragment (for osgSlug_MaskData / osgSlug_FragmentData).
+const std::string Atlas::SHADER_LIB_MASK = R"(
+
+// --- Signed distance primitives ---
+
+float osgSlug_SDF_Circle(vec2 p, vec2 center, float r) {
+	return length(p - center) - r;
+}
+
+float osgSlug_SDF_Box(vec2 p, vec2 center, vec2 halfExt) {
+	vec2 d = abs(p - center) - halfExt;
+	return length(max(d, vec2(0.0))) + min(max(d.x, d.y), 0.0);
+}
+
+float osgSlug_SDF_Capsule(vec2 p, vec2 a, vec2 b, float r) {
+	vec2 pa = p - a, ba = b - a;
+	float h = clamp(dot(pa, ba) / dot(ba, ba), 0.0, 1.0);
+	return length(pa - ba * h) - r;
+}
+
+// Filled pie sector. a0/a1 in radians, standard math convention (0=+X, CCW positive).
+float osgSlug_SDF_Pie(vec2 p, vec2 center, float r, float a0, float a1) {
+	vec2 q = p - center;
+	float midAngle = (a0 + a1) * 0.5;
+	float halfSpan = (a1 - a0) * 0.5;
+	vec2 sc = vec2(sin(halfSpan), cos(halfSpan));
+	float cosM = cos(-midAngle), sinM = sin(-midAngle);
+	vec2 rp = vec2(q.x * cosM - q.y * sinM, q.x * sinM + q.y * cosM);
+	rp.x = abs(rp.x);
+	float l = length(rp) - r;
+	float m = length(rp - sc * clamp(dot(rp, sc), 0.0, r));
+	return max(l, m * sign(sc.y * rp.x - sc.x * rp.y));
+}
+
+// Stroked arc (annular band along an arc). rb = stroke half-width.
+float osgSlug_SDF_ArcBand(vec2 p, vec2 center, float ra, float a0, float a1, float rb) {
+	vec2 q = p - center;
+	float midAngle = (a0 + a1) * 0.5;
+	float halfSpan = (a1 - a0) * 0.5;
+	float cosM = cos(-midAngle), sinM = sin(-midAngle);
+	vec2 rp = vec2(q.x * cosM - q.y * sinM, q.x * sinM + q.y * cosM);
+	rp.y = abs(rp.y);
+	vec2 sc_x = vec2(cos(halfSpan), sin(halfSpan));
+	float k = (sc_x.x * rp.y > sc_x.y * rp.x) ? dot(rp, sc_x) : length(rp);
+	return sqrt(max(dot(rp, rp) + ra * ra - 2.0 * ra * k, 0.0)) - rb;
+}
+
+// --- Mask helpers ---
+
+// 1-pixel AA ramp from a signed distance (dist < 0 = inside).
+float osgSlug_Mask_Coverage(float dist, vec2 coord) {
+	float px = max(fwidth(coord).x, fwidth(coord).y);
+	return clamp(0.5 - dist / px, 0.0, 1.0);
+}
+
+// Apply osgSlug_mask.invert + alpha-gate. Returns premultiplied fragment color.
+vec4 osgSlug_Mask_Apply(osgSlug_FragmentData data, float maskFill) {
+	if(osgSlug_mask.invert) maskFill = 1.0 - maskFill;
+	if(maskFill < 0.001) discard;
+	return vec4(data.layerColor.rgb, data.fill * maskFill * data.layerColor.a);
+}
+
+// Full mask evaluation: reads osgSlug_mask, returns the masked fragment color.
+vec4 osgSlug_Mask_Evaluate(osgSlug_FragmentData data) {
+	vec2 canvasCoord = data.emCoord + osgSlug_mask.contentOrigin;
+	float maskFill;
+
+	if(osgSlug_mask.type == 0) { // MSDF — baked tile sample
+		if(osgSlug_mask.msdfLayer < 0) discard;
+		float cx = osgSlug_mask.params.x, cy = osgSlug_mask.params.y;
+		float r = osgSlug_mask.params.z, rng = osgSlug_mask.params.w;
+		vec4 bbox = vec4(cx - r - rng, cy - r - rng, cx + r + rng, cy + r + rng);
+		vec2 tileUV = (canvasCoord - bbox.xy) / (bbox.zw - bbox.xy);
+		if(any(lessThan(tileUV, vec2(0.0))) || any(greaterThan(tileUV, vec2(1.0)))) discard;
+		vec3 msd = texture(osgSlug_maskMsdfTexture, vec3(tileUV, float(osgSlug_mask.msdfLayer))).rgb;
+		if(osgSlug_mask.debug) return vec4(msd.r, msd.g, msd.b, 1.0);
+		float maskSd = max(min(msd.r, msd.g), min(max(msd.r, msd.g), msd.b));
+		vec2 emsPx = fwidth(data.emCoord);
+		float pxRange = max(2.0 * rng / max(emsPx.x, emsPx.y), 1.0);
+		maskFill = clamp((maskSd - 0.5) * pxRange + 0.5, 0.0, 1.0);
+	}
+
+	else if(osgSlug_mask.type == 1) { // Circle
+		maskFill = osgSlug_Mask_Coverage(
+			osgSlug_SDF_Circle(canvasCoord, osgSlug_mask.params.xy, osgSlug_mask.params.z),
+			canvasCoord);
+	}
+
+	else if(osgSlug_mask.type == 2) { // Rect
+		vec2 center = osgSlug_mask.params.xy + osgSlug_mask.params.zw * 0.5;
+		vec2 halfExt = osgSlug_mask.params.zw * 0.5;
+		maskFill = osgSlug_Mask_Coverage(
+			osgSlug_SDF_Box(canvasCoord, center, halfExt),
+			canvasCoord);
+	}
+
+	else if(osgSlug_mask.type == 3) { // Capsule
+		maskFill = osgSlug_Mask_Coverage(
+			osgSlug_SDF_Capsule(canvasCoord,
+				osgSlug_mask.params.xy, osgSlug_mask.params.zw,
+				osgSlug_mask.params2.x),
+			canvasCoord);
+	}
+
+	else if(osgSlug_mask.type == 4) { // Arc — filled pie sector
+		maskFill = osgSlug_Mask_Coverage(
+			osgSlug_SDF_Pie(canvasCoord, osgSlug_mask.params.xy,
+				osgSlug_mask.params.z, osgSlug_mask.params.w,
+				osgSlug_mask.params2.x),
+			canvasCoord);
+	}
+
+	else { // ArcBand — stroked arc
+		maskFill = osgSlug_Mask_Coverage(
+			osgSlug_SDF_ArcBand(canvasCoord, osgSlug_mask.params.xy,
+				osgSlug_mask.params.z, osgSlug_mask.params.w,
+				osgSlug_mask.params2.x, osgSlug_mask.params2.y),
+			canvasCoord);
+	}
+
+	return osgSlug_Mask_Apply(data, maskFill);
+}
+)";
 
 // ================================================================================================
 // State-set builders
@@ -1533,8 +1672,8 @@ osg::Program* Atlas::createDecalProgram(HookList hooks) const {
 
 	auto* program = new osg::Program();
 
-	// Inject only SHADER_ATLAS_TYPES (binding 0); the decal shader defines DecalLayerData
-	// and binding 1 itself, avoiding conflict with the standard LayerData / binding 1.
+	// Inject only SHADER_ATLAS_TYPES (binding 0); the decal shader defines osgSlug_DecalLayerData
+	// and binding 1 itself, avoiding conflict with the standard osgSlug_LayerData / binding 1.
 	program->addShader(makeVertShader(SHADER_VERT_DECAL, SHADER_ATLAS_TYPES));
 	program->addShader(makeVertShader(*vertEffects, SHADER_ATLAS_TYPES));
 	program->addShader(new osg::Shader(osg::Shader::FRAGMENT, SHADER_FRAG));
