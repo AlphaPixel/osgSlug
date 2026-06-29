@@ -1,0 +1,3 @@
+[submodule "ext/osgdebug"]
+	path = ext/osgdebug
+	url = https://github.com/cubicool/osgdebug.git
