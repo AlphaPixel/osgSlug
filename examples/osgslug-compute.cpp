@@ -54,8 +54,8 @@ vec4 clearlyABug(vec2 C, vec2 r, float t) {
 
 vec4 osgSlug_Fragment(osgSlug_FragmentData data) {
 	if(data.effectId == 10) {
-		// vec4 color = clearlyABug(data.uv * iResolution, iResolution, osg_SimulationTime);
-		vec4 color = clearlyABug(gl_FragCoord.xy, iResolution, osg_SimulationTime);
+		vec4 color = clearlyABug(data.uv * iResolution, iResolution, osg_SimulationTime);
+		// vec4 color = clearlyABug(gl_FragCoord.xy, iResolution, osg_SimulationTime);
 		color.a = data.fill;
 
 		return color;

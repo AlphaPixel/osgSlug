@@ -20,6 +20,8 @@ set(OSG_PYTHON_DIR "" CACHE PATH "Path to OpenSceneGraph.py checkout")
 
 if(OSG_PYTHON_DIR)
 	find_package(Python3 COMPONENTS Interpreter Development REQUIRED)
+	# TODO: Since BOTH PROJECTS have their own pybind11 checkouts, which should
+	# we use?
 	add_subdirectory("${SLUGHORN_DIR}/ext/pybind11" "ext/pybind11")
 endif()
 

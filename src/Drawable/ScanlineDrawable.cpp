@@ -43,38 +43,33 @@ void ScanlineDrawable::compile() {
 	for(const auto& layer : _composite.layers) {
 		const auto shape = atlas->getShape(layer.key);
 
-		if(!shape || shape->scanlineCurveCount == 0) continue;
+		if(!shape || !shape->scanlineCurveCount) continue;
 
-		const auto [x0, y0, x1, y1] = computeEmBounds(*shape, 0.0f);
+		const auto [x0, y0, x1, y1] = computeEmBounds(*shape, 0_cv);
 
-		const float s = static_cast<float>(layer.scale);
-		const float tx = static_cast<float>(layer.transform.x);
-		const float ty = static_cast<float>(layer.transform.y);
+		const slug_t s = layer.scale;
+		const slug_t tx = layer.transform.x;
+		const slug_t ty = layer.transform.y;
 
 		// World positions = (glyph_em_coord + advance_offset) * scale.
 		// emCoords stay in glyph units (no offset, no scale) to match the curve texture.
-		const float wx0 = (x0 + tx) * s;
-		const float wy0 = (y0 + ty) * s;
-		const float wx1 = (x1 + tx) * s;
-		const float wy1 = (y1 + ty) * s;
+		const slug_t wx0 = (x0 + tx) * s;
+		const slug_t wy0 = (y0 + ty) * s;
+		const slug_t wx1 = (x1 + tx) * s;
+		const slug_t wy1 = (y1 + ty) * s;
 
-		const float cs = static_cast<float>(shape->scanlineCurveStart);
-		const float cc = static_cast<float>(shape->scanlineCurveCount);
-		const osg::Vec4 lc = {
-			static_cast<float>(layer.color.r),
-			static_cast<float>(layer.color.g),
-			static_cast<float>(layer.color.b),
-			static_cast<float>(layer.color.a),
-		};
+		const slug_t cs = cv(shape->scanlineCurveStart);
+		const slug_t cc = cv(shape->scanlineCurveCount);
+		const Vec4 lc = {layer.color.r, layer.color.g, layer.color.b, layer.color.a};
 
 		// If layer has no color set, fall back to the drawable-level _color.
-		const osg::Vec4 fc = (lc.w() > 0.0f) ? lc : _color;
+		const Vec4 fc = (lc.w() > 0_cv) ? lc : _color;
 
 		// Two triangles per quad (GL_TRIANGLES): BL, BR, TR, BL, TR, TL.
-		auto push = [&](float wx, float wy, float ex, float ey) {
-			verts->push_back({wx, wy, 0.0f, 1.0f});
-			emCoords->push_back({ex, ey, 0.0f, 0.0f});
-			curveRanges->push_back({cs, cc, 0.0f, 0.0f});
+		auto push = [&](slug_t wx, slug_t wy, slug_t ex, slug_t ey) {
+			verts->push_back({wx, wy, 0_cv, 1_cv});
+			emCoords->push_back({ex, ey, 0_cv, 0_cv});
+			curveRanges->push_back({cs, cc, 0_cv, 0_cv});
 			colors->push_back(fc);
 		};
 
@@ -85,12 +80,16 @@ void ScanlineDrawable::compile() {
 		push(wx1, wy1, x1, y1); // TR
 		push(wx0, wy1, x0, y1); // TL
 
-		_bbox.expandBy(Vec3(wx0, wy0, -0.1f));
-		_bbox.expandBy(Vec3(wx1, wy1, 0.1f));
+		_bbox.expandBy(Vec3(wx0, wy0, -0.1_cv));
+		_bbox.expandBy(Vec3(wx1, wy1, 0.1_cv));
 	}
 
 	if(verts->empty()) {
-		OSG_WARN << "ScanlineDrawable: no renderable layers (zero curves or missing shapes)\n";
+		OSG_WARN
+			<< "ScanlineDrawable: no renderable layers (zero curves or missing shapes)"
+			<< std::endl
+		;
+
 		return;
 	}
 
@@ -106,10 +105,12 @@ void ScanlineDrawable::compile() {
 	setInitialBound(_bbox);
 
 	auto* prog = new osg::Program();
+
 	prog->addShader(new osg::Shader(osg::Shader::VERTEX, Atlas::SHADER_SCANLINE_VERT));
 	prog->addShader(new osg::Shader(osg::Shader::FRAGMENT, Atlas::SHADER_SCANLINE_FRAG));
 
 	auto* ss = new osg::StateSet();
+
 	ss->setAttributeAndModes(prog, osg::StateAttribute::ON);
 	ss->setTextureAttributeAndModes(0, scanlineTex, osg::StateAttribute::ON);
 	ss->addUniform(new osg::Uniform("u_scanlineTex", 0));

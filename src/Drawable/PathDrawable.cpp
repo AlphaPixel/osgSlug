@@ -246,25 +246,25 @@ void PathDrawable::setRevealCount(size_t n) {
 void PathDrawable::setPoints(std::vector<Vec4> pts) {
 	if(!_points) _points = new osgx::Vec4Array();
 
+	const bool sizeChanged = pts.size() != _points->size();
+
 	_points->assign(pts.begin(), pts.end());
+	_points->dirty();
 
+	// _ssboBinding already exists once compile() has run (it owns the live GL buffer
+	// object). Reuse it rather than rebuilding it: OSG's GLBufferObject already tracks
+	// dirty state per-array and re-uploads only the changed byte range via
+	// glBufferSubData on the next apply() - rebuilding the binding every call discarded
+	// that buffer object wholesale and forced a full glBufferData reallocation on every
+	// setPoints(), every frame. _size is only captured once at binding construction, so
+	// it still needs an explicit refresh when the point count itself changes.
 	if(_ssboBinding) {
-		auto* ssbo = new osg::ShaderStorageBufferObject();
-
-		_points->setBufferObject(ssbo);
-
-		_ssboBinding = new osg::ShaderStorageBufferBinding(
-			0, _points, 0, _points->getTotalDataSize()
-		);
-
-		getOrCreateStateSet()->setAttributeAndModes(_ssboBinding, osg::StateAttribute::ON);
+		if(sizeChanged) _ssboBinding->setSize(_points->getTotalDataSize());
 
 		if(_drawArrays) _drawArrays->setNumInstances(
 			static_cast<GLsizei>(_mode == PathMode::Stamp ? _points->size() : _points->size() - 1)
 		);
 	}
-
-	_points->dirty();
 }
 
 void PathDrawable::compile() {
