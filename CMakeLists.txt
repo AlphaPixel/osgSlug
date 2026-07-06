@@ -269,6 +269,7 @@ if(OSGSLUG_BUILD_EXAMPLES)
 		SOURCES "examples/osgslug-compositeshape-mixed.cpp"
 	)
 	osgslug_example(osgslug-mask SOURCES "examples/osgslug-mask.cpp")
+	osgslug_example(osgslug-pbr-ibl SOURCES "examples/osgslug-pbr-ibl.cpp")
 endif()
 
 if(OSG_PYTHON_DIR)
