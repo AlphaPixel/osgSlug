@@ -234,6 +234,22 @@ vec4 osgSlug_Effect_Wave(float fill, vec2 uv, vec4 layerColor, float time);
 vec4 osgSlug_Effect_Glow(float fill, vec2 uv, vec4 layerColor, float time, float circleR);
 vec4 osgSlug_Effect_GlowMSDF(float msdfSd, int msdfLayer, float msdfRange, vec4 layerColor, float effectParam, out int blendMode);
 
+// MSDF field helpers (implementations live in the main fragment shader only).
+//
+// osgSlug_MSDFSd: median-of-three MSDF reconstruction at an ARBITRARY em-space coordinate --
+// same tile mapping as the msdfSd the hooks already receive (0.5=edge, >0.5=interior);
+// returns -1.0 if this shape has no MSDF tile registered.
+//
+// osgSlug_MSDFGradient: em-space gradient of the MSDF field (d(sd)/d(em), points toward the
+// interior), by central differences one tile texel wide; vec2(0.0) if no tile. Use THIS --
+// never dFdx/dFdy(msdfSd) -- when a hook needs the field's direction: screen-space derivatives
+// are constant per 2x2 hardware quad, so anything built from them (a bevel normal, a
+// reflection vector) is quantized into pixel-scale blocks that sharp downstream lookups
+// amplify into crunchy edges (see BUG.md, 2026-07-06). The tile texture is float (GL_RGB32F),
+// so a texel-baseline difference of it is smooth per pixel.
+float osgSlug_MSDFSd(vec2 emCoord);
+vec2 osgSlug_MSDFGradient(vec2 emCoord);
+
 // Mask descriptor — set via osg::Uniform("osgSlug_mask.<member>", value).
 // type: 0=MSDF 1=Circle 2=Rect 3=Capsule 4=Arc 5=ArcBand
 // params: SDF [0..3]; MSDF stores cx,cy,r,range here (bbox derived in shader).
@@ -600,6 +616,35 @@ uniform int osgSlug_texWidth;
 #define SLUG_INDIRECTION_SIZE 32
 
 // ================================================================================================
+// MSDF field helpers (prototypes + usage contract in SHADER_LIB_FRAGMENT)
+// ================================================================================================
+
+float osgSlug_MSDFSd(vec2 emCoord) {
+	if(fx.msdfLayer < 0) return -1.0;
+
+	vec2 emOrigin = -fx.bandXform.zw / fx.bandXform.xy;
+	vec2 emSize = float(SLUG_INDIRECTION_SIZE) / fx.bandXform.xy;
+	vec2 tileUV = (emCoord - emOrigin + fx.msdfRange) / (emSize + 2.0 * fx.msdfRange);
+	vec3 msd = texture(osgSlug_msdfTexture, vec3(tileUV, float(fx.msdfLayer))).rgb;
+
+	return max(min(msd.r, msd.g), min(max(msd.r, msd.g), msd.b));
+}
+
+vec2 osgSlug_MSDFGradient(vec2 emCoord) {
+	if(fx.msdfLayer < 0) return vec2(0.0);
+
+	// One tile texel expressed in em units -- the tile spans the shape's em bbox plus
+	// msdfRange of padding on every side (the same denominator as tileUV above).
+	vec2 emSpan = float(SLUG_INDIRECTION_SIZE) / fx.bandXform.xy + 2.0 * fx.msdfRange;
+	vec2 dEm = emSpan / vec2(textureSize(osgSlug_msdfTexture, 0).xy);
+
+	return vec2(
+		osgSlug_MSDFSd(emCoord + vec2(dEm.x, 0.0)) - osgSlug_MSDFSd(emCoord - vec2(dEm.x, 0.0)),
+		osgSlug_MSDFSd(emCoord + vec2(0.0, dEm.y)) - osgSlug_MSDFSd(emCoord - vec2(0.0, dEm.y))
+	) / (2.0 * dEm);
+}
+
+// ================================================================================================
 // Slug core
 // ================================================================================================
 
@@ -866,19 +911,45 @@ vec4 slug_ApplyDebug(
 	int bX_prev = int(texelFetch(osgSlug_bandTexture, ivec2(glyphLoc.x + SLUG_INDIRECTION_SIZE + max(qX - 1, 0), glyphLoc.y), 0).r);
 	int bX_next = int(texelFetch(osgSlug_bandTexture, ivec2(glyphLoc.x + SLUG_INDIRECTION_SIZE + min(qX + 1, SLUG_INDIRECTION_SIZE - 1), glyphLoc.y), 0).r);
 
+	// dY/dX is fwidth(bandCoord) ~= INDIRECTION_SIZE / (shape's screen size in pixels) --
+	// meant to antialias this highlight over ~1 screen pixel. For a shape small enough on
+	// screen that this exceeds a single slot's width, smoothstep's edge1 lands outside
+	// fracY/fracX's own [0,1] range and never fully decays back to 0, washing the entire
+	// shape in highlight instead of a thin line at the true boundary. Clamp it to a sane
+	// fraction of a slot so small shapes still get a highlight, just not one that eats the
+	// whole shape.
+	// smoothstep(edge0, edge1, x) is UNDEFINED per the GLSL spec when edge0 >= edge1 --
+	// internally it divides by (edge1-edge0). fwidth() legitimately returns exactly 0.0
+	// wherever the screen-space derivative underflows float32 precision (more likely, not
+	// less, at high zoom -- the true analytic change between adjacent pixels shrinks
+	// continuously), which made dY/dX == 0.0 here and fed a 0/0 into smoothstep below --
+	// NaN or driver-dependent garbage, then straight into mix()'s blend factor, reading as
+	// per-pixel noise along the boundary. Floor it away from 0 so edge0 < edge1 always.
 	float fracY = fract(bandCoord.y);
-	float dY = fwidth(bandCoord.y);
+	float dY = clamp(fwidth(bandCoord.y), 1e-5, 0.15);
 	float edgeY = 0.0;
 	if(bandIdx.y != bY_prev) edgeY = max(edgeY, 1.0 - smoothstep(0.0, dY, fracY));
 	if(bandIdx.y != bY_next) edgeY = max(edgeY, 1.0 - smoothstep(0.0, dY, 1.0 - fracY));
 
 	float fracX = fract(bandCoord.x);
-	float dX = fwidth(bandCoord.x);
+	float dX = clamp(fwidth(bandCoord.x), 1e-5, 0.15);
 	float edgeX = 0.0;
 	if(bandIdx.x != bX_prev) edgeX = max(edgeX, 1.0 - smoothstep(0.0, dX, fracX));
 	if(bandIdx.x != bX_next) edgeX = max(edgeX, 1.0 - smoothstep(0.0, dX, 1.0 - fracX));
 
 	float atEdge = max(edgeY, edgeX);
+
+	// atEdge highlights a thin axis-aligned strip (the band grid line); fill's own
+	// antialiasing highlights a thin strip along the shape's (generally diagonal/curved)
+	// silhouette. Wherever the shape's boundary happens to run near-tangent to a grid
+	// line, the grid's axis-aligned strip intersects the diagonal silhouette strip over a
+	// long run instead of a point, and blending both signals at once there reads as a
+	// jagged/stepped edge -- even though fill itself stays perfectly smooth underneath.
+	// This only ever happens where fill is already mid-antialiasing (fully inside/outside
+	// pixels can't show a silhouette notch), so suppress the grid highlight there and let
+	// fill's own smooth edge show through unmodified; the grid remains fully visible
+	// everywhere else, including right up to the edge.
+	atEdge *= abs(fill - 0.5) * 2.0;
 
 	if(osgSlug_debugMode == 2) {
 		return vec4(mix(layerColor.rgb, 1.0 - layerColor.rgb, atEdge), fill * layerColor.a);
@@ -1015,14 +1086,7 @@ void main() {
 	}
 
 	// Compute msdfSd once; -1.0 means no tile registered. Shared by fData and feData.
-	float msdfSd = -1.0;
-	if(fx.msdfLayer >= 0) {
-		vec2 emOrigin = -fx.bandXform.zw / fx.bandXform.xy;
-		vec2 emSize = float(SLUG_INDIRECTION_SIZE) / fx.bandXform.xy;
-		vec2 tileUV = (geom.emCoord - emOrigin + fx.msdfRange) / (emSize + 2.0 * fx.msdfRange);
-		vec3 msd = texture(osgSlug_msdfTexture, vec3(tileUV, float(fx.msdfLayer))).rgb;
-		msdfSd = max(min(msd.r, msd.g), min(max(msd.r, msd.g), msd.b));
-	}
+	float msdfSd = osgSlug_MSDFSd(geom.emCoord);
 
 	// Build osgSlug_FragmentData once; shared by all osgSlug_Fragment call sites below.
 	osgSlug_FragmentData fData;
