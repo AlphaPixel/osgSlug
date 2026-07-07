@@ -7,7 +7,7 @@
 //   using osgx::pbr (BRDF math) and osgx::ibl (cubemap load + BRDF LUT bake) from
 //   ~/dev/osgdebug/osgx.hpp.
 // - Direct: a small rig of animated point lights ("spot lights" thrown into the scene, see
-//   LightRigCallback) whose highlights slide across the dome per-frame -- the motion is the
+//   osgx::pbr::OrbitLightRig) whose highlights slide across the dome per-frame -- the motion is the
 //   confirmation that N, V, and the specular math are wired correctly, not just a static
 //   flat-shaded color.
 //
@@ -43,7 +43,7 @@ static float packMaterial(float roughness, float metallic) {
 static constexpr float MSDF_RANGE = 0.45f;
 
 // Number of direct lights the shader loop supports; keep in sync with the uniform arrays
-// declared in makeChromeFrag() and filled by LightRigCallback below.
+// declared in makeChromeFrag() and filled by osgx::pbr::OrbitLightRig below.
 static constexpr int MAX_LIGHTS = 4;
 
 // brokenGradient bakes in the ORIGINAL dFdx/dFdy(msdfSd) bevel direction -- the confirmed root
@@ -59,33 +59,16 @@ const bool BROKEN_GRADIENT = )GLSL";
 
 	src += brokenGradient ? "true;\n" : "false;\n";
 
-	// The full osgx::pbr BRDF toolkit: D_GGX/G_Schlick/G_Smith for the direct-light loop,
-	// F_Schlick for per-light Fresnel. (F_Schlick_roughness comes along too but is unused --
-	// the split-sum IBL combine below folds Fresnel into the baked brdfLUT instead.)
+	// The full osgx::pbr BRDF toolkit: D_GGX/G_Schlick/G_Smith/F_Schlick feed
+	// osgx_DirectSpecular below (F_Schlick_roughness comes along too but is unused -- the
+	// split-sum IBL combine folds Fresnel into the baked brdfLUT instead). DIRECT_SPECULAR,
+	// IBL_SPECULAR, and TONEMAP_PBR_NEUTRAL are the shape-agnostic pieces promoted to osgx::pbr
+	// once this example got a second consumer (osgslug-pbr-ibl-text.cpp) -- see
+	// ai/context-todo-lighting.md.
 	src += osgx::pbr::snippets();
-
-	// Khronos PBR Neutral tonemapping, ported verbatim from 09-ibl.py's tonemapPBRNeutral().
-	// Not yet promoted to osgx:: -- this is a display/output step, not BRDF or light-source
-	// math, so it doesn't obviously belong in either osgx::pbr or osgx::ibl as they're
-	// currently scoped. Promote it if a second consumer shows up.
-	src += R"GLSL(
-vec3 osgx_TonemapPBRNeutral(vec3 color) {
-	const float startCompression = 0.8 - 0.04;
-	const float desaturation = 0.15;
-	float x = min(color.r, min(color.g, color.b));
-	float offset = x < 0.08 ? x - 6.25 * x * x : 0.04;
-	color -= offset;
-	float peak = max(color.r, max(color.g, color.b));
-	if(peak >= startCompression) {
-		float d = 1.0 - startCompression;
-		float newPeak = 1.0 - d * d / (peak + d - startCompression);
-		color *= newPeak / peak;
-		float g = 1.0 - 1.0 / (desaturation * (peak - newPeak) + 1.0);
-		color = mix(color, vec3(newPeak), g);
-	}
-	return clamp(color, 0.0, 1.0);
-}
-)GLSL";
+	src += osgx::pbr::DIRECT_SPECULAR;
+	src += osgx::pbr::IBL_SPECULAR;
+	src += osgx::pbr::TONEMAP_PBR_NEUTRAL;
 
 	src += R"GLSL(
 uniform samplerCube envMap; // unit 5 -- GGX-prefiltered cubemap (osgx::ibl::loadPrefilterCubemap)
@@ -95,7 +78,7 @@ uniform vec3 badgeNormalWorld;
 uniform float envMaxMip;
 uniform float iblIntensity;
 
-// Direct-light rig, animated per-frame by LightRigCallback (see C++ below).
+// Direct-light rig, animated per-frame by osgx::pbr::OrbitLightRig (osgx.hpp).
 // lightPosIntensity: xyz = world-space position, w = intensity (already scaled by
 // --light-intensity). Unused slots have w = 0.
 const int MAX_LIGHTS = 4;
@@ -117,7 +100,9 @@ vec4 osgSlug_Fragment(osgSlug_FragmentData data) {
 	float baseRoughness = mod(data.effectParam, 256.0) / 255.0;
 
 	vec3 Nz = normalize(badgeNormalWorld);
-	vec3 N = Nz;
+	vec3 camRight = normalize(osg_ViewMatrixInverse[0].xyz);
+	vec3 camUp = normalize(osg_ViewMatrixInverse[1].xyz);
+	vec3 N;
 
 	// Dome normal from the MSDF distance field: flat (Nz) only at the very deepest interior
 	// point, curving continuously all the way out to the edge as msdfSd approaches 0.5
@@ -129,38 +114,38 @@ vec4 osgSlug_Fragment(osgSlug_FragmentData data) {
 	// The tilt direction maps the em-space gradient through camRight/camUp -- a deliberate
 	// simplification that assumes a mostly camera-facing, un-tilted badge (em x/y == world
 	// x/y == camRight/camUp here).
-	if(data.msdfSd >= 0.0) {
-		const float BEVEL_WIDTH = 0.5; // msdfSd units: 0.5 = edge .. 1.0 = deep interior
-		// Controls how far N tilts at the rim -- directly controls how close NdotV gets to 0
-		// there, which drives how bright/edgy the rim's reflections get.
-		const float BEVEL_STRENGTH = 0.7;
+	const float BEVEL_WIDTH = 0.5; // msdfSd units: 0.5 = edge .. 1.0 = deep interior
+	// Controls how far N tilts at the rim -- directly controls how close NdotV gets to 0
+	// there, which drives how bright/edgy the rim's reflections get.
+	const float BEVEL_STRENGTH = 0.7;
 
-		float bevel = 1.0 - clamp((data.msdfSd - 0.5) / BEVEL_WIDTH, 0.0, 1.0);
+	if(BROKEN_GRADIENT) {
+		// BUG.md's confirmed root cause, kept only for A/B (--broken): per-2x2-quad constant
+		// derivatives quantize the direction -- and therefore N and R -- into pixel-scale
+		// blocks. Duplicates osgSlug_MSDFBevelNormal (Atlas.shaders.cpp) with the broken
+		// gradient source, since that helper always uses the correct em-space one.
+		N = Nz;
 
-		vec2 grad;
+		if(data.msdfSd >= 0.0) {
+			float bevel = 1.0 - clamp((data.msdfSd - 0.5) / BEVEL_WIDTH, 0.0, 1.0);
+			// Points toward DECREASING sd already (screen space).
+			vec2 grad = -vec2(dFdx(data.msdfSd), dFdy(data.msdfSd));
+			float gradLen = length(grad);
 
-		if(BROKEN_GRADIENT) {
-			// BUG.md's confirmed root cause, kept only for A/B (--broken): per-2x2-quad
-			// constant derivatives quantize the direction -- and therefore N and R -- into
-			// pixel-scale blocks. Points toward DECREASING sd already (screen space).
-			grad = -vec2(dFdx(data.msdfSd), dFdy(data.msdfSd));
+			if(gradLen > 0.0001 && bevel > 0.0001) {
+				vec2 edgeDir = grad / gradLen;
+
+				N = normalize(Nz + (camRight * edgeDir.x + camUp * edgeDir.y) * bevel * BEVEL_STRENGTH);
+			}
 		}
-		else {
-			// THE FIX: em-space central difference of the float MSDF tile itself
-			// (osgSlug_MSDFGradient, Atlas.shaders.cpp) -- per-pixel smooth. The gradient
-			// points toward the interior; the bevel wants interior->edge, hence the negation.
-			grad = -osgSlug_MSDFGradient(data.emCoord);
-		}
-
-		float gradLen = length(grad);
-
-		if(gradLen > 0.0001 && bevel > 0.0001) {
-			vec2 edgeDir = grad / gradLen; // points from interior toward the edge
-			vec3 camRight = normalize(osg_ViewMatrixInverse[0].xyz);
-			vec3 camUp = normalize(osg_ViewMatrixInverse[1].xyz);
-
-			N = normalize(Nz + (camRight * edgeDir.x + camUp * edgeDir.y) * bevel * BEVEL_STRENGTH);
-		}
+	}
+	else {
+		// THE FIX (see BUG.md): osgSlug_MSDFBevelNormal (Atlas.shaders.cpp) uses the em-space
+		// MSDF gradient (osgSlug_MSDFGradient), never dFdx/dFdy(msdfSd) -- per-pixel smooth
+		// instead of quantized into 2x2 hardware-derivative blocks.
+		N = osgSlug_MSDFBevelNormal(
+			data.emCoord, data.msdfSd, Nz, camRight, camUp, BEVEL_WIDTH, BEVEL_STRENGTH
+		);
 	}
 
 	// V: the camera's constant world-space back axis (osg_ViewMatrixInverse[2], same
@@ -168,23 +153,15 @@ vec4 osgSlug_Fragment(osgSlug_FragmentData data) {
 	// near-orthographic 2D-pan setup -- a per-object eye-minus-center approximation drifted
 	// visibly under Ortho2DManipulator's pan (see BUG.md point 4).
 	vec3 V = normalize(osg_ViewMatrixInverse[2].xyz);
-	vec3 R = reflect(-V, N);
 	float NdotV = max(dot(N, V), 0.0);
 
 	vec3 F0 = mix(vec3(0.04), data.layerColor.rgb, metallic);
 
-	// ---- IBL specular: split-sum (Karis 2013) -- prefilt * (F0 * scale + bias) ---- //
+	// ---- IBL specular: split-sum (Karis 2013), via osgx::pbr::IBL_SPECULAR ---- //
 
-	// OSG world space is Z-up; the baked cubemap's faces are Y-up. Without this remap we
-	// sample a direction that doesn't correspond to R at all -- see 09-ibl.py's identical
-	// r_gl = vec3(R.x, R.z, -R.y) before its own textureLod(envMap, ...) call.
-	vec3 R_gl = vec3(R.x, R.z, -R.y);
+	vec3 spec = osgx_IBLSpecular(N, V, F0, baseRoughness, envMap, brdfLUT, envMaxMip);
 
-	vec3 prefilt = textureLod(envMap, R_gl, baseRoughness * envMaxMip).rgb;
-	vec2 brdf = texture(brdfLUT, vec2(NdotV, baseRoughness)).rg;
-	vec3 spec = prefilt * (F0 * brdf.x + brdf.y);
-
-	// ---- Direct specular: the spot-light rig, full GGX per light ---- //
+	// ---- Direct specular: the spot-light rig, full GGX per light, via osgx::pbr::DIRECT_SPECULAR ---- //
 
 	// Floor the direct-light roughness: at a true mirror value (0.08) the GGX lobe is
 	// sub-pixel -- a singular sparkle that aliases exactly like the bug we just fixed.
@@ -204,24 +181,10 @@ vec4 osgSlug_Fragment(osgSlug_FragmentData data) {
 		vec3 toL = lightPosIntensity[i].xyz - P;
 		float dist2 = dot(toL, toL);
 		vec3 L = toL * inversesqrt(dist2);
-		float NdotL = dot(N, L);
 
-		if(NdotL <= 0.0) continue;
-
-		vec3 H = normalize(L + V);
-		float NdotH = max(dot(N, H), 0.0);
-		float HdotV = max(dot(H, V), 0.0);
-
-		float D = osgx_D_GGX(NdotH, lightRoughness);
-		float G = osgx_G_Smith(NdotV, NdotL, lightRoughness);
-		vec3 F = osgx_F_Schlick(HdotV, F0);
-
-		// Cook-Torrance specular; no diffuse term -- metallic=1 has kD = 0 by definition,
-		// and this example is chrome. Add the kD * albedo/PI term here if a dielectric
-		// material ever needs it.
-		vec3 specL = (D * G * F) / max(4.0 * NdotV * NdotL, 0.0001);
-
-		direct += specL * lightColor[i] * (lightPosIntensity[i].w / dist2) * NdotL;
+		// No diffuse term -- metallic=1 has kD = 0 by definition, and this example is chrome.
+		direct += osgx_DirectSpecular(N, V, L, NdotV, lightRoughness, F0)
+			* lightColor[i] * (lightPosIntensity[i].w / dist2);
 	}
 
 	// No SH diffuse yet (osgx::ibl task 3, still pending) -- a small flat floor keeps the
@@ -244,49 +207,12 @@ vec4 osgSlug_Fragment(osgSlug_FragmentData data) {
 }
 
 // ================================================================================================
-// Per-frame light rig: MAX_LIGHTS point lights orbiting in front of the badge. Positions are
-// written into the lightPosIntensity uniform array each update traversal; colors and count are
-// static, set once in main(). Installed as the badge MatrixTransform's update callback.
-// ================================================================================================
-
-struct LightRigCallback: public osg::NodeCallback {
-	osg::ref_ptr<osg::StateSet> ss;
-	osg::Vec3 center{0.5f, 0.5f, 0.0f}; // canvas.circle(0.5, 0.5, ...) -- badge center
-	float intensity = 1.0f; // global scale (--light-intensity)
-
-	void operator()(osg::Node* node, osg::NodeVisitor* nv) override {
-		float t = nv->getFrameStamp() ? float(nv->getFrameStamp()->getSimulationTime()) : 0.0f;
-
-		// (orbit radius, height above the badge plane, angular speed, phase, intensity)
-		static constexpr struct {
-			float radius, z, speed, phase, intensity;
-		} ORBITS[3] = {
-			{0.55f, 0.70f, 0.50f, 0.0f, 1.00f},
-			{0.70f, 0.90f, -0.33f, 2.1f, 0.75f},
-			{0.45f, 0.50f, 0.80f, 4.2f, 0.50f},
-		};
-
-		auto* lp = ss->getUniform("lightPosIntensity");
-
-		for(int i = 0; i < 3; i++) {
-			const auto& o = ORBITS[i];
-			float a = t * o.speed + o.phase;
-
-			lp->setElement(static_cast<unsigned int>(i), osg::Vec4(
-				center.x() + std::cos(a) * o.radius,
-				center.y() + std::sin(a) * o.radius,
-				center.z() + o.z,
-				o.intensity * intensity
-			));
-		}
-
-		traverse(node, nv);
-	}
-};
-
-// ================================================================================================
 // main
 // ================================================================================================
+
+// Per-frame light rig: MAX_LIGHTS point lights orbiting in front of the badge -- now
+// osgx::pbr::OrbitLightRig (osgx.hpp), generalized out of this example so
+// osgslug-pbr-ibl-text.cpp can reuse it. See ai/context-todo-lighting.md.
 
 int main(int argc, char** argv) {
 	osg::ArgumentParser args(&argc, argv);
@@ -407,9 +333,10 @@ int main(int argc, char** argv) {
 
 	badgeXform->addChild(atlas);
 
-	auto rig = osgx::make_ref<LightRigCallback>();
+	auto rig = osgx::make_ref<osgx::pbr::OrbitLightRig>();
 
 	rig->ss = ss;
+	rig->center = osg::Vec3(0.5f, 0.5f, 0.0f); // canvas.circle(0.5, 0.5, ...) -- badge center
 	rig->intensity = lightIntensity;
 	badgeXform->setUpdateCallback(rig);
 

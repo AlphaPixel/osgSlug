@@ -250,6 +250,22 @@ vec4 osgSlug_Effect_GlowMSDF(float msdfSd, int msdfLayer, float msdfRange, vec4 
 float osgSlug_MSDFSd(vec2 emCoord);
 vec2 osgSlug_MSDFGradient(vec2 emCoord);
 
+// osgSlug_MSDFBevelNormal: tilts flatNormal toward the shape's edge as msdfSd approaches 0.5,
+// giving a smoothly-curved "dome"/bevel look across any MSDF-registered shape (badge, glyph,
+// whatever) instead of a flat facet. tangentU/tangentV are the world-space axes the em-space
+// gradient's x/y map onto (e.g. camRight/camUp for a camera-facing, un-tilted shape).
+// bevelWidth is in msdfSd units (0.5=edge..1.0=deep interior); bevelStrength scales how far the
+// normal tilts at the rim. Returns flatNormal unchanged where there's no MSDF tile or no bevel.
+vec3 osgSlug_MSDFBevelNormal(
+	vec2 emCoord,
+	float msdfSd,
+	vec3 flatNormal,
+	vec3 tangentU,
+	vec3 tangentV,
+	float bevelWidth,
+	float bevelStrength
+);
+
 // Mask descriptor — set via osg::Uniform("osgSlug_mask.<member>", value).
 // type: 0=MSDF 1=Circle 2=Rect 3=Capsule 4=Arc 5=ArcBand
 // params: SDF [0..3]; MSDF stores cx,cy,r,range here (bbox derived in shader).
@@ -642,6 +658,32 @@ vec2 osgSlug_MSDFGradient(vec2 emCoord) {
 		osgSlug_MSDFSd(emCoord + vec2(dEm.x, 0.0)) - osgSlug_MSDFSd(emCoord - vec2(dEm.x, 0.0)),
 		osgSlug_MSDFSd(emCoord + vec2(0.0, dEm.y)) - osgSlug_MSDFSd(emCoord - vec2(0.0, dEm.y))
 	) / (2.0 * dEm);
+}
+
+vec3 osgSlug_MSDFBevelNormal(
+	vec2 emCoord,
+	float msdfSd,
+	vec3 flatNormal,
+	vec3 tangentU,
+	vec3 tangentV,
+	float bevelWidth,
+	float bevelStrength
+) {
+	if(msdfSd < 0.0) return flatNormal;
+
+	float bevel = 1.0 - clamp((msdfSd - 0.5) / bevelWidth, 0.0, 1.0);
+
+	if(bevel <= 0.0001) return flatNormal;
+
+	// Gradient points toward the interior; the bevel wants interior->edge, hence the negation.
+	vec2 grad = -osgSlug_MSDFGradient(emCoord);
+	float gradLen = length(grad);
+
+	if(gradLen <= 0.0001) return flatNormal;
+
+	vec2 edgeDir = grad / gradLen;
+
+	return normalize(flatNormal + (tangentU * edgeDir.x + tangentV * edgeDir.y) * bevel * bevelStrength);
 }
 
 // ================================================================================================

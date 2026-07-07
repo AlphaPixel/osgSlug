@@ -270,6 +270,7 @@ if(OSGSLUG_BUILD_EXAMPLES)
 	)
 	osgslug_example(osgslug-mask SOURCES "examples/osgslug-mask.cpp")
 	osgslug_example(osgslug-pbr-ibl SOURCES "examples/osgslug-pbr-ibl.cpp")
+	osgslug_example(osgslug-pbr-ibl-text SOURCES "examples/osgslug-pbr-ibl-text.cpp")
 endif()
 
 if(OSG_PYTHON_DIR)
