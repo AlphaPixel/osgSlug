@@ -280,7 +280,11 @@ vec3 osgSlug_MSDFBevelNormal(
 // params: SDF [0..3]; MSDF stores cx,cy,r,range here (bbox derived in shader).
 // params2: SDF overflow [4,5]; Arc: angle_end; ArcBand: angle_end + stroke_hw.
 // msdfLayer/debug are MSDF-only fields; ignored for analytical types.
-// osgSlug_maskMsdfTexture must be bound separately to a free texture unit.
+// MSDF sampling reuses osgSlug_msdfTexture (unit 3, always bound by the Atlas's own default
+// StateSet) -- a mask's MSDF tile lives in the same Texture2DArray every glyph/shape already
+// samples, so SHADER_LIB_MASK re-declares that uniform rather than binding a second texture
+// unit to the same data (see SHADER_LIB_MASK's LayerBuffer re-declaration for why re-declaring
+// instead of importing is the normal, required pattern for a separately-linked shader object).
 //
 // NOTE: no contentOrigin field here (deliberately removed) - it was a per-MASK value shared
 // across every layer in a masked RenderGroup, but "canvas bbox min" is fundamentally a
@@ -303,8 +307,6 @@ struct osgSlug_MaskData {
 layout(std140) uniform osgSlug_MaskBlock {
 	osgSlug_MaskData osgSlug_mask;
 };
-
-uniform sampler2DArray osgSlug_maskMsdfTexture;
 )";
 
 const std::string Atlas::SHADER_VERT = R"(
@@ -1461,6 +1463,13 @@ layout(std430, binding = 1) readonly buffer LayerBuffer {
 	osgSlug_LayerData layers[];
 };
 
+// Private re-declaration of osgSlug_msdfTexture (see SHADER_TYPES/SHADER_FRAG): same reason as
+// LayerBuffer above -- this shader object never gets SHADER_FRAG prepended. GLSL shares the
+// binding automatically across shader objects when the uniform name+type match (the Atlas's own
+// default StateSet already binds this to unit 3 unconditionally, since every glyph/shape's own
+// MSDF sampling depends on it too), so a mask's MSDF tile needs no separate texture unit.
+uniform sampler2DArray osgSlug_msdfTexture;
+
 // --- Signed distance primitives ---
 
 float osgSlug_SDF_Circle(vec2 p, vec2 center, float r) {
@@ -1547,7 +1556,7 @@ vec4 osgSlug_Mask_Evaluate(osgSlug_FragmentData data) {
 		vec4 bbox = vec4(cx - r - rng, cy - r - rng, cx + r + rng, cy + r + rng);
 		vec2 tileUV = (canvasCoord - bbox.xy) / (bbox.zw - bbox.xy);
 		if(any(lessThan(tileUV, vec2(0.0))) || any(greaterThan(tileUV, vec2(1.0)))) discard;
-		vec3 msd = texture(osgSlug_maskMsdfTexture, vec3(tileUV, float(osgSlug_mask.msdfLayer))).rgb;
+		vec3 msd = texture(osgSlug_msdfTexture, vec3(tileUV, float(osgSlug_mask.msdfLayer))).rgb;
 		if(osgSlug_mask.debug) return vec4(msd.r, msd.g, msd.b, 1.0);
 		float maskSd = max(min(msd.r, msd.g), min(max(msd.r, msd.g), msd.b));
 		float pxRange = max(2.0 * rng / max(data.emsPerPixel.x, data.emsPerPixel.y), 1.0);

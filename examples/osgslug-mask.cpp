@@ -190,18 +190,6 @@ int main(int argc, char** argv) {
 
 	auto* ss = atlas->createHookStateSet({{osgSlug::Atlas::FragmentHook, HOOK_MASK_BODY}});
 
-	if(maskType == slughorn::Mask::Type::MSDF) {
-		ss->addUniform(new osg::Uniform("osgSlug_maskMsdfTexture", 7));
-
-		if(auto* msdfTex = atlas->getMSDFTexture()) {
-			ss->setTextureAttributeAndModes(7, msdfTex, osg::StateAttribute::ON);
-		}
-
-		else {
-			OSG_WARN << "osgslug-mask: no MSDF texture after packTextures()" << std::endl;
-		}
-	}
-
 	sd->setStateSet(ss);
 	atlas->addChild(sd);
 
