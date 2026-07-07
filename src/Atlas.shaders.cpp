@@ -1,4 +1,4 @@
-#include "osgSlug/Atlas.hpp"
+#include "osgSlug/Drawable.hpp"
 
 OSGSLUG_DISABLE_WARNINGS
 
@@ -124,6 +124,7 @@ struct osgSlug_LayerData {
 	vec4 gradientMeta; // x = gradientId (1-based), yz = gradient center, w = r0_norm
 	vec4 gradientXform;// gradient transform (B matrix / direction / sweep)
 	vec4 effectData; // x = effectId, y = shapeIndex (into AtlasShapeBuffer), z = 0, w = effectParam
+	vec4 transformData; // xy = layer.transform.xy (canvas-space origin); zw = unused
 };
 
 layout(std430, binding = 1) buffer LayerBuffer {
@@ -154,7 +155,7 @@ out osgSlug_GeomBlock {
 	vec2 emCoord; // em-space coordinate
 	vec2 uv; // normalized [0,1] UV
 	vec4 color; // effective layer color
-	float layerIndex;// 1-based layer index (for osgSlug_layerMask)
+	flat float layerIndex;// 1-based layer index (for osgSlug_layerMask); flat - used as an array index
 	vec4 gradientMeta;
 	vec4 gradientXform;
 } geom;
@@ -176,7 +177,7 @@ in osgSlug_GeomBlock {
 	vec2 emCoord;
 	vec2 uv;
 	vec4 color;
-	float layerIndex;
+	flat float layerIndex;
 	vec4 gradientMeta;
 	vec4 gradientXform;
 } geom;
@@ -206,6 +207,12 @@ struct osgSlug_FragmentData {
 	float time; // osg_SimulationTime
 	float msdfSd; // MSDF signed distance: 0.5=edge, >0.5=interior; -1.0=no tile
 	float effectParam; // per-layer float (set via setLayerEffectParam)
+	// fwidth(geom.emCoord), precomputed in main() before any discard - see
+	// osgSlug_FragmentExtData.emsPerPixel for why: derivatives computed later, in a nested
+	// hook call that follows a discard, are unreliable on some drivers for axis-aligned
+	// geometry specifically (osgSlug_Mask_Coverage hit exactly this). Use this instead of
+	// calling fwidth() yourself inside a hook.
+	vec2 emsPerPixel;
 };
 
 // All per-fragment data the osgSlug_FragmentExt pre-discard hook receives.
@@ -242,7 +249,7 @@ vec4 osgSlug_Effect_GlowMSDF(float msdfSd, int msdfLayer, float msdfRange, vec4 
 //
 // osgSlug_MSDFGradient: em-space gradient of the MSDF field (d(sd)/d(em), points toward the
 // interior), by central differences one tile texel wide; vec2(0.0) if no tile. Use THIS --
-// never dFdx/dFdy(msdfSd) -- when a hook needs the field's direction: screen-space derivatives
+// never dFdx/dFdy(msdfSd) - when a hook needs the field's direction: screen-space derivatives
 // are constant per 2x2 hardware quad, so anything built from them (a bevel normal, a
 // reflection vector) is quantized into pixel-scale blocks that sharp downstream lookups
 // amplify into crunchy edges (see BUG.md, 2026-07-06). The tile texture is float (GL_RGB32F),
@@ -266,23 +273,38 @@ vec3 osgSlug_MSDFBevelNormal(
 	float bevelStrength
 );
 
-// Mask descriptor — set via osg::Uniform("osgSlug_mask.<member>", value).
+// Mask descriptor - populated by osgSlug::RenderMask, bound via RenderGroup/applyMask() at
+// draw time (see ShapeDrawable.cpp). Field order matches RenderMask::PackedData exactly
+// (largest-alignment-first: minimal std140 padding) - keep the two in sync if either changes.
 // type: 0=MSDF 1=Circle 2=Rect 3=Capsule 4=Arc 5=ArcBand
 // params: SDF [0..3]; MSDF stores cx,cy,r,range here (bbox derived in shader).
 // params2: SDF overflow [4,5]; Arc: angle_end; ArcBand: angle_end + stroke_hw.
 // msdfLayer/debug are MSDF-only fields; ignored for analytical types.
 // osgSlug_maskMsdfTexture must be bound separately to a free texture unit.
+//
+// NOTE: no contentOrigin field here (deliberately removed) - it was a per-MASK value shared
+// across every layer in a masked RenderGroup, but "canvas bbox min" is fundamentally a
+// per-LAYER property (each layer has its own transform.xy). A single shared value only
+// happened to work for single-layer masked composites; multi-layer composites where layers
+// sit at different canvas positions (e.g. this file's 2-rect demo, or the paragraph-of-text/
+// COLRv1-emoji demos this whole feature targets) need it per-layer. See osgSlug_Mask_Evaluate
+// below - it reads transformData.xy from the per-layer LayerBuffer SSBO instead.
 struct osgSlug_MaskData {
-	int type;
-	bool invert;
-	bool debug;
-	vec2 contentOrigin;
 	vec4 params;
 	vec2 params2;
+	int type;
 	int msdfLayer;
+	bool invert;
+	bool debug;
 };
 
-uniform osgSlug_MaskData osgSlug_mask;
+// No inline layout(binding=N): this struct lives in SHADER_LIB_FRAGMENT, shared by both the
+// GL4 (#version 430) and GL3 (#version 330) hook paths, and inline UBO binding syntax is
+// illegal pre-4.20. Bound instead via Program::addBindUniformBlock() in createHookStateSet().
+layout(std140) uniform osgSlug_MaskBlock {
+	osgSlug_MaskData osgSlug_mask;
+};
+
 uniform sampler2DArray osgSlug_maskMsdfTexture;
 )";
 
@@ -649,7 +671,7 @@ float osgSlug_MSDFSd(vec2 emCoord) {
 vec2 osgSlug_MSDFGradient(vec2 emCoord) {
 	if(fx.msdfLayer < 0) return vec2(0.0);
 
-	// One tile texel expressed in em units -- the tile spans the shape's em bbox plus
+	// One tile texel expressed in em units - the tile spans the shape's em bbox plus
 	// msdfRange of padding on every side (the same denominator as tileUV above).
 	vec2 emSpan = float(SLUG_INDIRECTION_SIZE) / fx.bandXform.xy + 2.0 * fx.msdfRange;
 	vec2 dEm = emSpan / vec2(textureSize(osgSlug_msdfTexture, 0).xy);
@@ -963,7 +985,7 @@ vec4 slug_ApplyDebug(
 	// smoothstep(edge0, edge1, x) is UNDEFINED per the GLSL spec when edge0 >= edge1 --
 	// internally it divides by (edge1-edge0). fwidth() legitimately returns exactly 0.0
 	// wherever the screen-space derivative underflows float32 precision (more likely, not
-	// less, at high zoom -- the true analytic change between adjacent pixels shrinks
+	// less, at high zoom - the true analytic change between adjacent pixels shrinks
 	// continuously), which made dY/dX == 0.0 here and fed a 0/0 into smoothstep below --
 	// NaN or driver-dependent garbage, then straight into mix()'s blend factor, reading as
 	// per-pixel noise along the boundary. Floor it away from 0 so edge0 < edge1 always.
@@ -986,7 +1008,7 @@ vec4 slug_ApplyDebug(
 	// silhouette. Wherever the shape's boundary happens to run near-tangent to a grid
 	// line, the grid's axis-aligned strip intersects the diagonal silhouette strip over a
 	// long run instead of a point, and blending both signals at once there reads as a
-	// jagged/stepped edge -- even though fill itself stays perfectly smooth underneath.
+	// jagged/stepped edge - even though fill itself stays perfectly smooth underneath.
 	// This only ever happens where fill is already mid-antialiasing (fully inside/outside
 	// pixels can't show a silhouette notch), so suppress the grid highlight there and let
 	// fill's own smooth edge show through unmodified; the grid remains fully visible
@@ -1141,6 +1163,7 @@ void main() {
 	fData.time = osg_SimulationTime;
 	fData.msdfSd = msdfSd;
 	fData.effectParam = fx.effectParam;
+	fData.emsPerPixel = emsPerPixel;
 
 	// Draws a pixel-perfect border around the quad using true [0,1] UV coords.
 	if(osgSlug_debugMode == 3) {
@@ -1288,7 +1311,7 @@ vec4 osgSlug_FragmentExt(osgSlug_FragmentExtData data, out int blendMode) {
 // ================================================================================================
 
 // Pure-math GLSL library. Include with #pragma osgSlug lib_scanline.
-// Translated from the HLSL reference implementation in Rook & Possum (2026) §8.
+// Translated from the HLSL reference implementation in Rook & Possum (2026) ?8.
 const std::string Atlas::SHADER_LIB_SCANLINE = R"(
 vec2 scanline_evaluate_bezier(vec2 p0, vec2 p1, vec2 p2, float t) {
 	vec2 a = mix(p0, p1, t);
@@ -1311,8 +1334,8 @@ float scanline_intersect_monotonic(float qa, float c0, float c1, float c2, float
 // Returns the signed swept-area contribution of one monotonic quadratic Bezier curve.
 // size: pixel-window size in em-space (from dFdx/dFdy of v_emCoord)
 // offset: lower-left corner of the pixel window in em-space
-// p0..p2: monotonic quadratic control points — all(p0 <= p1) and all(p1 <= p2) in both axes
-// Accumulate the return values for all curves, then divide by (size.x * size.y) → coverage [0,1].
+// p0..p2: monotonic quadratic control points - all(p0 <= p1) and all(p1 <= p2) in both axes
+// Accumulate the return values for all curves, then divide by (size.x * size.y) -> coverage [0,1].
 float scanline_sweep(vec2 size, vec2 offset, vec2 p0, vec2 p1, vec2 p2) {
 	// Discard curves entirely above or below the scanline.
 	if (max(p0.y, p2.y) <= offset.y || min(p0.y, p2.y) >= offset.y + size.y) return 0.0;
@@ -1484,11 +1507,34 @@ void main() {
 }
 )");
 
-// osgSlug_SDF_* — closed-form signed distance functions (negative = inside).
-// osgSlug_Mask_* — coverage helpers + full osgSlug_mask dispatcher.
+// osgSlug_SDF_* - closed-form signed distance functions (negative = inside).
+// osgSlug_Mask_* - coverage helpers + full osgSlug_mask dispatcher.
 // Opt-in via: #pragma osgSlug lib_mask
 // Prerequisites: #pragma osgSlug lib_fragment (for osgSlug_MaskData / osgSlug_FragmentData).
+// Requires #version 430 (not 330) in the hook that includes this: the LayerBuffer
+// re-declaration below is a `buffer` (SSBO) block, illegal pre-4.30. Masking is SSBO/GL4-only
+// already (RenderGroup.mask is never populated by GL3ShapeDrawable), so this isn't a new
+// constraint in practice - just something any hook using lib_mask must declare correctly.
 const std::string Atlas::SHADER_LIB_MASK = R"(
+
+// Private re-declaration of LayerBuffer (see SHADER_TYPES): needed here because this fragment
+// hook's shader object never gets SHADER_TYPES prepended (that only happens for the vertex
+// shader - see makeVertShader() in createHookStateSet()). GLSL requires each shader
+// object/stage to redeclare the buffer blocks it uses; this is normal, not a hack. Only used
+// to recover transformData.xy (each layer's own canvas-space origin) via geom.layerIndex,
+// which osgSlug_Mask_Evaluate needs and osgSlug_MaskData deliberately does not carry (see its
+// comment in SHADER_LIB_FRAGMENT).
+struct osgSlug_LayerData {
+	vec4 color;
+	vec4 gradientMeta;
+	vec4 gradientXform;
+	vec4 effectData;
+	vec4 transformData;
+};
+
+layout(std430, binding = 1) readonly buffer LayerBuffer {
+	osgSlug_LayerData layers[];
+};
 
 // --- Signed distance primitives ---
 
@@ -1536,25 +1582,40 @@ float osgSlug_SDF_ArcBand(vec2 p, vec2 center, float ra, float a0, float a1, flo
 
 // --- Mask helpers ---
 
-// 1-pixel AA ramp from a signed distance (dist < 0 = inside).
-float osgSlug_Mask_Coverage(float dist, vec2 coord) {
-	float px = max(fwidth(coord).x, fwidth(coord).y);
+// 1-pixel AA ramp from a signed distance (dist < 0 = inside). emsPerPixel must be
+// data.emsPerPixel (precomputed in main() before any discard) - NOT a fresh fwidth() call
+// here: derivatives computed this deep in a hook call chain, following a discard elsewhere in
+// the shader, produced degenerate (zero) results for axis-aligned geometry on at least one
+// driver (NVIDIA) - see osgSlug_FragmentData.emsPerPixel's comment.
+float osgSlug_Mask_Coverage(float dist, vec2 emsPerPixel) {
+	float px = max(emsPerPixel.x, emsPerPixel.y);
 	return clamp(0.5 - dist / px, 0.0, 1.0);
 }
 
-// Apply osgSlug_mask.invert + alpha-gate. Returns premultiplied fragment color.
+// Apply osgSlug_mask.invert + alpha-gate. Returns premultiplied fragment color - the comment
+// always said so, but the code never actually multiplied rgb by alpha until now. Latent since
+// this function was written: the SrcOver fast path in ShapeDrawable::drawImplementation()
+// used to skip applyBlendMode() entirely for a single masked group, so the mismatch between
+// this straight-alpha output and applyBlendMode()'s premultiplied GL_ONE blend func was never
+// exercised. Adding mask-awareness to that fast path's condition (RenderGroup.mask) exposed
+// it: GL_ONE doesn't scale src by alpha, so any nonzero straight alpha saturated to near-full
+// foreground brightness, making the antialiased ramp look like a hard step.
 vec4 osgSlug_Mask_Apply(osgSlug_FragmentData data, float maskFill) {
 	if(osgSlug_mask.invert) maskFill = 1.0 - maskFill;
 	if(maskFill < 0.001) discard;
-	return vec4(data.layerColor.rgb, data.fill * maskFill * data.layerColor.a);
+
+	float alpha = data.fill * maskFill * data.layerColor.a;
+
+	return vec4(data.layerColor.rgb * alpha, alpha);
 }
 
 // Full mask evaluation: reads osgSlug_mask, returns the masked fragment color.
 vec4 osgSlug_Mask_Evaluate(osgSlug_FragmentData data) {
-	vec2 canvasCoord = data.emCoord + osgSlug_mask.contentOrigin;
+	vec2 layerOrigin = layers[int(geom.layerIndex + 0.5) - 1].transformData.xy;
+	vec2 canvasCoord = data.emCoord + layerOrigin;
 	float maskFill;
 
-	if(osgSlug_mask.type == 0) { // MSDF — baked tile sample
+	if(osgSlug_mask.type == 0) { // MSDF - baked tile sample
 		if(osgSlug_mask.msdfLayer < 0) discard;
 		float cx = osgSlug_mask.params.x, cy = osgSlug_mask.params.y;
 		float r = osgSlug_mask.params.z, rng = osgSlug_mask.params.w;
@@ -1564,15 +1625,14 @@ vec4 osgSlug_Mask_Evaluate(osgSlug_FragmentData data) {
 		vec3 msd = texture(osgSlug_maskMsdfTexture, vec3(tileUV, float(osgSlug_mask.msdfLayer))).rgb;
 		if(osgSlug_mask.debug) return vec4(msd.r, msd.g, msd.b, 1.0);
 		float maskSd = max(min(msd.r, msd.g), min(max(msd.r, msd.g), msd.b));
-		vec2 emsPx = fwidth(data.emCoord);
-		float pxRange = max(2.0 * rng / max(emsPx.x, emsPx.y), 1.0);
+		float pxRange = max(2.0 * rng / max(data.emsPerPixel.x, data.emsPerPixel.y), 1.0);
 		maskFill = clamp((maskSd - 0.5) * pxRange + 0.5, 0.0, 1.0);
 	}
 
 	else if(osgSlug_mask.type == 1) { // Circle
 		maskFill = osgSlug_Mask_Coverage(
 			osgSlug_SDF_Circle(canvasCoord, osgSlug_mask.params.xy, osgSlug_mask.params.z),
-			canvasCoord);
+			data.emsPerPixel);
 	}
 
 	else if(osgSlug_mask.type == 2) { // Rect
@@ -1580,7 +1640,7 @@ vec4 osgSlug_Mask_Evaluate(osgSlug_FragmentData data) {
 		vec2 halfExt = osgSlug_mask.params.zw * 0.5;
 		maskFill = osgSlug_Mask_Coverage(
 			osgSlug_SDF_Box(canvasCoord, center, halfExt),
-			canvasCoord);
+			data.emsPerPixel);
 	}
 
 	else if(osgSlug_mask.type == 3) { // Capsule
@@ -1588,23 +1648,23 @@ vec4 osgSlug_Mask_Evaluate(osgSlug_FragmentData data) {
 			osgSlug_SDF_Capsule(canvasCoord,
 				osgSlug_mask.params.xy, osgSlug_mask.params.zw,
 				osgSlug_mask.params2.x),
-			canvasCoord);
+			data.emsPerPixel);
 	}
 
-	else if(osgSlug_mask.type == 4) { // Arc — filled pie sector
+	else if(osgSlug_mask.type == 4) { // Arc - filled pie sector
 		maskFill = osgSlug_Mask_Coverage(
 			osgSlug_SDF_Pie(canvasCoord, osgSlug_mask.params.xy,
 				osgSlug_mask.params.z, osgSlug_mask.params.w,
 				osgSlug_mask.params2.x),
-			canvasCoord);
+			data.emsPerPixel);
 	}
 
-	else { // ArcBand — stroked arc
+	else { // ArcBand - stroked arc
 		maskFill = osgSlug_Mask_Coverage(
 			osgSlug_SDF_ArcBand(canvasCoord, osgSlug_mask.params.xy,
 				osgSlug_mask.params.z, osgSlug_mask.params.w,
 				osgSlug_mask.params2.x, osgSlug_mask.params2.y),
-			canvasCoord);
+			data.emsPerPixel);
 	}
 
 	return osgSlug_Mask_Apply(data, maskFill);
@@ -1759,6 +1819,12 @@ osg::StateSet* Atlas::createHookStateSet(HookList hooks) const {
 	program->addShader(new osg::Shader(osg::Shader::FRAGMENT, SHADER_FRAG));
 	program->addShader(new osg::Shader(osg::Shader::FRAGMENT, resolveLibs(*fragEffects)));
 	program->addShader(new osg::Shader(osg::Shader::FRAGMENT, resolveLibs(*fragExt)));
+
+	// osgSlug_MaskBlock has no inline layout(binding=N) - SHADER_LIB_FRAGMENT (where it's
+	// declared) is shared between the GL4 (#version 430) and GL3 (#version 330) hook paths, and
+	// inline UBO binding syntax is illegal pre-4.20. glUniformBlockBinding via this call works
+	// identically under both, and RenderMask::apply() binds to the same index at draw time.
+	program->addBindUniformBlock("osgSlug_MaskBlock", RENDER_MASK_UBO_BINDING);
 
 	ss->setAttributeAndModes(program, osg::StateAttribute::ON);
 

@@ -72,7 +72,7 @@ static const std::string PATH_MITER_COMMON = R"GLSL(
 )GLSL";
 
 // Miter mode: analytical fwidth SDF coverage via v_uv.
-// Private pipeline (PATH_SDF_FRAG only) — not connected to Atlas::SHADER_FRAG.
+// Private pipeline (PATH_SDF_FRAG only) - not connected to Atlas::SHADER_FRAG.
 static const char* PATH_MITER_MAIN = R"GLSL(
 	out vec2 v_uv;
 

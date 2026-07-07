@@ -17,9 +17,19 @@ public:
 	struct RenderShape {
 		slughorn::Layer layer;
 		osg::ref_ptr<osgx::Vec4Array> buffer;
+
+		// Shared across every layer copied from the same CompositeShape by addCompositeShape();
+		// null if that composite had no mask. Pointer identity (not value) is what marks two
+		// layers as "masked together" -- see ai/context-todo-mask.md, "Step 2 design".
+		osg::ref_ptr<RenderMask> mask;
 	};
 
 	SSBOShapeDrawable() = default;
+
+	// Both overridden (not just addCompositeShape()) so _layerMasks -- see below -- always
+	// grows in lockstep with _layers, regardless of which entry point a caller uses.
+	void addLayer(const slughorn::Layer& layer) override;
+	void addCompositeShape(const slughorn::CompositeShape& composite) override;
 
 	void compile() override;
 
@@ -43,8 +53,22 @@ public:
 		return index < _renderShapes.size() ? _renderShapes[index].buffer.get() : nullptr;
 	}
 
+	// Per-layer mask, shared across every layer from the same addCompositeShape() call; nullptr
+	// if that layer's composite had no mask. Valid immediately (unlike getLayerBuffer(), no
+	// compile() required) since RenderMask identity is created eagerly -- see _layerMasks.
+	RenderMask* getLayerMask(size_t index) const {
+		return index < _layerMasks.size() ? _layerMasks[index].get() : nullptr;
+	}
+
 private:
 	std::vector<RenderShape> _renderShapes;
+
+	// Parallel to the base class's _layers, scoped to this class only (not every ShapeDrawable
+	// subclass needs masking today). Real RenderMask identity is created immediately in
+	// addLayer()/addCompositeShape() -- RenderMask's constructor doesn't need an Atlas, only
+	// repack() does (called from compile(), where an Atlas is guaranteed) -- so there's no
+	// deferred-lookup bookkeeping here, just the ref_ptr itself, one per layer.
+	std::vector<osg::ref_ptr<RenderMask>> _layerMasks;
 };
 
 }

@@ -159,7 +159,7 @@ void SSBODecalDrawable::compile() {
 
 	auto flushGroup = [&]() {
 		if(groupIndices && !groupIndices->empty())
-			_groups.push_back({groupBlend, slughorn::DrawMode::Visible, groupIndices});
+			_groups.push_back({groupBlend, slughorn::DrawMode::Visible, groupIndices, nullptr});
 	};
 
 	auto ssbo = osgx::make_ref<osg::ShaderStorageBufferObject>();

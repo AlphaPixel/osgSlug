@@ -28,7 +28,7 @@ void SSBOSubdividedDrawable::compile() {
 
 	auto flushGroup = [&]() {
 		if(groupIndices && !groupIndices->empty())
-			_groups.push_back({groupBlend, slughorn::DrawMode::Visible, groupIndices});
+			_groups.push_back({groupBlend, slughorn::DrawMode::Visible, groupIndices, nullptr});
 	};
 
 	auto ssbo = osgx::make_ref<osg::ShaderStorageBufferObject>();
@@ -122,6 +122,10 @@ void SSBOSubdividedDrawable::compile() {
 			cv(packMSDFData(shape->msdfLayer, shape->msdfRange)),
 			q.x1 - q.x0
 		});
+		// osgSlug_LayerData grew a 5th slot (transformData) for masking, which this class
+		// doesn't support -- pack the correct value anyway (cheap, already in scope) purely to
+		// keep this buffer's per-layer stride matching the shared struct's size.
+		layerBuf->push_back({layer.transform.x, layer.transform.y, 0_cv, 0_cv});
 		layerBuf->setBufferObject(ssbo);
 
 		_layerBuffers.push_back(std::move(layerBuf));
@@ -172,7 +176,7 @@ void SSBOSubdividedDrawable::compile() {
 
 	for(const auto& g : _groups) addPrimitiveSet(g.indices);
 
-	const auto totalSize = static_cast<GLsizeiptr>(_layerBuffers.size() * 4 * sizeof(Vec4));
+	const auto totalSize = static_cast<GLsizeiptr>(_layerBuffers.size() * 5 * sizeof(Vec4));
 
 	getOrCreateStateSet()->setAttributeAndModes(
 		new osg::ShaderStorageBufferBinding(1, _layerBuffers[0], 0, totalSize),
@@ -220,6 +224,7 @@ void SSBOSubdividedDrawable::updateLayer(size_t index, const slughorn::Layer& la
 	buf[1] = gmeta;
 	buf[2] = gxform;
 	buf[3] = Vec4(cv(layer.effectId), shapeIdx, buf[3].z(), buf[3].w());
+	buf[4] = Vec4(layer.transform.x, layer.transform.y, 0_cv, 0_cv);
 }
 
 void SSBOSubdividedDrawable::setLayerGradientTransform(size_t index, const slughorn::Matrix& m) {

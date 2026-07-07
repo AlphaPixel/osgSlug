@@ -7,6 +7,23 @@
 
 namespace osgSlug {
 
+void SSBOShapeDrawable::addLayer(const slughorn::Layer& layer) {
+	ShapeDrawable::addLayer(layer);
+	_layerMasks.push_back(nullptr);
+}
+
+void SSBOShapeDrawable::addCompositeShape(const slughorn::CompositeShape& composite) {
+	ShapeDrawable::addCompositeShape(composite);
+
+	osg::ref_ptr<RenderMask> mask;
+
+	if(composite.mask && !composite.layers.empty()) {
+		mask = new RenderMask(*composite.mask, RENDER_MASK_UBO_BINDING);
+	}
+
+	for(size_t i = 0; i < composite.layers.size(); i++) _layerMasks.push_back(mask);
+}
+
 void SSBOShapeDrawable::compile() {
 	if(_compiled) return;
 
@@ -30,13 +47,14 @@ void SSBOShapeDrawable::compile() {
 
 	osg::ref_ptr<index_type> groupIndices;
 	slughorn::BlendMode groupBlend = slughorn::BlendMode::SrcOver;
+	osg::ref_ptr<RenderMask> groupMask;
 
 	auto flushGroup = [&]() {
 		if(groupIndices && !groupIndices->empty())
-			_groups.push_back({groupBlend, slughorn::DrawMode::Visible, groupIndices});
+			_groups.push_back({groupBlend, slughorn::DrawMode::Visible, groupIndices, groupMask});
 	};
 
-	// Layer SSBO (binding 1): one Vec4Array per layer, each holding 4 vec4s.
+	// Layer SSBO (binding 1): one Vec4Array per layer, each holding 5 vec4s.
 	// All arrays share a single ShaderStorageBufferObject so the GPU sees one contiguous buffer,
 	// but each array has its own modifiedCount, enabling per-layer dirty uploads.
 	//
@@ -44,24 +62,31 @@ void SSBOShapeDrawable::compile() {
 	// [1] gradientMeta: x=gradientId, yz=center, w=r0_norm
 	// [2] gradientXform
 	// [3] effectData: x=effectId, y=shapeIndex, z=msdfData, w=effectParam
+	// [4] transformData: xy=layer.transform.xy (canvas-space origin, read by osgSlug_Mask_Evaluate); zw=unused
 	_renderShapes.clear();
 
 	auto ssbo = osgx::make_ref<osg::ShaderStorageBufferObject>();
 
 	index_element_type base = 0;
 	size_t index = 0;
+	RenderMask* lastRepacked = nullptr; // dedupes repack() across consecutive shared-mask layers
 
-	for(const auto& layer : _layers) {
+	for(size_t i = 0; i < _layers.size(); i++) {
+		const auto& layer = _layers[i];
+
 		if(layer.drawMode != slughorn::DrawMode::Visible) continue;
 
 		const auto shape = atlas->getShape(layer.key);
 
 		if(!shape) { index++; continue; }
 
-		if(!groupIndices || layer.blendMode != groupBlend) {
+		auto mask = _layerMasks[i];
+
+		if(!groupIndices || layer.blendMode != groupBlend || mask.get() != groupMask.get()) {
 			flushGroup();
 			groupIndices = osgx::make_ref<index_type>();
 			groupBlend = layer.blendMode;
+			groupMask = mask;
 		}
 
 		const slug_t expand = layer.expand;
@@ -98,9 +123,15 @@ void SSBOShapeDrawable::compile() {
 			cv(packMSDFData(shape->msdfLayer, shape->msdfRange)),
 			layer.effectParam
 		});
+		layerBuf->push_back({layer.transform.x, layer.transform.y, 0_cv, 0_cv});
 		layerBuf->setBufferObject(ssbo);
 
-		_renderShapes.push_back({layer, std::move(layerBuf)});
+		if(mask && mask.get() != lastRepacked) {
+			mask->repack(*atlas);
+			lastRepacked = mask.get();
+		}
+
+		_renderShapes.push_back({layer, std::move(layerBuf), mask});
 
 		groupIndices->append_range({
 			base, index_element_type(base + 1), index_element_type(base + 2),
@@ -119,7 +150,7 @@ void SSBOShapeDrawable::compile() {
 
 	for(const auto& g : _groups) addPrimitiveSet(g.indices);
 
-	const auto totalSize = static_cast<GLsizeiptr>(_renderShapes.size() * 4 * sizeof(Vec4));
+	const auto totalSize = static_cast<GLsizeiptr>(_renderShapes.size() * 5 * sizeof(Vec4));
 
 	getOrCreateStateSet()->setAttributeAndModes(
 		new osg::ShaderStorageBufferBinding(1, _renderShapes[0].buffer, 0, totalSize),
@@ -217,6 +248,7 @@ void SSBOShapeDrawable::updateLayer(size_t index, const slughorn::Layer& layer) 
 	buf[1] = gmeta;
 	buf[2] = gxform;
 	buf[3] = Vec4(cv(layer.effectId), shapeIdx, buf[3].z(), buf[3].w());
+	buf[4] = Vec4(layer.transform.x, layer.transform.y, 0_cv, 0_cv);
 }
 
 void SSBOShapeDrawable::dirtyLayers() {

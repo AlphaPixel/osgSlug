@@ -20,13 +20,18 @@ public:
 		slughorn::DrawMode drawMode = slughorn::DrawMode::Visible;
 
 		osg::ref_ptr<index_type> indices;
+
+		// Only ever set by subclasses that build RenderMask (currently just
+		// SSBOShapeDrawable); null means "no mask, nothing to bind" for every other
+		// subclass. See applyMask() in ShapeDrawable.cpp.
+		osg::ref_ptr<RenderMask> mask;
 	};
 
-	void addLayer(const slughorn::Layer& layer) {
+	virtual void addLayer(const slughorn::Layer& layer) {
 		_layers.push_back(layer);
 	}
 
-	void addCompositeShape(const slughorn::CompositeShape& composite) {
+	virtual void addCompositeShape(const slughorn::CompositeShape& composite) {
 		for(const auto& layer : composite.layers) _layers.push_back(layer);
 	}
 

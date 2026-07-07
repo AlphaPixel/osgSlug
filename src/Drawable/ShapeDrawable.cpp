@@ -73,6 +73,20 @@ static void applyBlendMode(osg::State& state, slughorn::BlendMode mode) {
 	ext->glBlendEquation(eq);
 }
 
+static void applyMask(osg::State& state, const RenderMask* mask) {
+	if(mask) mask->apply(state);
+}
+
+// Mirrors applyBlendMode()'s "restore default after the loop" pattern -- avoids leaking a bound
+// mask UBO into whatever draws next at RENDER_MASK_UBO_BINDING. Not yet load-bearing (no shader
+// consumes this UBO binding today; see ai/context-todo-mask.md step 6), but cheap and correct to
+// have in place before that lands.
+static void unbindMask(osg::State& state) {
+	auto* ext = osg::GLExtensions::Get(state.getContextID(), true);
+
+	if(ext->glBindBufferBase) ext->glBindBufferBase(GL_UNIFORM_BUFFER, RENDER_MASK_UBO_BINDING, 0);
+}
+
 } // anonymous namespace
 
 osg::BoundingBox ShapeDrawable::computeBoundingBox() const {
@@ -86,8 +100,8 @@ osg::BoundingBox ShapeDrawable::computeBoundingBox() const {
 }
 
 void ShapeDrawable::drawImplementation(osg::RenderInfo& renderInfo) const {
-	// Fast path: single SrcOver group - no state changes needed, base class handles it.
-	if(_groups.size() == 1 && _groups[0].blendMode == slughorn::BlendMode::SrcOver) {
+	// Fast path: single SrcOver, unmasked group - no state changes needed, base class handles it.
+	if(_groups.size() == 1 && _groups[0].blendMode == slughorn::BlendMode::SrcOver && !_groups[0].mask) {
 		osg::Geometry::drawImplementation(renderInfo);
 
 		return;
@@ -104,15 +118,17 @@ void ShapeDrawable::drawImplementation(osg::RenderInfo& renderInfo) const {
 	// Bind all vertex arrays and element buffer objects once.
 	drawVertexArraysImplementation(renderInfo);
 
-	// One draw call per group with the appropriate blend state.
+	// One draw call per group with the appropriate blend state and mask binding.
 	for(const auto& g : _groups) {
 		applyBlendMode(state, g.blendMode);
+		applyMask(state, g.mask.get());
 
 		g.indices->draw(state, usingVBOs);
 	}
 
 	// Restore default SrcOver blend state so we don't leak into subsequent drawables.
 	applyBlendMode(state, slughorn::BlendMode::SrcOver);
+	unbindMask(state);
 
 	if(usingVBOs && !usingVAOs) {
 		vas->unbindVertexBufferObject();

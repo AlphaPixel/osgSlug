@@ -38,7 +38,7 @@ void GL3ShapeDrawable::compile() {
 
 	auto flushGroup = [&]() {
 		if(groupIndices && !groupIndices->empty())
-			_groups.push_back({groupBlend, slughorn::DrawMode::Visible, groupIndices});
+			_groups.push_back({groupBlend, slughorn::DrawMode::Visible, groupIndices, nullptr});
 	};
 
 	index_element_type base = 0;
