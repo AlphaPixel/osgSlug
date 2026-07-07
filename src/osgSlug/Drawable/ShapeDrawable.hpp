@@ -28,8 +28,10 @@ public:
 		osg::ref_ptr<RenderMask> mask;
 	};
 
-	// Consolidated per-layer working data: the authoring-time Layer plus its GPU-packed SSBO
-	// slice, kept together so compile()/mutators never risk the two drifting out of index sync.
+	// The single pre-compile source of truth for a layer: the authoring-time Layer, its mask
+	// identity (set immediately by addLayer()/addCompositeShape(), no Atlas required), and its
+	// GPU-packed SSBO slice (null until compile() fills it in). Keeping all three together means
+	// there is exactly one array to index and no risk of parallel arrays drifting out of sync.
 	struct RenderShape {
 		slughorn::Layer layer;
 		osg::ref_ptr<osgx::Vec4Array> buffer;
@@ -42,18 +44,20 @@ public:
 
 	ShapeDrawable() = default;
 
-	// Both overridden by subclasses that need to track additional per-layer state in lockstep --
-	// _layerMasks below always grows alongside _layers regardless of which entry point is used.
+	// Virtual so subclasses can hook additional per-layer bookkeeping if ever needed; no current
+	// subclass overrides either.
 	virtual void addLayer(const slughorn::Layer& layer);
 	virtual void addCompositeShape(const slughorn::CompositeShape& composite);
 
-	const auto& getLayers() const { return _layers; }
+	// Snapshot of the authored Layer data (by value -- _layers itself holds the richer
+	// RenderShape, not exposed here).
+	std::vector<slughorn::Layer> getLayers() const;
 
 	void clear() { _layers.clear(); }
 
 	void compile() override;
 
-	// Fine-grained mutation; write the relevant SSBO slot(s) and keep _layers in sync.
+	// Fine-grained mutation; write the relevant SSBO slot(s) and keep the Layer in sync.
 	// Call dirtyLayers() once after all mutations in a frame.
 	virtual void setLayerColor(size_t index, const slughorn::Color& color);
 	virtual void setLayerEffectId(size_t index, uint32_t effectId);
@@ -74,14 +78,15 @@ public:
 
 	// Per-layer SSBO slice. Valid after compile(); nullptr if index is out of range.
 	osgx::Vec4Array* getLayerBuffer(size_t index) const {
-		return index < _renderShapes.size() ? _renderShapes[index].buffer.get() : nullptr;
+		return index < _layers.size() ? _layers[index].buffer.get() : nullptr;
 	}
 
 	// Per-layer mask, shared across every layer from the same addCompositeShape() call; nullptr
 	// if that layer's composite had no mask. Valid immediately (unlike getLayerBuffer(), no
-	// compile() required) since RenderMask identity is created eagerly -- see _layerMasks.
+	// compile() required) since RenderMask identity is created eagerly in addLayer()/
+	// addCompositeShape().
 	RenderMask* getLayerMask(size_t index) const {
-		return index < _layerMasks.size() ? _layerMasks[index].get() : nullptr;
+		return index < _layers.size() ? _layers[index].mask.get() : nullptr;
 	}
 
 	osg::BoundingBox computeBoundingBox() const override;
@@ -91,20 +96,18 @@ public:
 	void drawImplementation(osg::RenderInfo& renderInfo) const override;
 
 protected:
-	std::vector<slughorn::Layer> _layers;
+	// Pre-compile source of truth: one RenderShape per addLayer()/addCompositeShape() call, in
+	// authoring order. `buffer` starts null and is filled in by compile(); `mask` is set
+	// immediately. Subclasses (SubdividedDrawable, BoxDrawable, DecalDrawable) index this
+	// directly rather than keeping their own parallel per-layer arrays.
+	std::vector<RenderShape> _layers;
+
+	// Post-compile source of truth: one RenderGroup per contiguous run of layers sharing a
+	// blend mode and mask, each owning the index buffer for one draw call.
 	std::vector<RenderGroup> _groups;
 
 	// Bind the 2 SSBO vertex attrib slots (attrs 0-1) in one call.
 	void bindSSBOAttribs(osgx::Vec4Array* verts, osgx::Vec4Array* emCoords);
-
-private:
-	std::vector<RenderShape> _renderShapes;
-
-	// Parallel to _layers. Real RenderMask identity is created immediately in addLayer()/
-	// addCompositeShape() -- RenderMask's constructor doesn't need an Atlas, only repack() does
-	// (called from compile(), where an Atlas is guaranteed) -- so there's no deferred-lookup
-	// bookkeeping here, just the ref_ptr itself, one per layer.
-	std::vector<osg::ref_ptr<RenderMask>> _layerMasks;
 };
 
 }

@@ -47,6 +47,18 @@ void computeDecalTangentFrame(
 	tangentNorth = Vec4(nx * scaleH, ny * scaleH, nz * scaleH, 0.f);
 }
 
+static void pushEmptySlot(osgx::Vec4Array& buf) {
+	buf.append_range({
+		Vec4(0_cv, 0_cv, 0_cv, 0_cv),
+		Vec4(0_cv, 0_cv, 0_cv, 0_cv),
+		Vec4(0_cv, 0_cv, 0_cv, 0_cv),
+		Vec4(0_cv, 0_cv, 0_cv, 0_cv),
+		Vec4(0_cv, 0_cv, 0_cv, 0_cv),
+		Vec4(0_cv, 0_cv, 0_cv, 0_cv),
+		Vec4(0_cv, 0_cv, 0_cv, 0_cv)
+	});
+}
+
 } // anonymous namespace
 
 void DecalDrawable::addDecal(
@@ -57,7 +69,7 @@ void DecalDrawable::addDecal(
 	slug_t halfHeightDeg
 ) {
 	_decalEntries.push_back({layer, {latDeg, lonDeg, halfWidthDeg, halfHeightDeg}});
-	_layers.push_back(layer);
+	addLayer(layer);
 }
 
 void DecalDrawable::updateDecalPosition(
@@ -67,7 +79,7 @@ void DecalDrawable::updateDecalPosition(
 	slug_t halfWidthDeg,
 	slug_t halfHeightDeg
 ) {
-	if(index >= _decalEntries.size() || index >= _layerBuffers.size()) return;
+	if(index >= _decalEntries.size() || index >= _layers.size() || !_layers[index].buffer) return;
 
 	auto& entry = _decalEntries[index];
 	entry.anchor = {latDeg, lonDeg, halfWidthDeg, halfHeightDeg};
@@ -81,7 +93,7 @@ void DecalDrawable::updateDecalPosition(
 		center, tangentEast, tangentNorth
 	);
 
-	auto& buf = *_layerBuffers[index];
+	auto& buf = *_layers[index].buffer;
 
 	buf[4] = center;
 	buf[5] = tangentEast;
@@ -98,7 +110,7 @@ void DecalDrawable::setDecalTransform(
 	slug_t halfHeightDeg,
 	slug_t rotationAngle
 ) {
-	if(index >= _decalEntries.size() || index >= _layerBuffers.size()) return;
+	if(index >= _decalEntries.size() || index >= _layers.size() || !_layers[index].buffer) return;
 
 	auto& entry = _decalEntries[index];
 	entry.anchor = {latDeg, lonDeg, halfWidthDeg, halfHeightDeg};
@@ -119,7 +131,7 @@ void DecalDrawable::setDecalTransform(
 		Tn = Vec4(-s*te.x() + c*tn.x(), -s*te.y() + c*tn.y(), -s*te.z() + c*tn.z(), 0.f);
 	}
 
-	auto& buf = *_layerBuffers[index];
+	auto& buf = *_layers[index].buffer;
 
 	buf[4] = center;
 	buf[5] = Te;
@@ -152,7 +164,6 @@ void DecalDrawable::compile() {
 	auto emCoords = osgx::make_ref<osgx::Vec4Array>();
 
 	_groups.clear();
-	_layerBuffers.clear();
 
 	osg::ref_ptr<index_type> groupIndices;
 	slughorn::BlendMode groupBlend = slughorn::BlendMode::SrcOver;
@@ -165,102 +176,103 @@ void DecalDrawable::compile() {
 	auto ssbo = osgx::make_ref<osg::ShaderStorageBufferObject>();
 
 	index_element_type base = 0;
-	size_t index = 0;
 
-	for(const auto& [layer, anchor] : _decalEntries) {
+	for(size_t i = 0; i < _decalEntries.size(); i++) {
+		const auto& [layer, anchor] = _decalEntries[i];
+		const slug_t lidx = cv(i + 1);
+
+		auto layerBuf = osgx::make_ref<osgx::Vec4Array>();
 		const auto shape = atlas->getShape(layer.key);
 
-		if(!shape) { index++; continue; }
-
-		if(!groupIndices || layer.blendMode != groupBlend) {
-			flushGroup();
-			groupIndices = osgx::make_ref<index_type>();
-			groupBlend = layer.blendMode;
-		}
-
-		const slug_t expand = layer.expand;
-		const auto q = shape->computeQuad(layer.transform, layer.scale, expand);
-		const auto [emX0, emY0, emX1, emY1] = computeEmBounds(*shape, expand);
-
-		const slug_t lidx = cv(index + 1);
-
-		const size_t ni =
-			static_cast<size_t>(_stepsU + 1) * static_cast<size_t>(_stepsV + 1)
-		;
-
-		if(
-			static_cast<size_t>(base) + ni >
-			static_cast<size_t>(std::numeric_limits<index_element_type>::max()) + 1
-		) {
-			throw std::runtime_error("DecalDrawable: mesh exceeds index capacity");
-		}
-
-		// Vertex data: normalized [0,1]^2 grid. World position is computed in the vertex shader
-		// from the tangent frame in the SSBO - no sphere math on the CPU.
-		for(index_element_type sv = 0; sv <= _stepsV; sv++) {
-			const slug_t lv = cv(sv) / cv(_stepsV);
-
-			for(index_element_type su = 0; su <= _stepsU; su++) {
-				const slug_t lu = cv(su) / cv(_stepsU);
-
-				vertices->push_back({lu, lv, 0_cv, lidx});
-				emCoords->push_back({
-					emX0 + lu * (emX1 - emX0),
-					emY0 + lv * (emY1 - emY0),
-					lu, lv
-				});
+		if(shape) {
+			if(!groupIndices || layer.blendMode != groupBlend) {
+				flushGroup();
+				groupIndices = osgx::make_ref<index_type>();
+				groupBlend = layer.blendMode;
 			}
+
+			const slug_t expand = layer.expand;
+			const auto q = shape->computeQuad(layer.transform, layer.scale, expand);
+			const auto [emX0, emY0, emX1, emY1] = computeEmBounds(*shape, expand);
+
+			const size_t ni = static_cast<size_t>(_stepsU + 1) * static_cast<size_t>(_stepsV + 1);
+
+			if(
+				static_cast<size_t>(base) + ni >
+				static_cast<size_t>(std::numeric_limits<index_element_type>::max()) + 1
+			) {
+				throw std::runtime_error("DecalDrawable: mesh exceeds index capacity");
+			}
+
+			// Vertex data: normalized [0,1]^2 grid. World position is computed in the vertex shader
+			// from the tangent frame in the SSBO - no sphere math on the CPU.
+			for(index_element_type sv = 0; sv <= _stepsV; sv++) {
+				const slug_t lv = cv(sv) / cv(_stepsV);
+
+				for(index_element_type su = 0; su <= _stepsU; su++) {
+					const slug_t lu = cv(su) / cv(_stepsU);
+
+					vertices->push_back({lu, lv, 0_cv, lidx});
+					emCoords->push_back({
+						emX0 + lu * (emX1 - emX0),
+						emY0 + lv * (emY1 - emY0),
+						lu, lv
+					});
+				}
+			}
+
+			// 7-Vec4 SSBO: [0..3] standard layer data, [4..6] tangent frame.
+			const auto [gmeta, gxform] = buildGradientData(*atlas, layer);
+			const slug_t shapeIdx = cv(atlas->getShapeIndex(layer.key));
+
+			layerBuf->push_back({layer.color.r, layer.color.g, layer.color.b, layer.color.a}); // [0]
+			layerBuf->push_back(gmeta); // [1]
+			layerBuf->push_back(gxform); // [2]
+			layerBuf->push_back({
+				cv(layer.effectId),
+				shapeIdx,
+				cv(packMSDFData(shape->msdfLayer, shape->msdfRange)),
+				q.x1 - q.x0
+			}); // [3]
+
+			Vec4 center, tangentEast, tangentNorth;
+
+			const slug_t halfH = anchor.halfHeightDeg < 0.f ? anchor.halfWidthDeg : anchor.halfHeightDeg;
+
+			computeDecalTangentFrame(
+				anchor.latDeg, anchor.lonDeg, anchor.halfWidthDeg, halfH, cv(_radius),
+				center, tangentEast, tangentNorth
+			);
+
+			layerBuf->push_back(center); // [4]
+			layerBuf->push_back(tangentEast); // [5]
+			layerBuf->push_back(tangentNorth); // [6]
+
+			const index_element_type layerBase = base;
+
+			for(index_element_type sv = 0; sv < _stepsV; sv++) {
+				for(index_element_type su = 0; su < _stepsU; su++) {
+					const auto row0 = static_cast<index_element_type>(layerBase + sv * (_stepsU + 1));
+					const auto row1 = static_cast<index_element_type>(layerBase + (sv + 1) * (_stepsU + 1));
+					const auto bl = static_cast<index_element_type>(row0 + su);
+					const auto br = static_cast<index_element_type>(row0 + su + 1);
+					const auto tl = static_cast<index_element_type>(row1 + su);
+					const auto tr = static_cast<index_element_type>(row1 + su + 1);
+
+					if(!((su + sv) & 1)) groupIndices->append_range({tl, br, bl, tl, tr, br});
+					else groupIndices->append_range({tr, br, bl, tl, tr, bl});
+				}
+			}
+
+			base += static_cast<index_element_type>(ni);
+		}
+		else {
+			pushEmptySlot(*layerBuf);
 		}
 
-		// 7-Vec4 SSBO: [0..3] standard layer data, [4..6] tangent frame.
-		const auto [gmeta, gxform] = buildGradientData(*atlas, layer);
-		const slug_t shapeIdx = cv(atlas->getShapeIndex(layer.key));
-		auto layerBuf = osgx::make_ref<osgx::Vec4Array>();
-
-		layerBuf->push_back({layer.color.r, layer.color.g, layer.color.b, layer.color.a}); // [0]
-		layerBuf->push_back(gmeta); // [1]
-		layerBuf->push_back(gxform); // [2]
-		layerBuf->push_back({
-			cv(layer.effectId),
-			shapeIdx,
-			cv(packMSDFData(shape->msdfLayer, shape->msdfRange)),
-			q.x1 - q.x0
-		}); // [3]
-
-		Vec4 center, tangentEast, tangentNorth;
-
-		const slug_t halfH = anchor.halfHeightDeg < 0.f ? anchor.halfWidthDeg : anchor.halfHeightDeg;
-
-		computeDecalTangentFrame(
-			anchor.latDeg, anchor.lonDeg, anchor.halfWidthDeg, halfH, cv(_radius),
-			center, tangentEast, tangentNorth
-		);
-
-		layerBuf->push_back(center); // [4]
-		layerBuf->push_back(tangentEast); // [5]
-		layerBuf->push_back(tangentNorth); // [6]
 		layerBuf->setBufferObject(ssbo);
 
-		_layerBuffers.push_back(std::move(layerBuf));
-
-		const index_element_type layerBase = base;
-
-		for(index_element_type sv = 0; sv < _stepsV; sv++) {
-			for(index_element_type su = 0; su < _stepsU; su++) {
-				const auto row0 = static_cast<index_element_type>(layerBase + sv * (_stepsU + 1));
-				const auto row1 = static_cast<index_element_type>(layerBase + (sv + 1) * (_stepsU + 1));
-				const auto bl = static_cast<index_element_type>(row0 + su);
-				const auto br = static_cast<index_element_type>(row0 + su + 1);
-				const auto tl = static_cast<index_element_type>(row1 + su);
-				const auto tr = static_cast<index_element_type>(row1 + su + 1);
-
-				if(!((su + sv) & 1)) groupIndices->append_range({tl, br, bl, tl, tr, br});
-				else groupIndices->append_range({tr, br, bl, tl, tr, bl});
-			}
-		}
-
-		base += static_cast<index_element_type>(ni);
-		index++;
+		if(i < _layers.size()) _layers[i].buffer = layerBuf;
 	}
 
 	flushGroup();
@@ -271,10 +283,10 @@ void DecalDrawable::compile() {
 
 	for(const auto& g : _groups) addPrimitiveSet(g.indices);
 
-	const auto totalSize = static_cast<GLsizeiptr>(_layerBuffers.size() * 7 * sizeof(Vec4));
+	const auto totalSize = static_cast<GLsizeiptr>(_decalEntries.size() * 7 * sizeof(Vec4));
 
 	getOrCreateStateSet()->setAttributeAndModes(
-		new osg::ShaderStorageBufferBinding(1, _layerBuffers[0], 0, totalSize),
+		new osg::ShaderStorageBufferBinding(1, _layers[0].buffer, 0, totalSize),
 		osg::StateAttribute::ON
 	);
 

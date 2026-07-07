@@ -14,8 +14,10 @@ namespace osgSlug {
 //
 // The subdivider handles em-coord mapping, index stitching, and vertex attribute binding. The slug
 // pipeline sees exactly the same data as ShapeDrawable, just with more triangles and non-flat
-// positions. Like ShapeDrawable, compile() emits only two vertex attribute arrays and packs
-// per-layer data into a GL_SHADER_STORAGE_BUFFER; requires GL 4.3+.
+// positions. compile() is the only override -- setLayerColor/EffectId/EffectParam/
+// GradientTransform, updateLayer, dirtyLayers, and getLayerBuffer are all inherited from
+// ShapeDrawable unchanged, since they operate on the same _layers[i].buffer regardless of mesh
+// shape.
 //
 // Single-layer: uses _layers[0] for shape/color/effectId. The position function owns all geometric
 // decisions; the base class owns all slug plumbing.
@@ -39,18 +41,6 @@ public:
 
 	void compile() override;
 
-	void setLayerColor(size_t index, const slughorn::Color& color) override;
-	void setLayerEffectId(size_t index, uint32_t effectId) override;
-	void setLayerEffectParam(size_t index, slug_t param) override;
-	void setLayerGradientTransform(size_t index, const slughorn::Matrix& m) override;
-	void updateLayer(size_t index, const slughorn::Layer& layer) override;
-	void dirtyLayers() override;
-	void dirtyLayers(size_t index) override;
-
-	osgx::Vec4Array* getLayerBuffer(size_t index) const {
-		return index < _layerBuffers.size() ? _layerBuffers[index].get() : nullptr;
-	}
-
 protected:
 	index_element_type _stepsU = 64;
 	index_element_type _stepsV = 64;
@@ -58,8 +48,6 @@ protected:
 	bool _isolatedVertices = false;
 
 	PositionCallback _positionCallback;
-
-	std::vector<osg::ref_ptr<osgx::Vec4Array>> _layerBuffers;
 };
 
 }

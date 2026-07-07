@@ -91,23 +91,44 @@ static void unbindMask(osg::State& state) {
 	if(ext->glBindBufferBase) ext->glBindBufferBase(GL_UNIFORM_BUFFER, RENDER_MASK_UBO_BINDING, 0);
 }
 
+// Zero-filled 5-Vec4 slice: reserved for layers that produce no geometry (invisible, or shape
+// lookup failed) so their SSBO slot still exists at the right position -- lidx (== _layers index
+// + 1) always addresses a valid buffer, with no separate "skip counter" that can drift out of
+// sync with the buffer's actual layout.
+static void pushEmptySlot(osgx::Vec4Array& buf) {
+	buf.append_range({
+		Vec4(0_cv, 0_cv, 0_cv, 0_cv),
+		Vec4(0_cv, 0_cv, 0_cv, 0_cv),
+		Vec4(0_cv, 0_cv, 0_cv, 0_cv),
+		Vec4(0_cv, 0_cv, 0_cv, 0_cv),
+		Vec4(0_cv, 0_cv, 0_cv, 0_cv)
+	});
+}
+
 } // anonymous namespace
 
 void ShapeDrawable::addLayer(const slughorn::Layer& layer) {
-	_layers.push_back(layer);
-	_layerMasks.push_back(nullptr);
+	_layers.push_back({layer, nullptr, nullptr});
 }
 
 void ShapeDrawable::addCompositeShape(const slughorn::CompositeShape& composite) {
-	for(const auto& layer : composite.layers) _layers.push_back(layer);
-
 	osg::ref_ptr<RenderMask> mask;
 
 	if(composite.mask && !composite.layers.empty()) {
 		mask = new RenderMask(*composite.mask, RENDER_MASK_UBO_BINDING);
 	}
 
-	for(size_t i = 0; i < composite.layers.size(); i++) _layerMasks.push_back(mask);
+	for(const auto& layer : composite.layers) _layers.push_back({layer, nullptr, mask});
+}
+
+std::vector<slughorn::Layer> ShapeDrawable::getLayers() const {
+	std::vector<slughorn::Layer> result;
+
+	result.reserve(_layers.size());
+
+	for(const auto& rs : _layers) result.push_back(rs.layer);
+
+	return result;
 }
 
 osg::BoundingBox ShapeDrawable::computeBoundingBox() const {
@@ -192,7 +213,7 @@ void ShapeDrawable::compile() {
 			_groups.push_back({groupBlend, slughorn::DrawMode::Visible, groupIndices, groupMask});
 	};
 
-	// Layer SSBO (binding 1): one Vec4Array per layer, each holding 5 vec4s.
+	// Layer SSBO (binding 1): one Vec4Array per _layers entry, each holding 5 vec4s.
 	// All arrays share a single ShaderStorageBufferObject so the GPU sees one contiguous buffer,
 	// but each array has its own modifiedCount, enabling per-layer dirty uploads.
 	//
@@ -201,83 +222,80 @@ void ShapeDrawable::compile() {
 	// [2] gradientXform
 	// [3] effectData: x=effectId, y=shapeIndex, z=msdfData, w=effectParam
 	// [4] transformData: xy=layer.transform.xy (canvas-space origin, read by osgSlug_Mask_Evaluate); zw=unused
-	_renderShapes.clear();
-
 	auto ssbo = osgx::make_ref<osg::ShaderStorageBufferObject>();
 
 	index_element_type base = 0;
-	size_t index = 0;
 	RenderMask* lastRepacked = nullptr; // dedupes repack() across consecutive shared-mask layers
 
 	for(size_t i = 0; i < _layers.size(); i++) {
-		const auto& layer = _layers[i];
+		auto& rs = _layers[i];
+		const auto& layer = rs.layer;
+		const slug_t lidx = cv(i + 1);
 
-		if(layer.drawMode != slughorn::DrawMode::Visible) continue;
-
+		auto layerBuf = osgx::make_ref<osgx::Vec4Array>();
+		const bool visible = layer.drawMode == slughorn::DrawMode::Visible;
 		const auto shape = atlas->getShape(layer.key);
 
-		if(!shape) { index++; continue; }
+		if(visible && shape) {
+			if(!groupIndices || layer.blendMode != groupBlend || rs.mask.get() != groupMask.get()) {
+				flushGroup();
+				groupIndices = osgx::make_ref<index_type>();
+				groupBlend = layer.blendMode;
+				groupMask = rs.mask;
+			}
 
-		auto mask = _layerMasks[i];
+			const slug_t expand = layer.expand;
+			const auto q = shape->computeQuad(layer.transform, layer.scale, expand);
+			const slug_t z = cv(layer.transform.z);
 
-		if(!groupIndices || layer.blendMode != groupBlend || mask.get() != groupMask.get()) {
-			flushGroup();
-			groupIndices = osgx::make_ref<index_type>();
-			groupBlend = layer.blendMode;
-			groupMask = mask;
+			vertices->append_range({
+				{q.x0, q.y0, z, lidx},
+				{q.x1, q.y0, z, lidx},
+				{q.x1, q.y1, z, lidx},
+				{q.x0, q.y1, z, lidx}
+			});
+
+			const auto [emX0, emY0, emX1, emY1] = computeEmBounds(*shape, expand);
+
+			emCoords->append_range({
+				{emX0, emY0, 0_cv, 0_cv},
+				{emX1, emY0, 1_cv, 0_cv},
+				{emX1, emY1, 1_cv, 1_cv},
+				{emX0, emY1, 0_cv, 1_cv}
+			});
+
+			const auto [gmeta, gxform] = buildGradientData(*atlas, layer);
+			const slug_t shapeIdx = cv(atlas->getShapeIndex(layer.key));
+
+			layerBuf->push_back({layer.color.r, layer.color.g, layer.color.b, layer.color.a});
+			layerBuf->push_back(gmeta);
+			layerBuf->push_back(gxform);
+			layerBuf->push_back({
+				cv(layer.effectId),
+				shapeIdx,
+				cv(packMSDFData(shape->msdfLayer, shape->msdfRange)),
+				layer.effectParam
+			});
+			layerBuf->push_back({layer.transform.x, layer.transform.y, 0_cv, 0_cv});
+
+			if(rs.mask && rs.mask.get() != lastRepacked) {
+				rs.mask->repack(*atlas);
+				lastRepacked = rs.mask.get();
+			}
+
+			groupIndices->append_range({
+				base, index_element_type(base + 1), index_element_type(base + 2),
+				base, index_element_type(base + 2), index_element_type(base + 3)
+			});
+
+			base += 4;
+		}
+		else {
+			pushEmptySlot(*layerBuf);
 		}
 
-		const slug_t expand = layer.expand;
-		const auto q = shape->computeQuad(layer.transform, layer.scale, expand);
-		const slug_t lidx = cv(index + 1);
-		const slug_t z = cv(layer.transform.z);
-
-		vertices->append_range({
-			{q.x0, q.y0, z, lidx},
-			{q.x1, q.y0, z, lidx},
-			{q.x1, q.y1, z, lidx},
-			{q.x0, q.y1, z, lidx}
-		});
-
-		const auto [emX0, emY0, emX1, emY1] = computeEmBounds(*shape, expand);
-
-		emCoords->append_range({
-			{emX0, emY0, 0_cv, 0_cv},
-			{emX1, emY0, 1_cv, 0_cv},
-			{emX1, emY1, 1_cv, 1_cv},
-			{emX0, emY1, 0_cv, 1_cv}
-		});
-
-		const auto [gmeta, gxform] = buildGradientData(*atlas, layer);
-		const slug_t shapeIdx = cv(atlas->getShapeIndex(layer.key));
-		auto layerBuf = osgx::make_ref<osgx::Vec4Array>();
-
-		layerBuf->push_back({layer.color.r, layer.color.g, layer.color.b, layer.color.a});
-		layerBuf->push_back(gmeta);
-		layerBuf->push_back(gxform);
-		layerBuf->push_back({
-			cv(layer.effectId),
-			shapeIdx,
-			cv(packMSDFData(shape->msdfLayer, shape->msdfRange)),
-			layer.effectParam
-		});
-		layerBuf->push_back({layer.transform.x, layer.transform.y, 0_cv, 0_cv});
 		layerBuf->setBufferObject(ssbo);
-
-		if(mask && mask.get() != lastRepacked) {
-			mask->repack(*atlas);
-			lastRepacked = mask.get();
-		}
-
-		_renderShapes.push_back({layer, std::move(layerBuf), mask});
-
-		groupIndices->append_range({
-			base, index_element_type(base + 1), index_element_type(base + 2),
-			base, index_element_type(base + 2), index_element_type(base + 3)
-		});
-
-		base += 4;
-		index++;
+		rs.buffer = layerBuf;
 	}
 
 	flushGroup();
@@ -288,10 +306,10 @@ void ShapeDrawable::compile() {
 
 	for(const auto& g : _groups) addPrimitiveSet(g.indices);
 
-	const auto totalSize = static_cast<GLsizeiptr>(_renderShapes.size() * 5 * sizeof(Vec4));
+	const auto totalSize = static_cast<GLsizeiptr>(_layers.size() * 5 * sizeof(Vec4));
 
 	getOrCreateStateSet()->setAttributeAndModes(
-		new osg::ShaderStorageBufferBinding(1, _renderShapes[0].buffer, 0, totalSize),
+		new osg::ShaderStorageBufferBinding(1, _layers[0].buffer, 0, totalSize),
 		osg::StateAttribute::ON
 	);
 
@@ -299,62 +317,56 @@ void ShapeDrawable::compile() {
 }
 
 void ShapeDrawable::setLayerColor(size_t index, const slughorn::Color& color) {
-	if(index >= _renderShapes.size()) {
+	if(index >= _layers.size() || !_layers[index].buffer) {
 		if(!_compiled)
 			OSG_WARN << "ShapeDrawable::setLayerColor(): called before compile() -- call ignored" << std::endl;
 		return;
 	}
 
-	auto& rs = _renderShapes[index];
+	auto& rs = _layers[index];
 
 	rs.layer.color = color;
 	(*rs.buffer)[0] = Vec4(color.r, color.g, color.b, color.a);
-
-	if(index < _layers.size()) _layers[index].color = color;
 }
 
 void ShapeDrawable::setLayerEffectId(size_t index, uint32_t effectId) {
-	if(index >= _renderShapes.size()) {
+	if(index >= _layers.size() || !_layers[index].buffer) {
 		if(!_compiled)
 			OSG_WARN << "ShapeDrawable::setLayerEffectId(): called before compile() -- call ignored" << std::endl;
 		return;
 	}
 
-	auto& rs = _renderShapes[index];
+	auto& rs = _layers[index];
 
 	rs.layer.effectId = effectId;
 	(*rs.buffer)[3].x() = cv(effectId);
-
-	if(index < _layers.size()) _layers[index].effectId = effectId;
 }
 
 void ShapeDrawable::setLayerEffectParam(size_t index, slug_t param) {
-	if(index >= _renderShapes.size()) {
+	if(index >= _layers.size() || !_layers[index].buffer) {
 		if(!_compiled)
 			OSG_WARN << "ShapeDrawable::setLayerEffectParam(): called before compile() -- call ignored" << std::endl;
 		return;
 	}
 
-	auto& rs = _renderShapes[index];
+	auto& rs = _layers[index];
 
 	rs.layer.effectParam = param;
 	(*rs.buffer)[3].w() = param;
-
-	if(index < _layers.size()) _layers[index].effectParam = param;
 }
 
 void ShapeDrawable::setLayerShapeIndex(size_t index, size_t shapeIndex) {
-	if(index >= _renderShapes.size()) return;
+	if(index >= _layers.size() || !_layers[index].buffer) return;
 
-	(*_renderShapes[index].buffer)[3].y() = cv(shapeIndex);
+	(*_layers[index].buffer)[3].y() = cv(shapeIndex);
 }
 
 void ShapeDrawable::setLayerGradientTransform(size_t index, const slughorn::Matrix& m) {
 	auto* atlas = getAtlas();
 
-	if(index >= _renderShapes.size() || !atlas) return;
+	if(index >= _layers.size() || !_layers[index].buffer || !atlas) return;
 
-	const auto& layer = _renderShapes[index].layer;
+	const auto& layer = _layers[index].layer;
 
 	if(layer.gradientId <= 0) return;
 
@@ -362,7 +374,7 @@ void ShapeDrawable::setLayerGradientTransform(size_t index, const slughorn::Matr
 	tmp.transform = m;
 
 	const auto [gmeta, gxform] = buildGradientDataFromInfo(layer.gradientId, tmp);
-	auto& buf = *_renderShapes[index].buffer;
+	auto& buf = *_layers[index].buffer;
 
 	buf[1] = gmeta;
 	buf[2] = gxform;
@@ -371,16 +383,14 @@ void ShapeDrawable::setLayerGradientTransform(size_t index, const slughorn::Matr
 void ShapeDrawable::updateLayer(size_t index, const slughorn::Layer& layer) {
 	auto* atlas = getAtlas();
 
-	if(index >= _renderShapes.size() || !atlas) return;
+	if(index >= _layers.size() || !_layers[index].buffer || !atlas) return;
 
-	_renderShapes[index].layer = layer;
-
-	if(index < _layers.size()) _layers[index] = layer;
+	_layers[index].layer = layer;
 
 	const auto [gmeta, gxform] = buildGradientData(*atlas, layer);
 	const slug_t shapeIdx = cv(atlas->getShapeIndex(layer.key));
 
-	auto& buf = *_renderShapes[index].buffer;
+	auto& buf = *_layers[index].buffer;
 
 	buf[0] = Vec4(layer.color.r, layer.color.g, layer.color.b, layer.color.a);
 	buf[1] = gmeta;
@@ -390,11 +400,11 @@ void ShapeDrawable::updateLayer(size_t index, const slughorn::Layer& layer) {
 }
 
 void ShapeDrawable::dirtyLayers() {
-	for(auto& rs : _renderShapes) if(rs.buffer) rs.buffer->dirty();
+	for(auto& rs : _layers) if(rs.buffer) rs.buffer->dirty();
 }
 
 void ShapeDrawable::dirtyLayers(size_t index) {
-	if(index < _renderShapes.size() && _renderShapes[index].buffer) _renderShapes[index].buffer->dirty();
+	if(index < _layers.size() && _layers[index].buffer) _layers[index].buffer->dirty();
 }
 
 }

@@ -77,37 +77,4 @@ inline EmBounds computeEmBounds(const slughorn::Atlas::Shape& shape, slug_t expa
 	};
 }
 
-// SSBO mutation helpers; shared by ShapeDrawable and SubdividedDrawable.
-// buf is the per-layer Vec4Array (4 elements); index is used only to sync _layers.
-
-inline void ssboSetLayerColor(
-	osgx::Vec4Array* buf,
-	std::vector<slughorn::Layer>& layers,
-	size_t index,
-	const slughorn::Color& color
-) {
-	layers[index].color = color;
-	(*buf)[0] = Vec4(color.r, color.g, color.b, color.a);
-}
-
-inline void ssboSetLayerEffectId(
-	osgx::Vec4Array* buf,
-	std::vector<slughorn::Layer>& layers,
-	size_t index,
-	uint32_t effectId
-) {
-	layers[index].effectId = effectId;
-	(*buf)[3].x() = cv(effectId);
-}
-
-inline void ssboSetLayerEffectParam(
-	osgx::Vec4Array* buf,
-	std::vector<slughorn::Layer>& layers,
-	size_t index,
-	slug_t param
-) {
-	layers[index].effectParam = param;
-	(*buf)[3].w() = param;
-}
-
 } // namespace osgSlug
