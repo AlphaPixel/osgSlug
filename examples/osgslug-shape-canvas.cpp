@@ -93,7 +93,7 @@ int main(int argc, char** argv) {
 	// Saves your Atlas to a glTF-compatible SLUG file.
 	slughorn::serial::writeJSON(*atlas, std::cerr);
 
-	// auto sd = osgx::make_ref<osgSlug::SSBOShapeDrawable>();
+	// auto sd = osgx::make_ref<osgSlug::ShapeDrawable>();
 	auto sd = example::makeShapeDrawable();
 
 	// sd->addLayer({layer.key, {0.6_cv, 0.7_cv, 0.8_cv, 1.0_cv}});

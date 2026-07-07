@@ -77,7 +77,7 @@ inline EmBounds computeEmBounds(const slughorn::Atlas::Shape& shape, slug_t expa
 	};
 }
 
-// SSBO mutation helpers; shared by SSBOShapeDrawable and SSBOSubdividedDrawable.
+// SSBO mutation helpers; shared by ShapeDrawable and SubdividedDrawable.
 // buf is the per-layer Vec4Array (4 elements); index is used only to sync _layers.
 
 inline void ssboSetLayerColor(

@@ -1,4 +1,4 @@
-//vimrun! ./osgslug-mask --clear-color 0.06,0.06,0.10,1.0
+//vimrun! ./osgslug-mask --clear-color 0.1,0.2,0.3
 
 // Shape masking demo - exercises slughorn::Mask on CompositeShape.
 //
@@ -6,45 +6,41 @@
 // --invert knockout: discard inside the mask
 // --debug-msdf show raw MSDF tile RGB (msdf type only)
 //
-// Scene: orange rect covering most of the canvas (effectId=1) masked by a shape at center.
-// All types produce a visually comparable result; the differences are in edge quality, cost,
-// and whether the mask shape was pre-baked (msdf) or evaluated analytically each fragment.
+// Scene: a two-layer composite (orange rect + yellow rect), masked as a whole by a shape at
+// center. Both layers share one CompositeShape.mask, so both get masked together -- this is
+// the regression test for the bug that motivated the RenderMask/RenderGroup rework: masking
+// used to piggyback on a single layer's effectId, so a second layer in the same composite
+// rendered flat/unmasked. Now osgSlug_mask is populated automatically per masked RenderGroup
+// (see ShapeDrawable::compile(), ShapeDrawable::drawImplementation()'s applyMask()) --
+// nothing in this file uploads osgSlug_mask.* by hand anymore.
+//
+// All --type values produce a visually comparable result; the differences are in edge
+// quality, cost, and whether the mask shape was pre-baked (msdf) or evaluated analytically
+// each fragment.
 //
 // Coordinate recovery in the hook:
-// data.emCoord - shape-local: (0,0) = content shape's canvas bbox min
-// canvasCoord = data.emCoord + osgSlug_mask.contentOrigin (absolute canvas space)
+// data.emCoord - shape-local: (0,0) = this layer's own canvas bbox min
+// canvasCoord = data.emCoord + layerOrigin, where layerOrigin is this fragment's own layer's
+// transform.xy, read per-layer from the LayerBuffer SSBO (see osgSlug_Mask_Evaluate) -- each
+// layer has its own origin, not one shared per mask (see RenderMask.hpp).
 // Mask params are in canvas space.
 
 #include "osgslug-example.hpp"
 
 #include "slughorn/canvas.hpp"
 
-static constexpr float RECT_X = 0.05f;
-static constexpr float RECT_Y = 0.05f;
 static constexpr float MASK_CX = 0.5f;
 static constexpr float MASK_CY = 0.5f;
 static constexpr float MSDF_RANGE = 0.025f;
 
 // ================================================================================================
-// GLSL - shared preamble (includes lib_fragment which defines osgSlug_MaskData + osgSlug_mask)
-// ================================================================================================
-
-/* static const std::string HOOK_COMMON = R"(
-#version 330 core
-#pragma osgSlug lib_fragment
-#pragma osgSlug lib_mask
-
-vec2 osgSlug_FragEmCoord(vec2 emCoord, inout vec2 emsPerPixel, int effectId, float time) {
-	return emCoord;
-}
-)"; */
-
-// ================================================================================================
-// GLSL - mask hook: delegates entirely to osgSlug_Mask_Evaluate from lib_mask
+// GLSL - mask hook: every fragment this StateSet renders goes through the same masked
+// RenderGroup (this demo has exactly one masked composite, no unmasked layers mixed in), so
+// the hook delegates unconditionally -- no per-layer effectId branch needed anymore.
 // ================================================================================================
 
 static const std::string HOOK_MASK_BODY = R"(
-#version 330 core
+#version 430 core
 #pragma osgSlug lib_fragment
 #pragma osgSlug lib_mask
 
@@ -53,8 +49,6 @@ vec2 osgSlug_FragEmCoord(vec2 emCoord, inout vec2 emsPerPixel, int effectId, flo
 }
 
 vec4 osgSlug_Fragment(osgSlug_FragmentData data) {
-	if(data.effectId != 1) return vec4(data.layerColor.rgb, data.fill * data.layerColor.a);
-
 	return osgSlug_Mask_Evaluate(data);
 }
 )";
@@ -98,7 +92,7 @@ int main(int argc, char** argv) {
 
 	while(args.read("--type", typeName)) {
 		if(!example::validateArgument(args, "--type", typeName, {
-			"msdf (DEFAULT)",
+			"msdf",
 			"circle",
 			"rect",
 			"capsule",
@@ -118,11 +112,17 @@ int main(int argc, char** argv) {
 	auto atlas = osgx::make_ref<osgSlug::Atlas>();
 	slughorn::canvas::Canvas canvas(*atlas);
 
-	// Content: orange rect, effectId=1 triggers the mask hook.
-	canvas.rect(RECT_X, RECT_Y, 1.0f - 2.0f * RECT_X, 1.0f - 2.0f * RECT_Y);
+	// Two layers in one composite -- both must get masked together (see file header comment).
+	// beginPath() between the two is required: fill() doesn't clear the internal path, so
+	// without it the second rect's curves accumulate onto the first's (one merged shape
+	// instead of two), which is what made both squares render as a single color.
+	canvas.rect(0_cv, 0.0_cv, 0.5_cv, 0.5_cv);
 	canvas.fill({1.0_cv, 0.6_cv, 0.1_cv, 1.0_cv});
+	canvas.beginPath();
+	canvas.rect(0.5_cv, 0.5_cv, 0.5_cv, 0.5_cv);
+	canvas.fill({1_cv, 1_cv, 0.1_cv, 1.0_cv});
+
 	auto rectComp = canvas.finalize();
-	rectComp.layers[0].effectId = 1;
 
 	// Mask: MSDF type bakes a circle shape into the atlas; procedural types use only params.
 	slughorn::Key maskKey{};
@@ -179,24 +179,18 @@ int main(int argc, char** argv) {
 
 	sd->addCompositeShape(rectComp);
 
-	// auto* ss = atlas->createHookStateSet({{osgSlug::Atlas::FragmentHook, HOOK_COMMON + HOOK_MASK_BODY}});
+	// osgSlug_mask itself (type/invert/params/params2/msdfLayer) is populated automatically per
+	// masked RenderGroup -- see ShapeDrawable::compile() and
+	// ShapeDrawable::drawImplementation()'s applyMask(). --debug-msdf is the one field that
+	// isn't authoring data (not part of slughorn::Mask), so it's set directly on the RenderMask.
+	// (getLayerMask() is SSBO-specific; this demo's masking only exists on that backend.)
+	if(auto* ssbo = dynamic_cast<osgSlug::ShapeDrawable*>(sd.get())) {
+		if(auto* mask = ssbo->getLayerMask(0)) mask->setDebug(debugMSDF);
+	}
+
 	auto* ss = atlas->createHookStateSet({{osgSlug::Atlas::FragmentHook, HOOK_MASK_BODY}});
 
-	// osgSlug_mask struct members - same layout for all types.
-	const auto& cl = rectComp.layers[0];
-	const auto& mk = *rectComp.mask;
-
-	ss->addUniform(new osg::Uniform("osgSlug_mask.type", static_cast<int>(maskType)));
-	ss->addUniform(new osg::Uniform("osgSlug_mask.invert", invert));
-	ss->addUniform(new osg::Uniform("osgSlug_mask.debug", debugMSDF));
-	ss->addUniform(new osg::Uniform("osgSlug_mask.contentOrigin", osg::Vec2f(cl.transform.x, cl.transform.y)));
-	ss->addUniform(new osg::Uniform("osgSlug_mask.params", osg::Vec4f(mk.params[0], mk.params[1], mk.params[2], mk.params[3])));
-	ss->addUniform(new osg::Uniform("osgSlug_mask.params2", osg::Vec2f(mk.params[4], mk.params[5])));
-
 	if(maskType == slughorn::Mask::Type::MSDF) {
-		const auto maskShape = atlas->getShape(maskKey).value();
-
-		ss->addUniform(new osg::Uniform("osgSlug_mask.msdfLayer", maskShape.msdfLayer));
 		ss->addUniform(new osg::Uniform("osgSlug_maskMsdfTexture", 7));
 
 		if(auto* msdfTex = atlas->getMSDFTexture()) {

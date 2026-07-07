@@ -1,6 +1,6 @@
 #pragma once
 
-#include "osgSlug/Drawable/SSBOSubdividedDrawable.hpp"
+#include "osgSlug/Drawable/SubdividedDrawable.hpp"
 
 #include <cmath>
 
@@ -11,7 +11,7 @@ namespace osgSlug {
 // Inside surface of a partial cylinder; a "curved monitor". The arc sweeps arcAngle radians
 // centred on the Z axis (viewer looks in -Z). Y is linear. UV maps naturally: u along arc, v along
 // height.
-class HalfCylinderDrawable: public SSBOSubdividedDrawable {
+class HalfCylinderDrawable: public SubdividedDrawable {
 public:
 	HalfCylinderDrawable(
 		slug_t radius=2_cv,

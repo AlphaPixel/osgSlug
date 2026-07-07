@@ -1,12 +1,12 @@
 #pragma once
 
-#include "osgSlug/Drawable/SSBOSubdividedDrawable.hpp"
+#include "osgSlug/Drawable/SubdividedDrawable.hpp"
 
 #include <cmath>
 
 namespace osgSlug {
 
-class SphereDrawable: public SSBOSubdividedDrawable {
+class SphereDrawable: public SubdividedDrawable {
 public:
 	SphereDrawable(
 		slug_t radius=1_cv,

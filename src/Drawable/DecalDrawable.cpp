@@ -1,4 +1,4 @@
-#include "osgSlug/Drawable/SSBODecalDrawable.hpp"
+#include "osgSlug/Drawable/DecalDrawable.hpp"
 
 #include "Drawable/Util.hpp"
 
@@ -49,7 +49,7 @@ void computeDecalTangentFrame(
 
 } // anonymous namespace
 
-void SSBODecalDrawable::addDecal(
+void DecalDrawable::addDecal(
 	const slughorn::Layer& layer,
 	slug_t latDeg,
 	slug_t lonDeg,
@@ -60,7 +60,7 @@ void SSBODecalDrawable::addDecal(
 	_layers.push_back(layer);
 }
 
-void SSBODecalDrawable::updateDecalPosition(
+void DecalDrawable::updateDecalPosition(
 	size_t index,
 	slug_t latDeg,
 	slug_t lonDeg,
@@ -90,7 +90,7 @@ void SSBODecalDrawable::updateDecalPosition(
 	dirtyLayers(index);
 }
 
-void SSBODecalDrawable::setDecalTransform(
+void DecalDrawable::setDecalTransform(
 	size_t index,
 	slug_t latDeg,
 	slug_t lonDeg,
@@ -128,15 +128,15 @@ void SSBODecalDrawable::setDecalTransform(
 	dirtyLayers(index);
 }
 
-void SSBODecalDrawable::updateLayer(size_t index, const slughorn::Layer& layer) {
+void DecalDrawable::updateLayer(size_t index, const slughorn::Layer& layer) {
 	if(index >= _decalEntries.size()) return;
 
 	_decalEntries[index].layer = layer;
 
-	SSBOSubdividedDrawable::updateLayer(index, layer);
+	SubdividedDrawable::updateLayer(index, layer);
 }
 
-void SSBODecalDrawable::compile() {
+void DecalDrawable::compile() {
 	if(_compiled) return;
 
 	auto* atlas = getAtlas();
@@ -192,7 +192,7 @@ void SSBODecalDrawable::compile() {
 			static_cast<size_t>(base) + ni >
 			static_cast<size_t>(std::numeric_limits<index_element_type>::max()) + 1
 		) {
-			throw std::runtime_error("SSBODecalDrawable: mesh exceeds index capacity");
+			throw std::runtime_error("DecalDrawable: mesh exceeds index capacity");
 		}
 
 		// Vertex data: normalized [0,1]^2 grid. World position is computed in the vertex shader

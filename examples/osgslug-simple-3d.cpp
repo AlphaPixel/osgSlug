@@ -117,7 +117,7 @@ int main(int argc, char** argv) {
 
 	// TODO: Make parameters arguments accept to `example::setupArguments` above!
 	else if(shape == "subdivide") {
-		auto sdsd = osgx::make_ref<osgSlug::SSBOSubdividedDrawable>();
+		auto sdsd = osgx::make_ref<osgSlug::SubdividedDrawable>();
 
 		sdsd->setStepsU(128);
 		sdsd->setStepsV(1);

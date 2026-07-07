@@ -2,7 +2,6 @@
 
 #include "Drawable.hpp"
 #include "Drawable/ShapeDrawable.hpp"
-#include "Drawable/SSBOShapeDrawable.hpp"
 #include "slughorn/freetype.hpp"
 
 OSGSLUG_DISABLE_WARNINGS

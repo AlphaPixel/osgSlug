@@ -9,7 +9,7 @@
 
 struct ColorCallback: public osg::NodeCallback {
 	virtual void operator()(osg::Node* node, osg::NodeVisitor* nv) {
-		auto* sd = dynamic_cast<osgSlug::SSBOShapeDrawable*>(node);
+		auto* sd = dynamic_cast<osgSlug::ShapeDrawable*>(node);
 		const osg::FrameStamp* fs = nv->getFrameStamp();
 
 		if(!sd || !fs) { traverse(node, nv); return; }
@@ -61,7 +61,7 @@ int main(int argc, char** argv) {
 
 	slughorn::serial::writeJSON(*atlas, std::cerr);
 
-	auto sd = osgx::make_ref<osgSlug::SSBOShapeDrawable>();
+	auto sd = osgx::make_ref<osgSlug::ShapeDrawable>();
 
 	// sd->addLayer({shape, {1_cv, 0.5_cv, 0_cv, 0.5_cv}});
 	sd->addCompositeShape(compositeShape);

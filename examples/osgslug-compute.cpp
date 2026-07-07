@@ -140,7 +140,7 @@ int main(int argc, char** argv) {
 	atlas->build();
 	atlas->packTextures();
 
-	auto sd = osgx::make_ref<osgSlug::SSBOShapeDrawable>();
+	auto sd = osgx::make_ref<osgSlug::ShapeDrawable>();
 
 	sd->addCompositeShape(compositeShape);
 

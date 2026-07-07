@@ -1,10 +1,8 @@
 #pragma once
 
 #include "osgSlug/Atlas.hpp"
-#include "osgSlug/Drawable/GL3ShapeDrawable.hpp"
-#include "osgSlug/Drawable/SSBOShapeDrawable.hpp"
-#include "osgSlug/Drawable/GL3SubdividedDrawable.hpp"
-#include "osgSlug/Drawable/SSBOSubdividedDrawable.hpp"
+#include "osgSlug/Drawable/ShapeDrawable.hpp"
+#include "osgSlug/Drawable/SubdividedDrawable.hpp"
 
 #include "slughorn/serial.hpp"
 
@@ -29,8 +27,6 @@ OSGSLUG_ENABLE_WARNINGS
 #include <charconv>
 
 namespace example {
-
-inline bool USE_GL3 = false;
 
 #ifdef OSGDEBUG_IMGUI
 // The OSG camera manipulator is dispatched in a separate loop AFTER all event
@@ -219,11 +215,7 @@ struct AtlasVisitor: public osg::NodeVisitor {
 };
 
 inline osg::ref_ptr<osgSlug::ShapeDrawable> makeShapeDrawable() {
-	auto sd = osgx::make_ref<osgSlug::ShapeDrawable>(nullptr);
-
-	if(USE_GL3) sd = new osgSlug::GL3ShapeDrawable();
-
-	else sd = new osgSlug::SSBOShapeDrawable();
+	auto sd = osgx::make_ref<osgSlug::ShapeDrawable>();
 
 	// TODO: Add some common stuff to help with the `--profile` option!
 	// sd->setName("osgSlug::ShapeDrawable");
@@ -232,9 +224,7 @@ inline osg::ref_ptr<osgSlug::ShapeDrawable> makeShapeDrawable() {
 }
 
 inline osg::ref_ptr<osgSlug::SubdividedDrawable> makeSubdividedDrawable() {
-	if(USE_GL3) return osgx::make_ref<osgSlug::GL3SubdividedDrawable>();
-
-	return osgx::make_ref<osgSlug::SSBOSubdividedDrawable>();
+	return osgx::make_ref<osgSlug::SubdividedDrawable>();
 }
 
 inline int fail(osg::ArgumentParser& args, int r=0, const std::string& err="") {
@@ -303,11 +293,6 @@ inline bool setupArguments(
 	);
 
 	args.getApplicationUsage()->addCommandLineOption(
-		"--gl3",
-		"Use GL3ShapeDrawable instead of the default SSBOShapeDrawable"
-	);
-
-	args.getApplicationUsage()->addCommandLineOption(
 		"--dump-atlas <file>",
 		"Traverse the scene, find all ShapeDrawables, and write the first atlas to <file> (.slug or .slugb)"
 	);
@@ -322,10 +307,6 @@ inline bool setupArguments(
 
 		return false;
 	}
-
-	USE_GL3 = args.read("--gl3");
-
-	if(USE_GL3) OSG_NOTICE << "GL3 mode requested..." << std::endl;
 
 	return true;
 }

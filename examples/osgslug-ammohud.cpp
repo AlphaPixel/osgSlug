@@ -43,7 +43,7 @@ struct AmmoCallback : public osg::NodeCallback {
 	}
 
 	void operator()(osg::Node* node, osg::NodeVisitor* nv) override {
-		auto* sd = dynamic_cast<osgSlug::SSBOShapeDrawable*>(node);
+		auto* sd = dynamic_cast<osgSlug::ShapeDrawable*>(node);
 		const osg::FrameStamp* fs = nv->getFrameStamp();
 
 		if(!sd || !fs) { traverse(node, nv); return; }
@@ -235,7 +235,7 @@ int main(int argc, char** argv) {
 
 	canvas.finalize("counter");
 
-	auto sd = osgx::make_ref<osgSlug::SSBOShapeDrawable>();
+	auto sd = osgx::make_ref<osgSlug::ShapeDrawable>();
 
 	sd->addCompositeShape(*atlas->getCompositeShape("hud")); // layers 0..N+1
 

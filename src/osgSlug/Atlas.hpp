@@ -48,21 +48,18 @@ class Atlas: public osg::Group, public slughorn::Atlas {
 public:
 	enum class State { Empty, Built, Packed };
 
-	// useGL3: selects the GL3 attrib-based vertex path instead of the SSBO (GL4) path.
-	// An application uses one or the other for its lifetime; mixing is not supported.
 	// texWidth: texture atlas width; rarely needs changing from the default.
-	Atlas(bool useGL3=false, uint32_t texWidth=slughorn::Atlas::DEFAULT_TEXTURE_WIDTH);
+	Atlas(uint32_t texWidth=slughorn::Atlas::DEFAULT_TEXTURE_WIDTH);
 	explicit Atlas(const slughorn::Atlas& src);
 
 	static osg::ref_ptr<Atlas> read(std::filesystem::path path);
 	static osg::ref_ptr<Atlas> read(std::ifstream& ifs);
 
-	bool getUseGL3() const { return _useGL3; }
 	State getState() const { return _state; }
 
 	// Pack the raw TextureData buffers produced by build() into OSG texture objects, and set the
-	// Atlas Group's StateSet with the default shader program (SSBO or GL3), all textures, uniforms,
-	// blend state, and SSBO binding 0. Must be called after build(). Texture packing is idempotent
+	// Atlas Group's StateSet with the default shader program, all textures, uniforms, blend state,
+	// and SSBO binding 0. Must be called after build(). Texture packing is idempotent
 	// for the textures; the StateSet program is always refreshed.
 	// After packing, _state becomes Packed and any existing osgSlug::Drawable children are
 	// compiled automatically.
@@ -102,7 +99,6 @@ public:
 	static const std::string SHADER_LIB_SCANLINE; // evaluate_bezier + intersect_monotonic + scanline_sweep
 	static const std::string SHADER_LIB_MASK;     // osgSlug_SDF_* + osgSlug_Mask_* impls; opt-in via #pragma osgSlug lib_mask
 	static const std::string SHADER_VERT; // main SSBO vertex shader (embedded)
-	static const std::string SHADER_VERT_GL3; // GL3 attrib-based vertex shader (embedded)
 	static const std::string SHADER_VERT_DECAL; // tangent-plane decal vertex shader (embedded)
 	static const std::string SHADER_FRAG; // main fragment shader (embedded, resolved)
 	static const std::string SHADER_SCANLINE_VERT; // ScanlineDrawable vertex shader
@@ -112,7 +108,7 @@ public:
 
 	using HookList = std::vector<std::pair<Hook, std::string>>;
 
-	osg::StateSet* createDefaultStateSet(bool useGL3=false, HookList hooks={}) const;
+	osg::StateSet* createDefaultStateSet(HookList hooks={}) const;
 
 	// Returns a lightweight StateSet carrying only the shader program (with hooks applied).
 	// No textures, uniforms, or blend state - those are inherited from the Atlas Group's StateSet.
@@ -122,12 +118,12 @@ public:
 	osg::StateSet* createHookStateSet(HookList hooks={}) const;
 
 	// Returns a Program that uses the tangent-plane decal vertex shader.
-	// Set this on an SSBODecalDrawable's StateSet to override the parent Geode's program.
-	// (SSBODecalDrawable::compile() calls this automatically.)
+	// Set this on an DecalDrawable's StateSet to override the parent Geode's program.
+	// (DecalDrawable::compile() calls this automatically.)
 	osg::Program* createDecalProgram(HookList hooks={}) const;
 
-	static osg::ref_ptr<Atlas> fromAtlas(const slughorn::Atlas& src, bool useGL3=false) {
-		osg::ref_ptr<Atlas> atlas = new osgSlug::Atlas(useGL3);
+	static osg::ref_ptr<Atlas> fromAtlas(const slughorn::Atlas& src) {
+		osg::ref_ptr<Atlas> atlas = new osgSlug::Atlas();
 
 		static_cast<slughorn::Atlas&>(*atlas) = src;
 
@@ -147,7 +143,6 @@ protected:
 private:
 	static osg::ref_ptr<osg::Texture2D> _makeTexture(const slughorn::Atlas::TextureData& data);
 
-	bool _useGL3 = false;
 	State _state = State::Empty;
 
 	osg::ref_ptr<osg::Texture2D> _curveTexture;

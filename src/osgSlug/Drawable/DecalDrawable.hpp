@@ -1,17 +1,17 @@
 #pragma once
 
-#include "osgSlug/Drawable/SSBOSubdividedDrawable.hpp"
+#include "osgSlug/Drawable/SubdividedDrawable.hpp"
 
 namespace osgSlug {
 
-// SSBODecalDrawable
+// DecalDrawable
 //
-// Extends SSBOSubdividedDrawable for sphere-surface decals. Each layer is placed at a lat/lon
+// Extends SubdividedDrawable for sphere-surface decals. Each layer is placed at a lat/lon
 // position using a tangent-frame SSBO (7 Vec4s per layer instead of 4). The vertex shader
 // reconstructs world-space position from the tangent frame - no per-vertex sphere math on CPU.
-class SSBODecalDrawable: public SSBOSubdividedDrawable {
+class DecalDrawable: public SubdividedDrawable {
 public:
-	SSBODecalDrawable(slug_t radius=1_cv): _radius(radius) {}
+	DecalDrawable(slug_t radius=1_cv): _radius(radius) {}
 
 	void setRadius(slug_t radius) { _radius = radius; }
 

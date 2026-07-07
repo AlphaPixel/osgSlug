@@ -298,9 +298,8 @@ struct osgSlug_MaskData {
 	bool debug;
 };
 
-// No inline layout(binding=N): this struct lives in SHADER_LIB_FRAGMENT, shared by both the
-// GL4 (#version 430) and GL3 (#version 330) hook paths, and inline UBO binding syntax is
-// illegal pre-4.20. Bound instead via Program::addBindUniformBlock() in createHookStateSet().
+// No inline layout(binding=N): inline UBO binding syntax is illegal pre-4.20. Bound instead
+// via Program::addBindUniformBlock() in createHookStateSet().
 layout(std140) uniform osgSlug_MaskBlock {
 	osgSlug_MaskData osgSlug_mask;
 };
@@ -379,78 +378,6 @@ void main() {
 }
 )";
 
-const std::string Atlas::SHADER_VERT_GL3 = R"(
-#version 330 core
-
-#pragma osgSlug lib_vertex
-
-vec3 osgSlug_Vertex_Rotate(vec3 pos, vec2 emCoord, vec2 origin, float angle) {
-	float c = cos(angle), s = sin(angle);
-	mat2 R = mat2(c, s, -s, c);
-	vec2 pivot = pos.xy - emCoord.xy + origin;
-	pos.xy = R * (pos.xy - pivot) + pivot;
-	return pos;
-}
-
-vec3 osgSlug_Vertex_Scale(vec3 pos, vec2 emCoord, vec2 origin, float scale) {
-	vec2 pivot = pos.xy - emCoord.xy + origin;
-	pos.xy = (pos.xy - pivot) * scale + pivot;
-	return pos;
-}
-
-layout(location = 0) in vec4 a_position;
-layout(location = 1) in vec4 a_color;
-layout(location = 2) in vec4 a_emCoord;
-layout(location = 3) in vec4 a_bandXform;
-layout(location = 4) in vec4 a_shapeData;
-
-// .x = effectId (integer packed as float)
-// .yz = origin (shape.originX, shape.originY)
-// .w = effectParam (user-settable via setLayerEffectParam)
-layout(location = 5) in vec4 a_effectData;
-
-layout(location = 6) in vec4 a_gradientMeta;
-layout(location = 7) in vec4 a_gradientXform;
-
-uniform mat4 osg_ModelViewProjectionMatrix;
-uniform float osg_SimulationTime;
-
-// Defined in the linked effects or noop unit.
-vec3 osgSlug_Vertex(osgSlug_VertexData data);
-
-void main() {
-	int effectId = int(a_effectData.x + 0.5);
-
-	osgSlug_VertexData vData;
-
-	vData.pos = a_position.xyz;
-	vData.emCoord = a_emCoord.xy;
-	vData.uv = a_emCoord.zw;
-	vData.effectId = effectId;
-	vData.origin = a_effectData.yz;
-	vData.effectParam = a_effectData.w;
-	vData.time = osg_SimulationTime;
-
-	vec3 pos = osgSlug_Vertex(vData);
-
-	geom.emCoord = a_emCoord.xy;
-	geom.uv = a_emCoord.zw;
-	geom.layerIndex = a_position.w;
-	geom.color = a_color;
-	fx.bandXform = a_bandXform;
-	fx.shapeData = a_shapeData;
-	fx.effectId = effectId;
-	fx.msdfLayer = -1;
-	fx.msdfRange = 0.0;
-	fx.effectParam = a_effectData.w;
-	fx.gradientId = int(a_gradientMeta.x + 0.5);
-	geom.gradientMeta = a_gradientMeta;
-	geom.gradientXform = a_gradientXform;
-
-	gl_Position = osg_ModelViewProjectionMatrix * vec4(pos, 1.0);
-}
-)";
-
 const std::string Atlas::SHADER_VERT_DECAL = R"(
 #version 430 core
 
@@ -470,7 +397,7 @@ vec3 osgSlug_Vertex_Scale(vec3 pos, vec2 emCoord, vec2 origin, float scale) {
 	return pos;
 }
 
-// Vertex layout (set by SSBODecalDrawable::compile()):
+// Vertex layout (set by DecalDrawable::compile()):
 //
 // a_position: xy = (lu, lv) normalized grid in [0,1], z = 0, w = layer index (1-based)
 // a_emCoord: xy = shape em-space coordinate, zw = (lu, lv) UV
@@ -1511,10 +1438,8 @@ void main() {
 // osgSlug_Mask_* - coverage helpers + full osgSlug_mask dispatcher.
 // Opt-in via: #pragma osgSlug lib_mask
 // Prerequisites: #pragma osgSlug lib_fragment (for osgSlug_MaskData / osgSlug_FragmentData).
-// Requires #version 430 (not 330) in the hook that includes this: the LayerBuffer
-// re-declaration below is a `buffer` (SSBO) block, illegal pre-4.30. Masking is SSBO/GL4-only
-// already (RenderGroup.mask is never populated by GL3ShapeDrawable), so this isn't a new
-// constraint in practice - just something any hook using lib_mask must declare correctly.
+// Requires #version 430: the LayerBuffer re-declaration below is a `buffer` (SSBO) block,
+// illegal pre-4.30 - something any hook using lib_mask must declare correctly.
 const std::string Atlas::SHADER_LIB_MASK = R"(
 
 // Private re-declaration of LayerBuffer (see SHADER_TYPES): needed here because this fragment
@@ -1675,7 +1600,7 @@ vec4 osgSlug_Mask_Evaluate(osgSlug_FragmentData data) {
 // State-set builders
 // ================================================================================================
 
-osg::StateSet* Atlas::createDefaultStateSet(bool useGL3, HookList hooks) const {
+osg::StateSet* Atlas::createDefaultStateSet(HookList hooks) const {
 	const std::string* vertEffects = &SHADER_NOOP_VERTEX_HOOK;
 	const std::string* fragEffects = &SHADER_NOOP_FRAGMENT_HOOK;
 	const std::string* fragExt = &SHADER_NOOP_FRAGMENT_EXT_HOOK;
@@ -1689,31 +1614,8 @@ osg::StateSet* Atlas::createDefaultStateSet(bool useGL3, HookList hooks) const {
 	auto* ss = new osg::StateSet();
 	auto* program = new osg::Program();
 
-	// GL3 effect units must be #version 330 core; swap any 430 declaration.
-	auto makeGL3EffectShader = [&](std::string src) {
-		src = resolveLibs(src);
-
-		const auto vp = src.find("#version");
-
-		if(vp != std::string::npos) {
-			const auto nl = src.find('\n', vp);
-
-			if(nl != std::string::npos) src.replace(vp, nl - vp, "#version 330 core");
-		}
-
-		return new osg::Shader(osg::Shader::VERTEX, src);
-	};
-
-	if(useGL3) {
-		program->addShader(new osg::Shader(osg::Shader::VERTEX, resolveLibs(SHADER_VERT_GL3)));
-		program->addShader(makeGL3EffectShader(*vertEffects));
-	}
-
-	else {
-		program->addShader(makeVertShader(SHADER_VERT, SHADER_TYPES));
-		program->addShader(makeVertShader(*vertEffects, SHADER_TYPES));
-	}
-
+	program->addShader(makeVertShader(SHADER_VERT, SHADER_TYPES));
+	program->addShader(makeVertShader(*vertEffects, SHADER_TYPES));
 	program->addShader(new osg::Shader(osg::Shader::FRAGMENT, SHADER_FRAG));
 	program->addShader(new osg::Shader(osg::Shader::FRAGMENT, resolveLibs(*fragEffects)));
 	program->addShader(new osg::Shader(osg::Shader::FRAGMENT, resolveLibs(*fragExt)));
@@ -1778,7 +1680,6 @@ osg::StateSet* Atlas::createDefaultStateSet(bool useGL3, HookList hooks) const {
 }
 
 osg::StateSet* Atlas::createHookStateSet(HookList hooks) const {
-	const bool useGL3 = _useGL3;
 	const std::string* vertEffects = &SHADER_NOOP_VERTEX_HOOK;
 	const std::string* fragEffects = &SHADER_NOOP_FRAGMENT_HOOK;
 	const std::string* fragExt = &SHADER_NOOP_FRAGMENT_EXT_HOOK;
@@ -1792,38 +1693,14 @@ osg::StateSet* Atlas::createHookStateSet(HookList hooks) const {
 	auto* ss = new osg::StateSet();
 	auto* program = new osg::Program();
 
-	auto makeGL3EffectShader = [&](std::string src) {
-		src = resolveLibs(src);
-
-		const auto vp = src.find("#version");
-
-		if(vp != std::string::npos) {
-			const auto nl = src.find('\n', vp);
-
-			if(nl != std::string::npos) src.replace(vp, nl - vp, "#version 330 core");
-		}
-
-		return new osg::Shader(osg::Shader::VERTEX, src);
-	};
-
-	if(useGL3) {
-		program->addShader(new osg::Shader(osg::Shader::VERTEX, resolveLibs(SHADER_VERT_GL3)));
-		program->addShader(makeGL3EffectShader(*vertEffects));
-	}
-
-	else {
-		program->addShader(makeVertShader(SHADER_VERT, SHADER_TYPES));
-		program->addShader(makeVertShader(*vertEffects, SHADER_TYPES));
-	}
-
+	program->addShader(makeVertShader(SHADER_VERT, SHADER_TYPES));
+	program->addShader(makeVertShader(*vertEffects, SHADER_TYPES));
 	program->addShader(new osg::Shader(osg::Shader::FRAGMENT, SHADER_FRAG));
 	program->addShader(new osg::Shader(osg::Shader::FRAGMENT, resolveLibs(*fragEffects)));
 	program->addShader(new osg::Shader(osg::Shader::FRAGMENT, resolveLibs(*fragExt)));
 
-	// osgSlug_MaskBlock has no inline layout(binding=N) - SHADER_LIB_FRAGMENT (where it's
-	// declared) is shared between the GL4 (#version 430) and GL3 (#version 330) hook paths, and
-	// inline UBO binding syntax is illegal pre-4.20. glUniformBlockBinding via this call works
-	// identically under both, and RenderMask::apply() binds to the same index at draw time.
+	// osgSlug_MaskBlock has no inline layout(binding=N) (illegal pre-GL4.20); bound instead via
+	// glUniformBlockBinding here, matching where RenderMask::apply() binds at draw time.
 	program->addBindUniformBlock("osgSlug_MaskBlock", RENDER_MASK_UBO_BINDING);
 
 	ss->setAttributeAndModes(program, osg::StateAttribute::ON);

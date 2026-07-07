@@ -2,6 +2,9 @@
 
 #include "Drawable/Util.hpp"
 
+#include <osg/BufferIndexBinding>
+#include <osg/BufferObject>
+
 namespace osgSlug {
 
 void BoxDrawable::compile() {
@@ -21,15 +24,15 @@ void BoxDrawable::compile() {
 	if(!atlas->isBuilt() || _layers.empty()) return;
 
 	auto vertices = osgx::make_ref<osgx::Vec4Array>();
-	auto colors = osgx::make_ref<osgx::Vec4Array>();
 	auto emCoords = osgx::make_ref<osgx::Vec4Array>();
-	auto bandXform = osgx::make_ref<osgx::Vec4Array>();
-	auto shapeData = osgx::make_ref<osgx::Vec4Array>();
-	auto effectData = osgx::make_ref<osgx::Vec4Array>();
-	auto gradientMeta = osgx::make_ref<osgx::Vec4Array>();
-	auto gradientXforms = osgx::make_ref<osgx::Vec4Array>();
 	auto indices = osgx::make_ref<index_type>();
 
+	_layerBuffers.clear();
+
+	auto ssbo = osgx::make_ref<osg::ShaderStorageBufferObject>();
+
+	// Layer SSBO (binding 1): one Vec4Array per face, each holding 5 vec4s -- see
+	// ShapeDrawable::compile() for the slot layout this mirrors.
 	auto addFace = [&](Vec3 p0, Vec3 p1, Vec3 p2, Vec3 p3, size_t index) {
 		const auto& layer = _layers[index];
 		const auto shape = atlas->getShape(layer.key);
@@ -38,17 +41,7 @@ void BoxDrawable::compile() {
 
 		const slug_t expand = layer.expand;
 		const auto [emX0, emY0, emX1, emY1] = computeEmBounds(*shape, expand);
-
-		const Vec4 bx(shape->bandScaleX, shape->bandScaleY, shape->bandOffsetX, shape->bandOffsetY);
-		const Vec4 sd(
-			cv(shape->bandTexX), cv(shape->bandTexY),
-			cv(shape->bandMaxX), cv(shape->bandMaxY)
-		);
-		const Vec4 color(layer.color.r, layer.color.g, layer.color.b, layer.color.a);
-		const Vec4 eid(cv(layer.effectId), cv(shape->originX), cv(shape->originY), layer.effectParam);
 		const slug_t lidx = cv(index + 1);
-
-		const auto [gmeta, gxform] = buildGradientData(*atlas, layer);
 
 		auto base = static_cast<index_element_type>(vertices->size());
 
@@ -62,18 +55,30 @@ void BoxDrawable::compile() {
 			slug_t emY = emY0 + uvs[i][1] * (emY1 - emY0);
 
 			emCoords->push_back({emX, emY, uvs[i][0], uvs[i][1]});
-			colors->push_back(color);
-			bandXform->push_back(bx);
-			shapeData->push_back(sd);
-			effectData->push_back(eid);
-			gradientMeta->push_back(gmeta);
-			gradientXforms->push_back(gxform);
 		}
 
 		indices->append_range({
 			base, index_element_type(base + 1), index_element_type(base + 2),
 			base, index_element_type(base + 2), index_element_type(base + 3)
 		});
+
+		const auto [gmeta, gxform] = buildGradientData(*atlas, layer);
+		const slug_t shapeIdx = cv(atlas->getShapeIndex(layer.key));
+		auto layerBuf = osgx::make_ref<osgx::Vec4Array>();
+
+		layerBuf->push_back({layer.color.r, layer.color.g, layer.color.b, layer.color.a});
+		layerBuf->push_back(gmeta);
+		layerBuf->push_back(gxform);
+		layerBuf->push_back({
+			cv(layer.effectId),
+			shapeIdx,
+			cv(packMSDFData(shape->msdfLayer, shape->msdfRange)),
+			layer.effectParam
+		});
+		layerBuf->push_back({layer.transform.x, layer.transform.y, 0_cv, 0_cv});
+		layerBuf->setBufferObject(ssbo);
+
+		_layerBuffers.push_back(std::move(layerBuf));
 	};
 
 	auto s = _size * 0.5_cv;
@@ -85,9 +90,18 @@ void BoxDrawable::compile() {
 	addFace({-s, s, s}, { s, s, s}, { s, s,-s}, {-s, s,-s}, 4); // +Y top
 	addFace({-s,-s,-s}, { s,-s,-s}, { s,-s, s}, {-s,-s, s}, 5); // -Y bottom
 
-	bindGL3Attribs(vertices, colors, emCoords, bandXform, shapeData, effectData, gradientMeta, gradientXforms);
+	if(vertices->empty() || _layerBuffers.empty()) return;
+
+	bindSSBOAttribs(vertices, emCoords);
 
 	addPrimitiveSet(indices);
+
+	const auto totalSize = static_cast<GLsizeiptr>(_layerBuffers.size() * 5 * sizeof(Vec4));
+
+	getOrCreateStateSet()->setAttributeAndModes(
+		new osg::ShaderStorageBufferBinding(1, _layerBuffers[0], 0, totalSize),
+		osg::StateAttribute::ON
+	);
 
 	_compiled = true;
 }

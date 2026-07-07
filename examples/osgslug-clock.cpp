@@ -88,7 +88,7 @@ int main(int argc, char** argv) {
 	// Atlas + Canvas
 	// ============================================================================================
 
-	auto atlas = osgx::make_ref<osgSlug::Atlas>(example::USE_GL3);
+	auto atlas = osgx::make_ref<osgSlug::Atlas>();
 
 	slughorn::canvas::Canvas canvas(*atlas, slughorn::KeyIterator());
 	canvas.setTolerance(slughorn::TOLERANCE_BALANCED);

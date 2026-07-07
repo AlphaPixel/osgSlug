@@ -2,11 +2,9 @@
 
 #include "osgSlug/Atlas.hpp"
 #include "osgSlug/Drawable.hpp"
-#include "osgSlug/Drawable/GL3ShapeDrawable.hpp"
-#include "osgSlug/Drawable/SSBOShapeDrawable.hpp"
+#include "osgSlug/Drawable/ShapeDrawable.hpp"
 #include "osgSlug/Drawable/BoxDrawable.hpp"
-#include "osgSlug/Drawable/GL3SubdividedDrawable.hpp"
-#include "osgSlug/Drawable/SSBODecalDrawable.hpp"
+#include "osgSlug/Drawable/DecalDrawable.hpp"
 #include "osgSlug/Drawable/HalfCylinderDrawable.hpp"
 #include "osgSlug/Drawable/SphereDrawable.hpp"
 
@@ -113,8 +111,7 @@ PYBIND11_MODULE(osgSlug, m) {
 	;
 
 	py::class_<osgSlug::Atlas, osg::Group, osg::ref_ptr<osgSlug::Atlas>>(m, "Atlas")
-		.def(py::init<bool, uint32_t>(),
-			"useGL3"_a=false,
+		.def(py::init<uint32_t>(),
 			"texWidth"_a=slughorn::Atlas::DEFAULT_TEXTURE_WIDTH
 		)
 		.def(py::init([](const slughorn::Atlas& src) {
@@ -122,20 +119,18 @@ PYBIND11_MODULE(osgSlug, m) {
 		}), "atlas"_a, "Construct from a slughorn.Atlas.")
 		.def_static("read", py::overload_cast<std::filesystem::path>(&osgSlug::Atlas::read))
 		.def_static("fromAtlas",
-			[](const slughorn::Atlas& src, bool useGL3) {
-				return osgSlug::Atlas::fromAtlas(src, useGL3);
+			[](const slughorn::Atlas& src) {
+				return osgSlug::Atlas::fromAtlas(src);
 			},
 			"atlas"_a,
-			"useGL3"_a=false,
 			"Build and pack a slughorn.Atlas in one step."
 		)
 		.def("packTextures", &osgSlug::Atlas::packTextures)
 		.def(
 			"createDefaultStateSet",
-			[](const osgSlug::Atlas& self, bool useGL3, py::dict hooks) {
-				return self.createDefaultStateSet(useGL3, parseHookList(hooks));
+			[](const osgSlug::Atlas& self, py::dict hooks) {
+				return self.createDefaultStateSet(parseHookList(hooks));
 			},
-			"useGL3"_a=false,
 			"hooks"_a=py::dict()
 		)
 		.def(
@@ -152,7 +147,6 @@ PYBIND11_MODULE(osgSlug, m) {
 			},
 			"hooks"_a=py::dict()
 		)
-		.def_property_readonly("useGL3", &osgSlug::Atlas::getUseGL3)
 		.def_property_readonly("state", &osgSlug::Atlas::getState)
 		.def_property_readonly(
 			"curveTexture",
@@ -209,6 +203,7 @@ PYBIND11_MODULE(osgSlug, m) {
 		osgSlug::Drawable,
 		osg::ref_ptr<osgSlug::ShapeDrawable>
 	>(m, "ShapeDrawable")
+		.def(py::init<>())
 		.def("addLayer", &osgSlug::ShapeDrawable::addLayer)
 		.def("addCompositeShape", &osgSlug::ShapeDrawable::addCompositeShape)
 		.def("clear", &osgSlug::ShapeDrawable::clear)
@@ -242,6 +237,7 @@ PYBIND11_MODULE(osgSlug, m) {
 		osgSlug::ShapeDrawable,
 		osg::ref_ptr<osgSlug::SubdividedDrawable>
 	>(m, "SubdividedDrawable")
+		.def(py::init<>())
 		.def("setStepsU", &osgSlug::SubdividedDrawable::setStepsU, "steps"_a)
 		.def("setStepsV", &osgSlug::SubdividedDrawable::setStepsV, "steps"_a)
 		.def("setIsolatedVertices", &osgSlug::SubdividedDrawable::setIsolatedVertices, "isolated"_a)
@@ -263,46 +259,14 @@ PYBIND11_MODULE(osgSlug, m) {
 	;
 
 	py::class_<
-		osgSlug::GL3ShapeDrawable,
-		osgSlug::ShapeDrawable,
-		osg::ref_ptr<osgSlug::GL3ShapeDrawable>
-	>(m, "GL3ShapeDrawable")
-		.def(py::init<>())
-	;
-
-	py::class_<
-		osgSlug::GL3SubdividedDrawable,
+		osgSlug::DecalDrawable,
 		osgSlug::SubdividedDrawable,
-		osg::ref_ptr<osgSlug::GL3SubdividedDrawable>
-	>(m, "GL3SubdividedDrawable")
-		.def(py::init<>())
-	;
-
-	py::class_<
-		osgSlug::SSBOShapeDrawable,
-		osgSlug::ShapeDrawable,
-		osg::ref_ptr<osgSlug::SSBOShapeDrawable>
-	>(m, "SSBOShapeDrawable")
-		.def(py::init<>())
-	;
-
-	py::class_<
-		osgSlug::SSBOSubdividedDrawable,
-		osgSlug::SubdividedDrawable,
-		osg::ref_ptr<osgSlug::SSBOSubdividedDrawable>
-	>(m, "SSBOSubdividedDrawable")
-		.def(py::init<>())
-	;
-
-	py::class_<
-		osgSlug::SSBODecalDrawable,
-		osgSlug::SSBOSubdividedDrawable,
-		osg::ref_ptr<osgSlug::SSBODecalDrawable>
-	>(m, "SSBODecalDrawable")
+		osg::ref_ptr<osgSlug::DecalDrawable>
+	>(m, "DecalDrawable")
 		.def(py::init<slug_t>(), "radius"_a=1_cv)
-		.def("setRadius", &osgSlug::SSBODecalDrawable::setRadius, "radius"_a)
+		.def("setRadius", &osgSlug::DecalDrawable::setRadius, "radius"_a)
 		.def("addDecal",
-			&osgSlug::SSBODecalDrawable::addDecal,
+			&osgSlug::DecalDrawable::addDecal,
 			"layer"_a,
 			"latDeg"_a,
 			"lonDeg"_a,
@@ -310,7 +274,7 @@ PYBIND11_MODULE(osgSlug, m) {
 			"halfHeightDeg"_a=-1_cv
 		)
 		.def("updateDecalPosition",
-			&osgSlug::SSBODecalDrawable::updateDecalPosition,
+			&osgSlug::DecalDrawable::updateDecalPosition,
 			"index"_a,
 			"latDeg"_a,
 			"lonDeg"_a,
@@ -318,7 +282,7 @@ PYBIND11_MODULE(osgSlug, m) {
 			"halfHeightDeg"_a=-1_cv
 		)
 		.def("setDecalTransform",
-			&osgSlug::SSBODecalDrawable::setDecalTransform,
+			&osgSlug::DecalDrawable::setDecalTransform,
 			"index"_a,
 			"latDeg"_a,
 			"lonDeg"_a,
@@ -330,7 +294,7 @@ PYBIND11_MODULE(osgSlug, m) {
 
 	py::class_<
 		osgSlug::HalfCylinderDrawable,
-		osgSlug::SSBOSubdividedDrawable,
+		osgSlug::SubdividedDrawable,
 		osg::ref_ptr<osgSlug::HalfCylinderDrawable>
 	>(m, "HalfCylinderDrawable")
 		.def(py::init<slug_t, slug_t, slug_t, uint16_t, uint16_t>(),
@@ -344,7 +308,7 @@ PYBIND11_MODULE(osgSlug, m) {
 
 	py::class_<
 		osgSlug::SphereDrawable,
-		osgSlug::SSBOSubdividedDrawable,
+		osgSlug::SubdividedDrawable,
 		osg::ref_ptr<osgSlug::SphereDrawable>
 	>(m, "SphereDrawable")
 		.def(py::init<slug_t, uint16_t, uint16_t>(),

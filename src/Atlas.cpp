@@ -27,9 +27,8 @@ OSGSLUG_ENABLE_WARNINGS
 
 namespace osgSlug {
 
-Atlas::Atlas(bool useGL3, uint32_t texWidth):
-slughorn::Atlas(texWidth),
-_useGL3(useGL3) {
+Atlas::Atlas(uint32_t texWidth):
+slughorn::Atlas(texWidth) {
 }
 
 Atlas::Atlas(const slughorn::Atlas& src) {
@@ -154,8 +153,8 @@ void Atlas::packTextures() {
 		_shapeBuffer->setBufferObject(new osg::ShaderStorageBufferObject());
 	}
 
-	// Always refresh the StateSet so callers can switch GL3/SSBO mode by re-calling.
-	setStateSet(createDefaultStateSet(_useGL3));
+	// Always refresh the StateSet so callers can re-apply hook changes by re-calling.
+	setStateSet(createDefaultStateSet());
 
 	_state = State::Packed;
 

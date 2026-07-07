@@ -13,7 +13,7 @@ OSGSLUG_ENABLE_WARNINGS
 namespace osgSlug {
 
 // UBO binding index used for osgSlug_mask. Independent namespace from the SSBO bindings used
-// elsewhere (atlas shape data = 0, layer data = 1 -- see SSBOShapeDrawable.cpp) since GL keeps
+// elsewhere (atlas shape data = 0, layer data = 1 -- see ShapeDrawable.cpp) since GL keeps
 // GL_UNIFORM_BUFFER and GL_SHADER_STORAGE_BUFFER binding points separate.
 constexpr unsigned RENDER_MASK_UBO_BINDING = 0;
 
