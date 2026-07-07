@@ -1550,17 +1550,36 @@ vec4 osgSlug_Mask_Evaluate(osgSlug_FragmentData data) {
 	float maskFill;
 
 	if(osgSlug_mask.type == 0) { // MSDF - baked tile sample
-		if(osgSlug_mask.msdfLayer < 0) discard;
-		float cx = osgSlug_mask.params.x, cy = osgSlug_mask.params.y;
-		float r = osgSlug_mask.params.z, rng = osgSlug_mask.params.w;
-		vec4 bbox = vec4(cx - r - rng, cy - r - rng, cx + r + rng, cy + r + rng);
-		vec2 tileUV = (canvasCoord - bbox.xy) / (bbox.zw - bbox.xy);
-		if(any(lessThan(tileUV, vec2(0.0))) || any(greaterThan(tileUV, vec2(1.0)))) discard;
-		vec3 msd = texture(osgSlug_msdfTexture, vec3(tileUV, float(osgSlug_mask.msdfLayer))).rgb;
-		if(osgSlug_mask.debug) return vec4(msd.r, msd.g, msd.b, 1.0);
-		float maskSd = max(min(msd.r, msd.g), min(max(msd.r, msd.g), msd.b));
-		float pxRange = max(2.0 * rng / max(data.emsPerPixel.x, data.emsPerPixel.y), 1.0);
-		maskFill = clamp((maskSd - 0.5) * pxRange + 0.5, 0.0, 1.0);
+		if(osgSlug_mask.msdfLayer < 0) {
+			// No tile baked at all -- treat as "definitely outside," not a discard: an
+			// unconditional discard here runs before osgSlug_Mask_Apply ever sees invert,
+			// silently making invert a no-op. maskFill = 0.0 lets invert flip it correctly.
+			maskFill = 0.0;
+		}
+		else {
+			float cx = osgSlug_mask.params.x, cy = osgSlug_mask.params.y;
+			float r = osgSlug_mask.params.z, rng = osgSlug_mask.params.w;
+			vec4 bbox = vec4(cx - r - rng, cy - r - rng, cx + r + rng, cy + r + rng);
+			vec2 tileUV = (canvasCoord - bbox.xy) / (bbox.zw - bbox.xy);
+
+			// Outside the baked tile's extent: no SDF data exists there, but the tile is padded
+			// by rng beyond the shape's true bounds, so "outside" reliably means "outside the
+			// shape." Same reasoning as msdfLayer<0 above -- maskFill = 0.0, not discard, so
+			// invert still applies (see osgSlug_Mask_Apply). Procedural types (Circle/Rect/etc.)
+			// never hit this at all: their SDF formulas are closed-form and valid everywhere, so
+			// they never needed this distinction -- this brings MSDF's invert behavior in line
+			// with them instead of being a discard-shaped exception.
+			if(any(lessThan(tileUV, vec2(0.0))) || any(greaterThan(tileUV, vec2(1.0)))) {
+				maskFill = 0.0;
+			}
+			else {
+				vec3 msd = texture(osgSlug_msdfTexture, vec3(tileUV, float(osgSlug_mask.msdfLayer))).rgb;
+				if(osgSlug_mask.debug) return vec4(msd.r, msd.g, msd.b, 1.0);
+				float maskSd = max(min(msd.r, msd.g), min(max(msd.r, msd.g), msd.b));
+				float pxRange = max(2.0 * rng / max(data.emsPerPixel.x, data.emsPerPixel.y), 1.0);
+				maskFill = clamp((maskSd - 0.5) * pxRange + 0.5, 0.0, 1.0);
+			}
+		}
 	}
 
 	else if(osgSlug_mask.type == 1) { // Circle
