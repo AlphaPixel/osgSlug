@@ -12,6 +12,13 @@ namespace osgSlug {
 // Requires GL 4.3+
 class SSBOShapeDrawable: public ShapeDrawable {
 public:
+	// Consolidated per-layer working data: the authoring-time Layer plus its GPU-packed SSBO
+	// slice, kept together so compile()/mutators never risk the two drifting out of index sync.
+	struct RenderShape {
+		slughorn::Layer layer;
+		osg::ref_ptr<osgx::Vec4Array> buffer;
+	};
+
 	SSBOShapeDrawable() = default;
 
 	void compile() override;
@@ -33,11 +40,11 @@ public:
 
 	// Per-layer SSBO slice. Valid after compile(); nullptr if index is out of range.
 	osgx::Vec4Array* getLayerBuffer(size_t index) const {
-		return index < _layerBuffers.size() ? _layerBuffers[index].get() : nullptr;
+		return index < _renderShapes.size() ? _renderShapes[index].buffer.get() : nullptr;
 	}
 
 private:
-	std::vector<osg::ref_ptr<osgx::Vec4Array>> _layerBuffers;
+	std::vector<RenderShape> _renderShapes;
 };
 
 }

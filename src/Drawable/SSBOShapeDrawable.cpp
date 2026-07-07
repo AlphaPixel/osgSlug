@@ -44,7 +44,7 @@ void SSBOShapeDrawable::compile() {
 	// [1] gradientMeta: x=gradientId, yz=center, w=r0_norm
 	// [2] gradientXform
 	// [3] effectData: x=effectId, y=shapeIndex, z=msdfData, w=effectParam
-	_layerBuffers.clear();
+	_renderShapes.clear();
 
 	auto ssbo = osgx::make_ref<osg::ShaderStorageBufferObject>();
 
@@ -100,7 +100,7 @@ void SSBOShapeDrawable::compile() {
 		});
 		layerBuf->setBufferObject(ssbo);
 
-		_layerBuffers.push_back(std::move(layerBuf));
+		_renderShapes.push_back({layer, std::move(layerBuf)});
 
 		groupIndices->append_range({
 			base, index_element_type(base + 1), index_element_type(base + 2),
@@ -119,10 +119,10 @@ void SSBOShapeDrawable::compile() {
 
 	for(const auto& g : _groups) addPrimitiveSet(g.indices);
 
-	const auto totalSize = static_cast<GLsizeiptr>(_layerBuffers.size() * 4 * sizeof(Vec4));
+	const auto totalSize = static_cast<GLsizeiptr>(_renderShapes.size() * 4 * sizeof(Vec4));
 
 	getOrCreateStateSet()->setAttributeAndModes(
-		new osg::ShaderStorageBufferBinding(1, _layerBuffers[0], 0, totalSize),
+		new osg::ShaderStorageBufferBinding(1, _renderShapes[0].buffer, 0, totalSize),
 		osg::StateAttribute::ON
 	);
 
@@ -130,47 +130,62 @@ void SSBOShapeDrawable::compile() {
 }
 
 void SSBOShapeDrawable::setLayerColor(size_t index, const slughorn::Color& color) {
-	if(index >= _layerBuffers.size()) {
+	if(index >= _renderShapes.size()) {
 		if(!_compiled)
 			OSG_WARN << "SSBOShapeDrawable::setLayerColor(): called before compile() -- call ignored" << std::endl;
 		return;
 	}
 
-	ssboSetLayerColor(_layerBuffers[index].get(), _layers, index, color);
+	auto& rs = _renderShapes[index];
+
+	rs.layer.color = color;
+	(*rs.buffer)[0] = Vec4(color.r, color.g, color.b, color.a);
+
+	if(index < _layers.size()) _layers[index].color = color;
 }
 
 void SSBOShapeDrawable::setLayerEffectId(size_t index, uint32_t effectId) {
-	if(index >= _layerBuffers.size()) {
+	if(index >= _renderShapes.size()) {
 		if(!_compiled)
 			OSG_WARN << "SSBOShapeDrawable::setLayerEffectId(): called before compile() -- call ignored" << std::endl;
 		return;
 	}
 
-	ssboSetLayerEffectId(_layerBuffers[index].get(), _layers, index, effectId);
+	auto& rs = _renderShapes[index];
+
+	rs.layer.effectId = effectId;
+	(*rs.buffer)[3].x() = cv(effectId);
+
+	if(index < _layers.size()) _layers[index].effectId = effectId;
 }
 
 void SSBOShapeDrawable::setLayerEffectParam(size_t index, slug_t param) {
-	if(index >= _layerBuffers.size()) {
+	if(index >= _renderShapes.size()) {
 		if(!_compiled)
 			OSG_WARN << "SSBOShapeDrawable::setLayerEffectParam(): called before compile() -- call ignored" << std::endl;
 		return;
 	}
 
-	ssboSetLayerEffectParam(_layerBuffers[index].get(), _layers, index, param);
+	auto& rs = _renderShapes[index];
+
+	rs.layer.effectParam = param;
+	(*rs.buffer)[3].w() = param;
+
+	if(index < _layers.size()) _layers[index].effectParam = param;
 }
 
 void SSBOShapeDrawable::setLayerShapeIndex(size_t index, size_t shapeIndex) {
-	if(index >= _layerBuffers.size()) return;
+	if(index >= _renderShapes.size()) return;
 
-	(*_layerBuffers[index])[3].y() = cv(shapeIndex);
+	(*_renderShapes[index].buffer)[3].y() = cv(shapeIndex);
 }
 
 void SSBOShapeDrawable::setLayerGradientTransform(size_t index, const slughorn::Matrix& m) {
 	auto* atlas = getAtlas();
 
-	if(index >= _layerBuffers.size() || !atlas) return;
+	if(index >= _renderShapes.size() || !atlas) return;
 
-	const auto& layer = _layers[index];
+	const auto& layer = _renderShapes[index].layer;
 
 	if(layer.gradientId <= 0) return;
 
@@ -178,7 +193,7 @@ void SSBOShapeDrawable::setLayerGradientTransform(size_t index, const slughorn::
 	tmp.transform = m;
 
 	const auto [gmeta, gxform] = buildGradientDataFromInfo(layer.gradientId, tmp);
-	auto& buf = *_layerBuffers[index];
+	auto& buf = *_renderShapes[index].buffer;
 
 	buf[1] = gmeta;
 	buf[2] = gxform;
@@ -187,14 +202,16 @@ void SSBOShapeDrawable::setLayerGradientTransform(size_t index, const slughorn::
 void SSBOShapeDrawable::updateLayer(size_t index, const slughorn::Layer& layer) {
 	auto* atlas = getAtlas();
 
-	if(index >= _layerBuffers.size() || !atlas) return;
+	if(index >= _renderShapes.size() || !atlas) return;
 
-	_layers[index] = layer;
+	_renderShapes[index].layer = layer;
+
+	if(index < _layers.size()) _layers[index] = layer;
 
 	const auto [gmeta, gxform] = buildGradientData(*atlas, layer);
 	const slug_t shapeIdx = cv(atlas->getShapeIndex(layer.key));
 
-	auto& buf = *_layerBuffers[index];
+	auto& buf = *_renderShapes[index].buffer;
 
 	buf[0] = Vec4(layer.color.r, layer.color.g, layer.color.b, layer.color.a);
 	buf[1] = gmeta;
@@ -203,11 +220,11 @@ void SSBOShapeDrawable::updateLayer(size_t index, const slughorn::Layer& layer) 
 }
 
 void SSBOShapeDrawable::dirtyLayers() {
-	for(auto& buf : _layerBuffers) if(buf) buf->dirty();
+	for(auto& rs : _renderShapes) if(rs.buffer) rs.buffer->dirty();
 }
 
 void SSBOShapeDrawable::dirtyLayers(size_t index) {
-	if(index < _layerBuffers.size() && _layerBuffers[index]) _layerBuffers[index]->dirty();
+	if(index < _renderShapes.size() && _renderShapes[index].buffer) _renderShapes[index].buffer->dirty();
 }
 
 }
