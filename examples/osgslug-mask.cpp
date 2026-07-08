@@ -112,6 +112,7 @@ int main(int argc, char** argv) {
 	auto atlas = osgx::make_ref<osgSlug::Atlas>();
 	slughorn::canvas::Canvas canvas(*atlas);
 
+/*
 	// Two layers in one composite -- both must get masked together (see file header comment).
 	// beginPath() between the two is required: fill() doesn't clear the internal path, so
 	// without it the second rect's curves accumulate onto the first's (one merged shape
@@ -121,6 +122,18 @@ int main(int argc, char** argv) {
 	canvas.beginPath();
 	canvas.rect(0.5_cv, 0.5_cv, 0.5_cv, 0.5_cv);
 	canvas.fill({1_cv, 1_cv, 0.1_cv, 1.0_cv});
+*/
+
+	// Four separate CompositeShapes, one per quad, each with its own single rect layer and
+	// its own distinct Mask -- see the file header comment for why this is a genuinely new
+	// code path versus arc/capsule, and why these are the four newest procedural
+	// Mask::Types rather than the original six (those stay in osgslug-mask.cpp).
+	// beginPath() before each rect() (after the first) is required: fill() doesn't clear
+	// the internal path, so without it each rect's curves would accumulate onto the last.
+	canvas.rect(0.0_cv, 0.0_cv, 0.5_cv, 0.5_cv).fill({1.0_cv, 0.6_cv, 0.1_cv, 1.0_cv}); // bottom-left, orange
+	canvas.beginPath().rect(0.5_cv, 0.0_cv, 0.5_cv, 0.5_cv).fill({0.9_cv, 0.2_cv, 0.6_cv, 1.0_cv}); // bottom-right, magenta
+	canvas.beginPath().rect(0.0_cv, 0.5_cv, 0.5_cv, 0.5_cv).fill({0.1_cv, 0.8_cv, 0.9_cv, 1.0_cv}); // top-left, cyan
+	canvas.beginPath().rect(0.5_cv, 0.5_cv, 0.5_cv, 0.5_cv).fill({1.0_cv, 1.0_cv, 0.1_cv, 1.0_cv}); // top-right, yellow
 
 	// Mask: canvas.mask() authoring sugar (slughorn/canvas.hpp) -- both forms stage the mask
 	// onto the CompositeShape finalize() is about to produce, so it lands on rectComp directly

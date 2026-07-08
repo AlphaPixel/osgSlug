@@ -266,6 +266,7 @@ if(OSGSLUG_BUILD_EXAMPLES)
 		SOURCES "examples/osgslug-compositeshape-mixed.cpp"
 	)
 	osgslug_example(osgslug-mask SOURCES "examples/osgslug-mask.cpp")
+	osgslug_example(osgslug-mask-animation SOURCES "examples/osgslug-mask-animation.cpp")
 	osgslug_example(osgslug-pbr-ibl SOURCES "examples/osgslug-pbr-ibl.cpp")
 	osgslug_example(osgslug-pbr-ibl-text SOURCES "examples/osgslug-pbr-ibl-text.cpp")
 endif()

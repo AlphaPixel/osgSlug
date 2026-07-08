@@ -276,7 +276,7 @@ vec3 osgSlug_MSDFBevelNormal(
 // Mask descriptor - populated by osgSlug::RenderMask, bound via RenderGroup/applyMask() at
 // draw time (see ShapeDrawable.cpp). Field order matches RenderMask::PackedData exactly
 // (largest-alignment-first: minimal std140 padding) - keep the two in sync if either changes.
-// type: 0=MSDF 1=Circle 2=Rect 3=Capsule 4=Arc 5=ArcBand
+// type: 0=MSDF 1=Circle 2=Rect 3=Capsule 4=Arc 5=ArcBand 6=Hexagon 7=Octagon 8=Star
 // params: SDF [0..3]; MSDF stores cx,cy,r,range here (bbox derived in shader).
 // params2: SDF overflow [4,5]; Arc: angle_end; ArcBand: angle_end + stroke_hw.
 // msdfLayer/debug are MSDF-only fields; ignored for analytical types.
@@ -1514,6 +1514,58 @@ float osgSlug_SDF_ArcBand(vec2 p, vec2 center, float ra, float a0, float a1, flo
 	return sqrt(max(dot(rp, rp) + ra * ra - 2.0 * ra * k, 0.0)) - rb;
 }
 
+// Rotates p by angle a (CCW, radians). Used by every rotatable mask primitive below to pre-
+// rotate the query point by -rotation into the shape's own unrotated local frame -- same trick
+// for all of them, not worth a dedicated per-shape variant.
+vec2 osgSlug_SDF_Rotate(vec2 p, float a) {
+	float c = cos(a), s = sin(a);
+	return vec2(p.x * c - p.y * s, p.x * s + p.y * c);
+}
+
+// Regular hexagon (flat-top at rotation=0). Exact SDF (Inigo Quilez, iquilezles.org/articles/distfunctions2d).
+float osgSlug_SDF_Hexagon(vec2 p, vec2 center, float r, float rotation) {
+	vec2 q = abs(osgSlug_SDF_Rotate(p - center, -rotation));
+	const vec3 k = vec3(-0.866025404, 0.5, 0.577350269);
+
+	q -= 2.0 * min(dot(k.xy, q), 0.0) * k.xy;
+	q -= vec2(clamp(q.x, -k.z * r, k.z * r), r);
+
+	return length(q) * sign(q.y);
+}
+
+// Regular octagon. Exact SDF (Inigo Quilez, iquilezles.org/articles/distfunctions2d).
+float osgSlug_SDF_Octagon(vec2 p, vec2 center, float r, float rotation) {
+	vec2 q = abs(osgSlug_SDF_Rotate(p - center, -rotation));
+	const vec3 k = vec3(-0.9238795325, 0.3826834323, 0.4142135623);
+
+	q -= 2.0 * min(dot(vec2(k.x, k.y), q), 0.0) * vec2(k.x, k.y);
+	q -= 2.0 * min(dot(vec2(-k.x, k.y), q), 0.0) * vec2(-k.x, k.y);
+	q -= vec2(clamp(q.x, -k.z * r, k.z * r), r);
+
+	return length(q) * sign(q.y);
+}
+
+// General n-pointed star (Inigo Quilez, iquilezles.org/articles/distfunctions2d). r = outer
+// radius, points = point count (rounded to the nearest integer >= 3), innerRatio in [0,1] maps
+// to IQ's "m" shape parameter (0 = sharpest spikes, 1 = regular n-gon).
+float osgSlug_SDF_Star(vec2 p, vec2 center, float r, float points, float innerRatio, float rotation) {
+	vec2 q = osgSlug_SDF_Rotate(p - center, -rotation);
+	float n = max(round(points), 3.0);
+	float m = mix(2.0, n, clamp(innerRatio, 0.0, 1.0));
+
+	float an = 3.14159265 / n;
+	float en = 3.14159265 / m;
+	vec2 acs = vec2(cos(an), sin(an));
+	vec2 ecs = vec2(cos(en), sin(en));
+
+	float bn = mod(atan(q.x, q.y), 2.0 * an) - an;
+	q = length(q) * vec2(cos(bn), abs(sin(bn)));
+	q -= r * acs;
+	q += ecs * clamp(-dot(q, ecs), 0.0, r * acs.y / ecs.y);
+
+	return length(q) * sign(q.x);
+}
+
 // --- Mask helpers ---
 
 // 1-pixel AA ramp from a signed distance (dist < 0 = inside). emsPerPixel must be
@@ -1612,9 +1664,31 @@ vec4 osgSlug_Mask_Evaluate(osgSlug_FragmentData data) {
 			data.emsPerPixel);
 	}
 
-	else { // ArcBand - stroked arc
+	else if(osgSlug_mask.type == 5) { // ArcBand - stroked arc
 		maskFill = osgSlug_Mask_Coverage(
 			osgSlug_SDF_ArcBand(canvasCoord, osgSlug_mask.params.xy,
+				osgSlug_mask.params.z, osgSlug_mask.params.w,
+				osgSlug_mask.params2.x, osgSlug_mask.params2.y),
+			data.emsPerPixel);
+	}
+
+	else if(osgSlug_mask.type == 6) { // Hexagon
+		maskFill = osgSlug_Mask_Coverage(
+			osgSlug_SDF_Hexagon(canvasCoord, osgSlug_mask.params.xy,
+				osgSlug_mask.params.z, osgSlug_mask.params.w),
+			data.emsPerPixel);
+	}
+
+	else if(osgSlug_mask.type == 7) { // Octagon
+		maskFill = osgSlug_Mask_Coverage(
+			osgSlug_SDF_Octagon(canvasCoord, osgSlug_mask.params.xy,
+				osgSlug_mask.params.z, osgSlug_mask.params.w),
+			data.emsPerPixel);
+	}
+
+	else { // Star (type == 8)
+		maskFill = osgSlug_Mask_Coverage(
+			osgSlug_SDF_Star(canvasCoord, osgSlug_mask.params.xy,
 				osgSlug_mask.params.z, osgSlug_mask.params.w,
 				osgSlug_mask.params2.x, osgSlug_mask.params2.y),
 			data.emsPerPixel);
