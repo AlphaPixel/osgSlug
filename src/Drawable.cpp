@@ -5,6 +5,7 @@ namespace osgSlug {
 RenderMask::RenderMask(const slughorn::Mask& mask, unsigned bindingPoint):
 _mask(mask) {
 	_data = new osg::UByteArray(sizeof(PackedData));
+
 	_data->setBufferObject(new osg::UniformBufferObject());
 
 	pack(nullptr);
@@ -23,7 +24,7 @@ void RenderMask::apply(osg::State& state) const {
 void RenderMask::pack(const Atlas* atlas) {
 	PackedData d;
 
-	// params/params2: raw copy. Authoring owns these for every type -- including MSDF's
+	// params/params2: raw copy. Authoring owns these for every type - including MSDF's
 	// cx/cy/r/range (see the Mask::Type::MSDF comment in slughorn.hpp); nothing here can
 	// derive that bbox on the author's behalf, per slughorn's "raw data out, frontend
 	// decides" contract.
@@ -38,7 +39,7 @@ void RenderMask::pack(const Atlas* atlas) {
 	d.invert = _mask.invert ? 1 : 0;
 	d.debug = _debug ? 1 : 0;
 
-	// msdfLayer is assigned internally by Atlas::registerMSDF() -- the only field here the
+	// msdfLayer is assigned internally by Atlas::requestMSDF() - the only field here the
 	// author genuinely cannot supply, so it's the one case pack() resolves itself.
 	d.msdfLayer = -1;
 
@@ -47,6 +48,7 @@ void RenderMask::pack(const Atlas* atlas) {
 	}
 
 	std::memcpy(&(*_data)[0], &d, sizeof(d));
+
 	_data->dirty();
 }
 

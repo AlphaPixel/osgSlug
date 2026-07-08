@@ -268,11 +268,14 @@ int main(int argc, char** argv) {
 	auto atlas = osgx::make_ref<osgSlug::Atlas>();
 	slughorn::canvas::Canvas canvas(*atlas);
 
+	// setMSDF() (before the commit it should apply to) requests this badge's MSDF tile the
+	// moment fill() registers its shape -- requestMSDF() is safe pre-build, so build() alone
+	// renders it; no separate post-build registerMSDF()-style call needed below.
+	canvas.setMSDF(true, MSDF_RANGE);
 	canvas.circle(0.5_cv, 0.5_cv, 0.48_cv);
 	canvas.fill({1.0_cv, 0.86_cv, 0.57_cv, 1.0_cv}); // warm gold tint -- F0 for metallic=1
 
 	auto badge = canvas.finalize();
-	auto badgeKey = badge.layers[0].key;
 
 	badge.layers[0].effectParam = packMaterial(roughness, metallic);
 	// Marks this layer for the chrome treatment in makeChromeFrag()'s osgSlug_Fragment --
@@ -287,7 +290,6 @@ int main(int argc, char** argv) {
 	// set before build().
 	atlas->setMSDFTileSize(128);
 	atlas->build();
-	atlas->registerMSDF(badgeKey, MSDF_RANGE);
 	atlas->packTextures();
 
 	auto sd = example::makeShapeDrawable();

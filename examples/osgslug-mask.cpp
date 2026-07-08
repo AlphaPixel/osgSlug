@@ -122,45 +122,37 @@ int main(int argc, char** argv) {
 	canvas.rect(0.5_cv, 0.5_cv, 0.5_cv, 0.5_cv);
 	canvas.fill({1_cv, 1_cv, 0.1_cv, 1.0_cv});
 
-	auto rectComp = canvas.finalize();
-
-	// Mask: MSDF type bakes a circle shape into the atlas; procedural types use only params.
-	slughorn::Key maskKey{};
-
+	// Mask: canvas.mask() authoring sugar (slughorn/canvas.hpp) -- both forms stage the mask
+	// onto the CompositeShape finalize() is about to produce, so it lands on rectComp directly
+	// with no separate composite/key-extraction dance. MSDF form commits the accumulated path
+	// (the circle drawn just below) as a baked mask shape, deriving cx/cy/r from its own
+	// canvas-space bbox; procedural forms need no atlas registration at all.
 	if(maskType == slughorn::Mask::Type::MSDF) {
+		canvas.beginPath();
 		canvas.circle(MASK_CX, MASK_CY, 0.25f);
-		canvas.fill({1.0_cv, 1.0_cv, 1.0_cv, 1.0_cv});
-
-		maskKey = canvas.finalize().layers[0].key;
-
-		// Store cx/cy/r/range in params; GLSL derives the tile bbox from these at runtime.
-		auto mk = slughorn::Mask::msdf(maskKey, invert);
-
-		mk.params[0] = MASK_CX; mk.params[1] = MASK_CY;
-		mk.params[2] = 0.25f; mk.params[3] = MSDF_RANGE;
-		rectComp.mask = mk;
+		canvas.mask(MSDF_RANGE, invert);
 	}
 
 	else {
 		switch(maskType) {
 		case slughorn::Mask::Type::Circle:
-			rectComp.mask = slughorn::Mask::circle(MASK_CX, MASK_CY, 0.25f, invert);
+			canvas.mask(slughorn::Mask::circle(MASK_CX, MASK_CY, 0.25f, invert));
 			break;
 
 		case slughorn::Mask::Type::Rect:
-			rectComp.mask = slughorn::Mask::rect(0.25f, 0.25f, 0.5f, 0.5f, invert);
+			canvas.mask(slughorn::Mask::rect(0.25f, 0.25f, 0.5f, 0.5f, invert));
 			break;
 
 		case slughorn::Mask::Type::Capsule:
-			rectComp.mask = slughorn::Mask::capsule(0.2f, 0.5f, 0.8f, 0.5f, 0.15f, invert);
+			canvas.mask(slughorn::Mask::capsule(0.2f, 0.5f, 0.8f, 0.5f, 0.15f, invert));
 			break;
 
 		case slughorn::Mask::Type::Arc:
-			rectComp.mask = slughorn::Mask::arc(MASK_CX, MASK_CY, 0.35f, -2.2f, 2.2f, invert);
+			canvas.mask(slughorn::Mask::arc(MASK_CX, MASK_CY, 0.35f, -2.2f, 2.2f, invert));
 			break;
 
 		case slughorn::Mask::Type::ArcBand:
-			rectComp.mask = slughorn::Mask::arcBand(MASK_CX, MASK_CY, 0.35f, -2.2f, 2.2f, 0.05f, invert);
+			canvas.mask(slughorn::Mask::arcBand(MASK_CX, MASK_CY, 0.35f, -2.2f, 2.2f, 0.05f, invert));
 			break;
 
 		default:
@@ -168,11 +160,13 @@ int main(int argc, char** argv) {
 		}
 	}
 
+	auto rectComp = canvas.finalize();
+
+	// canvas.mask()'s MSDF branch already called atlas->requestMSDF() itself above -- requestMSDF()
+	// (unlike the old registerMSDF()) is safe to call pre-build, so build() alone renders the
+	// queued tile; no post-build registration step needed here at all.
 	atlas->setMSDFTileSize(128);
 	atlas->build();
-
-	if(maskType == slughorn::Mask::Type::MSDF) atlas->registerMSDF(maskKey, MSDF_RANGE);
-
 	atlas->packTextures();
 
 	auto sd = example::makeShapeDrawable();

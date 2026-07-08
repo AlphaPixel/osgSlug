@@ -18,8 +18,6 @@
 
 #include <osg/TextureCubeMap>
 
-#include <unordered_set>
-
 // ================================================================================================
 // GLSL - chrome FragmentHook (identical material model to osgslug-pbr-ibl.cpp)
 // ================================================================================================
@@ -197,6 +195,11 @@ int main(int argc, char** argv) {
 	baseline.moveTo(0.0_cv, 0.5_cv);
 	baseline.lineTo(float(text.size()) * fontSize * 1.0_cv, 0.5_cv);
 
+	// setMSDF() requests each glyph's MSDF tile as textOnPath() commits it -- requestMSDF() is
+	// idempotent, so repeated glyphs (shared shape key) cost nothing extra; no need to
+	// deduplicate keys or batch-register after the fact like the old registerMSDF() did.
+	canvas.setMSDF(true, MSDF_RANGE);
+
 	canvas.textOnPath(
 		baseline,
 		text,
@@ -208,20 +211,13 @@ int main(int argc, char** argv) {
 
 	auto textShape = canvas.finalize();
 
-	std::unordered_set<slughorn::Key, slughorn::KeyHash> glyphKeys;
-
 	for(auto& layer : textShape.layers) {
 		layer.effectParam = packMaterial(roughness, metallic);
 		layer.effectId = 1;
-
-		glyphKeys.insert(layer.key);
 	}
 
 	atlas->setMSDFTileSize(64);
 	atlas->build();
-	atlas->registerMSDF(
-		std::vector<slughorn::Key>(glyphKeys.begin(), glyphKeys.end()), MSDF_RANGE
-	);
 	atlas->packTextures();
 
 	auto sd = example::makeShapeDrawable();
