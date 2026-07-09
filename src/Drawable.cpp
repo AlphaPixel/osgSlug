@@ -13,6 +13,15 @@ _mask(mask) {
 	_binding = new osg::UniformBufferBinding(bindingPoint, _data.get(), 0, sizeof(PackedData));
 }
 
+osg::ref_ptr<RenderMask> RenderMask::createNull(unsigned bindingPoint) {
+	osg::ref_ptr<RenderMask> mask = new RenderMask(slughorn::Mask{}, bindingPoint);
+
+	mask->_null = true;
+	mask->pack(nullptr);
+
+	return mask;
+}
+
 void RenderMask::repack(const Atlas& atlas) {
 	pack(&atlas);
 }
@@ -23,6 +32,18 @@ void RenderMask::apply(osg::State& state) const {
 
 void RenderMask::pack(const Atlas* atlas) {
 	PackedData d;
+
+	// The sentinel: every other field stays at PackedData's zero-init default (harmless --
+	// nothing reads them once type<0 short-circuits osgSlug_Mask_CoverageFor).
+	if(_null) {
+		d.type = -1;
+
+		std::memcpy(&(*_data)[0], &d, sizeof(d));
+
+		_data->dirty();
+
+		return;
+	}
 
 	// params/params2: raw copy. Authoring owns these for every type - including MSDF's
 	// cx/cy/r/range (see the Mask::Type::MSDF comment in slughorn.hpp); nothing here can

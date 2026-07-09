@@ -14,16 +14,21 @@
 // (see ShapeDrawable::compile(), ShapeDrawable::drawImplementation()'s applyMask()) --
 // nothing in this file uploads osgSlug_mask.* by hand anymore.
 //
+// Masking is now fully automatic and needs NO custom FragmentHook at all (contrast with the
+// old HOOK_MASK_BODY this file used to define) -- osgSlug_FragmentMask(), an always-linked
+// early hook, evaluates and discards BEFORE slug_Render runs, so a mask that only reveals a
+// fraction of a shape skips Slug's curve-band loop entirely for the rest. See
+// ai/context-todo-mask.md, "osgSlug_FragmentMask() early hook."
+//
 // All --type values produce a visually comparable result; the differences are in edge
 // quality, cost, and whether the mask shape was pre-baked (msdf) or evaluated analytically
 // each fragment.
 //
-// Coordinate recovery in the hook:
-// data.emCoord - shape-local: (0,0) = this layer's own canvas bbox min
-// canvasCoord = data.emCoord + layerOrigin, where layerOrigin is this fragment's own layer's
-// transform.xy, read per-layer from the LayerBuffer SSBO (see osgSlug_Mask_Evaluate) -- each
-// layer has its own origin, not one shared per mask (see RenderMask.hpp).
-// Mask params are in canvas space.
+// Coordinate recovery (only needed by --debug-msdf's custom hook below; the automatic path
+// does this internally): data.emCoord is shape-local, (0,0) = this layer's own canvas bbox
+// min. canvasCoord = data.emCoord + layerOrigin, where layerOrigin is this fragment's own
+// layer's transform.xy, read per-layer from the LayerBuffer SSBO -- each layer has its own
+// origin, not one shared per mask (see RenderMask.hpp). Mask params are in canvas space.
 
 #include "osgslug-example.hpp"
 
@@ -34,22 +39,46 @@ static constexpr float MASK_CY = 0.5f;
 static constexpr float MSDF_RANGE = 0.025f;
 
 // ================================================================================================
-// GLSL - mask hook: every fragment this StateSet renders goes through the same masked
-// RenderGroup (this demo has exactly one masked composite, no unmasked layers mixed in), so
-// the hook delegates unconditionally -- no per-layer effectId branch needed anymore.
+// GLSL - --debug-msdf only: shows the raw baked MSDF tile RGB (median-of-three inputs, before
+// reconstruction) in place of the normal fill color, for fragments the mask (and Slug's own
+// coverage) already let through. osgSlug_Mask_DebugMSDF is the opt-in helper the automatic
+// osgSlug_FragmentMask pipeline itself never calls (its early hook only returns a coverage
+// float -- no room for a raw-tile preview); see that helper's comment in SHADER_LIB_MASK for
+// why. Unlike the OLD --debug-msdf (which showed the tile across the whole shape, mask or no
+// mask, since masking used to gate osgSlug_Fragment's output rather than discard beforehand),
+// this now only shows tile pixels the mask has already revealed -- arguably the more useful
+// view, since it overlays the tile exactly where it's actually affecting the render.
 // ================================================================================================
 
-static const std::string HOOK_MASK_BODY = R"(
+// Forward-declares (does NOT `#pragma osgSlug lib_mask`): that library's function BODIES are
+// already linked in via the always-present MaskHook shader object (SHADER_MASK_FRAGMENT_HOOK),
+// and GLSL rejects the same function being defined twice across shader objects linked into one
+// Program. Pulling in lib_mask a second time here to reach these two helpers is exactly the
+// trap that broke this file's first draft -- forward-declare-and-call instead, the same way
+// SHADER_FRAG itself reaches osgSlug_Fragment/osgSlug_FragmentExt/osgSlug_FragmentMask.
+//
+// This hook occupies the FragmentHook slot, which REPLACES the entire default shader object --
+// so it must define BOTH functions that slot's default (SHADER_NOOP_FRAGMENT_HOOK) normally
+// provides, not just osgSlug_Fragment. osgSlug_FragEmCoord is the one easy to forget (main()
+// calls it unconditionally, before osgSlug_Fragment even runs) since most hooks never need to
+// touch it -- passthrough here, identical to the noop default.
+static const std::string HOOK_DEBUG_MSDF = R"(
 #version 430 core
 #pragma osgSlug lib_fragment
-#pragma osgSlug lib_mask
+
+vec2 osgSlug_Mask_LayerOrigin();
+vec3 osgSlug_Mask_DebugMSDF(vec2 canvasCoord);
 
 vec2 osgSlug_FragEmCoord(vec2 emCoord, inout vec2 emsPerPixel, int effectId, float time) {
 	return emCoord;
 }
 
 vec4 osgSlug_Fragment(osgSlug_FragmentData data) {
-	return osgSlug_Mask_Evaluate(data);
+	vec3 msd = osgSlug_Mask_DebugMSDF(data.emCoord + osgSlug_Mask_LayerOrigin());
+
+	if(msd.r < -0.5) return vec4(data.layerColor.rgb, data.fill * data.layerColor.a);
+
+	return vec4(msd, data.fill * data.layerColor.a);
 }
 )";
 
@@ -188,16 +217,13 @@ int main(int argc, char** argv) {
 
 	// osgSlug_mask itself (type/invert/params/params2/msdfLayer) is populated automatically per
 	// masked RenderGroup -- see ShapeDrawable::compile() and
-	// ShapeDrawable::drawImplementation()'s applyMask(). --debug-msdf is the one field that
-	// isn't authoring data (not part of slughorn::Mask), so it's set directly on the RenderMask.
-	// (getLayerMask() is SSBO-specific; this demo's masking only exists on that backend.)
-	if(auto* ssbo = dynamic_cast<osgSlug::ShapeDrawable*>(sd.get())) {
-		if(auto* mask = ssbo->getLayerMask(0)) mask->setDebug(debugMSDF);
-	}
+	// ShapeDrawable::drawImplementation()'s applyMask(). No StateSet override needed for the
+	// normal path at all: sd inherits the Atlas's own default StateSet (which already links the
+	// automatic masking hook), so masking works the instant CompositeShape.mask is set.
+	if(debugMSDF) sd->setStateSet(atlas->createHookStateSet({
+		{osgSlug::Atlas::FragmentHook, HOOK_DEBUG_MSDF}
+	}));
 
-	auto* ss = atlas->createHookStateSet({{osgSlug::Atlas::FragmentHook, HOOK_MASK_BODY}});
-
-	sd->setStateSet(ss);
 	atlas->addChild(sd);
 
 	return example::run(viewer, args, atlas);

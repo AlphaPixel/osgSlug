@@ -45,8 +45,21 @@ public:
 	// geom.layerIndex instead. See osgSlug_Mask_Evaluate() in SHADER_LIB_MASK.
 	RenderMask(const slughorn::Mask& mask, unsigned bindingPoint);
 
+	// Always-valid "no mask" sentinel: packs type=-1, which every dispatcher (shader-side
+	// osgSlug_Mask_CoverageFor and friends) treats as "fully unmasked" -- see
+	// ai/context-todo-mask.md, "null UBO" plan. Bind this (Atlas::getNullMask() owns one)
+	// wherever a RenderGroup has no real mask, instead of leaving RENDER_MASK_UBO_BINDING
+	// unbound: reading an unbound uniform block is undefined behavior, and once
+	// osgSlug_FragmentMask() is called unconditionally by every fragment shader (not just
+	// mask-aware hooks), every draw call needs something valid bound here.
+	static osg::ref_ptr<RenderMask> createNull(unsigned bindingPoint);
+
 	const slughorn::Mask& mask() const { return _mask; }
 	slughorn::Mask& mask() { return _mask; }
+
+	// For attaching as an ambient StateSet default (Atlas::createDefaultStateSet()) as opposed
+	// to the imperative per-group apply() below.
+	osg::UniformBufferBinding* getBinding() const { return _binding.get(); }
 
 	// MSDF-only: show the raw baked tile RGB instead of evaluating coverage. Not part of
 	// slughorn::Mask (a rendering/debug concern, not authoring data) -- repack() to upload.
@@ -84,6 +97,7 @@ private:
 
 	slughorn::Mask _mask;
 	bool _debug = false;
+	bool _null = false; // set only by createNull(); pack() short-circuits to type=-1
 
 	osg::ref_ptr<osg::UByteArray> _data;
 	osg::ref_ptr<osg::UniformBufferBinding> _binding;

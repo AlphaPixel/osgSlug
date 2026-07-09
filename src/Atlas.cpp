@@ -28,14 +28,18 @@ OSGSLUG_ENABLE_WARNINGS
 namespace osgSlug {
 
 Atlas::Atlas(uint32_t texWidth):
-slughorn::Atlas(texWidth) {
+slughorn::Atlas(texWidth),
+_nullMask(RenderMask::createNull(RENDER_MASK_UBO_BINDING)) {
 }
 
-Atlas::Atlas(const slughorn::Atlas& src) {
+Atlas::Atlas(const slughorn::Atlas& src):
+_nullMask(RenderMask::createNull(RENDER_MASK_UBO_BINDING)) {
 	static_cast<slughorn::Atlas&>(*this) = src;
 
 	packTextures();
 }
+
+Atlas::~Atlas() = default;
 
 osg::ref_ptr<Atlas> Atlas::read(std::filesystem::path path) {
 	// slughorn::serial will throw an exception for us; so, using the following line is optional.

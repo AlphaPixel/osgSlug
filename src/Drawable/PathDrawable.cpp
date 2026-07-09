@@ -330,6 +330,15 @@ void PathDrawable::compile() {
 		prog->addShader(new osg::Shader(osg::Shader::FRAGMENT, Atlas::SHADER_FRAG));
 		prog->addShader(new osg::Shader(osg::Shader::FRAGMENT, Atlas::SHADER_NOOP_FRAGMENT_HOOK));
 		prog->addShader(new osg::Shader(osg::Shader::FRAGMENT, Atlas::SHADER_NOOP_FRAGMENT_EXT_HOOK));
+		prog->addShader(new osg::Shader(osg::Shader::FRAGMENT, Atlas::SHADER_MASK_FRAGMENT_HOOK));
+
+		// This StateSet is entirely standalone (PathDrawable uses setAtlas(), not
+		// atlas->addChild() -- see Drawable::getAtlas()'s comment), so unlike ShapeDrawable it
+		// does NOT inherit the null-mask UBO binding from an Atlas ancestor's StateSet. Must
+		// bind it explicitly or osgSlug_FragmentMask() above reads through an unbound
+		// osgSlug_MaskBlock (undefined behavior) the moment this shader links against SHADER_FRAG.
+		prog->addBindUniformBlock("osgSlug_MaskBlock", RENDER_MASK_UBO_BINDING);
+		ss->setAttributeAndModes(atlas->getNullMask()->getBinding(), osg::StateAttribute::ON);
 
 		ss->setTextureAttributeAndModes(0, atlas->getCurveTexture(), osg::StateAttribute::ON);
 		ss->setTextureAttributeAndModes(1, atlas->getBandTexture(), osg::StateAttribute::ON);

@@ -77,18 +77,13 @@ static void applyBlendMode(osg::State& state, slughorn::BlendMode mode) {
 	ext->glBlendEquation(eq);
 }
 
+// mask is never null in practice (callers pass either a real RenderGroup mask or the Atlas's
+// own null sentinel) -- every draw call must leave something valid bound at
+// RENDER_MASK_UBO_BINDING now that osgSlug_FragmentMask() reads it unconditionally, not just
+// when a mask-aware hook opts in. The guard only covers the (should-never-happen) case of a
+// drawable with no Atlas parent.
 static void applyMask(osg::State& state, const RenderMask* mask) {
 	if(mask) mask->apply(state);
-}
-
-// Mirrors applyBlendMode()'s "restore default after the loop" pattern -- avoids leaking a bound
-// mask UBO into whatever draws next at RENDER_MASK_UBO_BINDING. Not yet load-bearing (no shader
-// consumes this UBO binding today; see ai/context-todo-mask.md step 6), but cheap and correct to
-// have in place before that lands.
-static void unbindMask(osg::State& state) {
-	auto* ext = osg::GLExtensions::Get(state.getContextID(), true);
-
-	if(ext->glBindBufferBase) ext->glBindBufferBase(GL_UNIFORM_BUFFER, RENDER_MASK_UBO_BINDING, 0);
 }
 
 // Zero-filled 5-Vec4 slice: reserved for layers that produce no geometry (invisible, or shape
@@ -142,7 +137,10 @@ osg::BoundingBox ShapeDrawable::computeBoundingBox() const {
 }
 
 void ShapeDrawable::drawImplementation(osg::RenderInfo& renderInfo) const {
-	// Fast path: single SrcOver, unmasked group - no state changes needed, base class handles it.
+	// Fast path: single SrcOver, unmasked group - no state changes needed. The ambient default
+	// StateSet (Atlas::createDefaultStateSet()) already has SrcOver blend AND the Atlas's null
+	// mask bound at RENDER_MASK_UBO_BINDING, so this is still safe now that every fragment
+	// shader reads osgSlug_mask unconditionally.
 	if(_groups.size() == 1 && _groups[0].blendMode == slughorn::BlendMode::SrcOver && !_groups[0].mask) {
 		osg::Geometry::drawImplementation(renderInfo);
 
@@ -150,6 +148,8 @@ void ShapeDrawable::drawImplementation(osg::RenderInfo& renderInfo) const {
 	}
 
 	osg::State& state = *renderInfo.getState();
+	auto* atlas = getAtlas();
+	RenderMask* nullMask = atlas ? atlas->getNullMask() : nullptr;
 
 	bool usingVBOs = state.useVertexBufferObject(_supportsVertexBufferObjects && _useVertexBufferObjects);
 	bool usingVAOs = usingVBOs && state.useVertexArrayObject(_useVertexArrayObject);
@@ -160,17 +160,21 @@ void ShapeDrawable::drawImplementation(osg::RenderInfo& renderInfo) const {
 	// Bind all vertex arrays and element buffer objects once.
 	drawVertexArraysImplementation(renderInfo);
 
-	// One draw call per group with the appropriate blend state and mask binding.
+	// One draw call per group with the appropriate blend state and mask binding. Every group
+	// binds SOMETHING at RENDER_MASK_UBO_BINDING -- the group's own mask, or the null sentinel --
+	// there is no more "leave it unbound" state.
 	for(const auto& g : _groups) {
 		applyBlendMode(state, g.blendMode);
-		applyMask(state, g.mask.get());
+		applyMask(state, g.mask ? g.mask.get() : nullMask);
 
 		g.indices->draw(state, usingVBOs);
 	}
 
-	// Restore default SrcOver blend state so we don't leak into subsequent drawables.
+	// Restore defaults so we don't leak into subsequent drawables: SrcOver blend state, and the
+	// null mask (replaces the old unbindMask() -- binding the sentinel instead of unbinding is
+	// what makes reading osgSlug_mask.type unconditionally in main() well-defined).
 	applyBlendMode(state, slughorn::BlendMode::SrcOver);
-	unbindMask(state);
+	applyMask(state, nullMask);
 
 	if(usingVBOs && !usingVAOs) {
 		vas->unbindVertexBufferObject();

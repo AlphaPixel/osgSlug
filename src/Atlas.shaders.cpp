@@ -197,6 +197,18 @@ in osgSlug_FxBlock {
 // Defined once here so every shader unit that includes this lib sees the same
 // definition - no manual sync across compilation units.
 
+// All per-fragment data the osgSlug_FragmentMask early hook receives. Called before
+// slug_Render - only geom.emCoord and its screen-space derivative exist yet; no fill, no
+// msdfSd, no layerColor. This is deliberate: osgSlug_FragmentMask's whole point is to let
+// main() discard before paying for slug_Render's curve-band loop on fragments the mask has
+// already excluded, so it cannot depend on anything slug_Render produces. See
+// ai/context-todo-mask.md, "osgSlug_FragmentMask() early hook."
+struct osgSlug_FragmentMaskData {
+	vec2 emCoord; // em-space coordinate (geom.emCoord, raw/untiled)
+	vec2 emsPerPixel; // fwidth(geom.emCoord), precomputed in main() before any discard
+	float time; // osg_SimulationTime
+};
+
 // All per-fragment data the osgSlug_Fragment hook receives.
 struct osgSlug_FragmentData {
 	float fill; // Slug analytic coverage [0,1]
@@ -281,7 +293,7 @@ vec3 osgSlug_MSDFBevelNormal(
 // params2: SDF overflow [4,5]; Arc: angle_end; ArcBand: angle_end + stroke_hw.
 // msdfLayer/debug are MSDF-only fields; ignored for analytical types.
 // MSDF sampling reuses osgSlug_msdfTexture (unit 3, always bound by the Atlas's own default
-// StateSet) -- a mask's MSDF tile lives in the same Texture2DArray every glyph/shape already
+// StateSet) - a mask's MSDF tile lives in the same Texture2DArray every glyph/shape already
 // samples, so SHADER_LIB_MASK re-declares that uniform rather than binding a second texture
 // unit to the same data (see SHADER_LIB_MASK's LayerBuffer re-declaration for why re-declaring
 // instead of importing is the normal, required pattern for a separately-linked shader object).
@@ -302,8 +314,11 @@ struct osgSlug_MaskData {
 	bool debug;
 };
 
-// No inline layout(binding=N): inline UBO binding syntax is illegal pre-4.20. Bound instead
-// via Program::addBindUniformBlock() in createHookStateSet().
+// No inline layout(binding=N): inline UBO binding syntax is illegal pre-4.20. Bound instead via
+// Program::addBindUniformBlock() - every Program that links SHADER_FRAG does this now (see
+// createDefaultStateSet()/createHookStateSet()/createDecalProgram()/PathDrawable.cpp), since
+// osgSlug_FragmentMask() below reads this block unconditionally, not just when a mask-aware
+// hook opts in.
 layout(std140) uniform osgSlug_MaskBlock {
 	osgSlug_MaskData osgSlug_mask;
 };
@@ -480,7 +495,7 @@ void main() {
 // The #pragma osgSlug lib_fragment is expanded at static init time - SHADER_FRAG always
 // contains the fully substituted SHADER_LIB_FRAGMENT content (struct defs + effect helpers).
 const std::string Atlas::SHADER_FRAG = resolveLibs(R"(
-#version 330 core
+#version 430 core
 
 #pragma osgSlug lib_fragment
 
@@ -620,17 +635,19 @@ vec3 osgSlug_MSDFBevelNormal(
 	float bevelWidth,
 	float bevelStrength
 ) {
+	const float EPSILON = 0.0001;
+
 	if(msdfSd < 0.0) return flatNormal;
 
 	float bevel = 1.0 - clamp((msdfSd - 0.5) / bevelWidth, 0.0, 1.0);
 
-	if(bevel <= 0.0001) return flatNormal;
+	if(bevel <= EPSILON) return flatNormal;
 
 	// Gradient points toward the interior; the bevel wants interior->edge, hence the negation.
 	vec2 grad = -osgSlug_MSDFGradient(emCoord);
 	float gradLen = length(grad);
 
-	if(gradLen <= 0.0001) return flatNormal;
+	if(gradLen <= EPSILON) return flatNormal;
 
 	vec2 edgeDir = grad / gradLen;
 
@@ -826,7 +843,7 @@ float slug_RenderText(
 	int iters;
 	float c = slug_Render(renderCoord, pixelsPerEm, bandTransform, glyphLoc, bandMax, iters);
 
-#ifndef SLUG_NO_MSAA
+#ifndef OSGSLUG_NO_MSAA
 	if(ppem < 16.0) {
 		vec2 d = emsPerPixel * (1.0 / 3.0);
 		int i1, i2, i3, i4;
@@ -973,6 +990,15 @@ float slug_StemDarken(float coverage, float brightness, float ppem) {
 vec2 osgSlug_FragEmCoord(vec2 emCoord, inout vec2 emsPerPixel, int effectId, float time);
 vec4 osgSlug_Fragment(osgSlug_FragmentData data);
 
+// Early mask hook: called BEFORE slug_Render (see main() below), so it can discard fragments
+// outside the mask without ever paying for Slug's curve-band loop on them. Defined in its own
+// always-linked unit (see Atlas::SHADER_MASK_FRAGMENT_HOOK) whose DEFAULT implementation is the
+// real mask evaluation (not a no-op like every other hook's default) - masking is automatic,
+// no user-authored hook required. Returns coverage in [0,1] (invert already applied); main()
+// discards below threshold and folds the surviving value into the final alpha after
+// osgSlug_Fragment/osgSlug_FragmentExt run, completely unaware masking exists.
+float osgSlug_FragmentMask(osgSlug_FragmentMaskData data);
+
 // Pre-discard hook: fires for EVERY quad fragment, even where fill < 0.001 (outside Slug's
 // own coverage). This is what lets exterior-fragment effects (glow, halos) attach to a
 // standard Slug drawable without a separate MSDF-only program - contrast with
@@ -1003,6 +1029,9 @@ vec4 osgSlug_Fragment(osgSlug_FragmentData data);
 vec4 osgSlug_FragmentExt(osgSlug_FragmentExtData data, out int blendMode);
 
 void main() {
+	// Below this, fill/alpha/coverage values are treated as fully transparent.
+	const float COVERAGE_EPSILON = 0.001;
+
 	// Layer mask: 0 = all visible (default). Non-zero: discard if the layer's bit is clear.
 	if(osgSlug_layerMask != 0 && (osgSlug_layerMask & (1 << int(geom.layerIndex + 0.5))) == 0) discard;
 
@@ -1012,6 +1041,19 @@ void main() {
 	// fwidth on the raw varying, no discontinuities. osgSlug_FragEmCoord may scale it for
 	// effects like tiling (where fract would make fwidth unreliable at tile boundaries).
 	vec2 emsPerPixel = fwidth(geom.emCoord);
+
+	// Early-out BEFORE slug_Render's curve-band loop: a mask that only reveals e.g. 10% of a
+	// shape would otherwise still pay the full band-loop cost on the other 90% of fragments,
+	// since the old design only gated osgSlug_Fragment's output at the very end of main(). Mask
+	// coverage never depends on Slug's own fill, so it can (and now does) run first. Fragments
+	// on the mask's AA boundary survive here (maskFill > 0 but < 1) and still need slug_Render's
+	// real coverage - osgSlug_maskFill is folded into the final alpha further down, once
+	// osgSlug_Fragment/osgSlug_FragmentExt have run. See ai/context-todo-mask.md.
+	float osgSlug_maskFill = osgSlug_FragmentMask(
+		osgSlug_FragmentMaskData(geom.emCoord, emsPerPixel, osg_SimulationTime)
+	);
+
+	if(osgSlug_maskFill < COVERAGE_EPSILON) discard;
 
 	// Allow effects to remap em-coords (e.g. fract-based GPU tiling). Gradients and debug
 	// visualisation stay on the raw geom.emCoord; only coverage sampling uses renderCoord.
@@ -1106,7 +1148,7 @@ void main() {
 
 		float onEdge = step(dist, px);
 
-		if(fill < 0.001 && onEdge < 0.01) discard;
+		if(fill < COVERAGE_EPSILON && onEdge < 0.01) discard;
 
 		vec4 fillColor = osgSlug_Fragment(fData);
 
@@ -1118,6 +1160,19 @@ void main() {
 		);
 
 		color = mix(fillColor, borderColor, onEdge);
+
+		// Fold in the mask coverage computed early in main() (see osgSlug_maskFill above).
+		// osgSlug_mask.type < 0 (the null sentinel - no real mask bound this draw call) means
+		// osgSlug_maskFill is exactly 1.0, so color.a is left unchanged; type >= 0 means this
+		// draw call went through the premultiplied SrcOver blend func (see
+		// ShapeDrawable::drawImplementation()/applyBlendMode()), so color.rgb must be
+		// premultiplied by the final alpha here to match. This mirrors what the old
+		// osgSlug_Mask_Apply used to do by replacing color outright, but now composes with
+		// whatever osgSlug_Fragment/osgSlug_FragmentExt actually produced instead of
+		// overriding it - masking works with custom hooks now, not just the default one.
+		color.a *= osgSlug_maskFill;
+
+		if(osgSlug_mask.type >= 0) color.rgb *= color.a;
 
 		return;
 	}
@@ -1142,22 +1197,27 @@ void main() {
 	vec4 extColor = osgSlug_FragmentExt(feData, extBlendMode);
 
 	// Using the "half white" line helps show 3D shapes, so... leaving it in for now.
-	if(fill < 0.001 && extColor.a < 0.001) {
+	if(fill < COVERAGE_EPSILON && extColor.a < COVERAGE_EPSILON) {
 		if(osgSlug_debugMode == 6) color = vec4(0.5, 0.5, 0.5, 0.5);
 
 		else discard;
 	}
 
 	// No ext contribution (the overwhelmingly common case) - identical to pre-hook behavior.
-	else if(extColor.a < 0.001) {
+	else if(extColor.a < COVERAGE_EPSILON) {
 		color = (osgSlug_debugMode == 0 || osgSlug_debugMode == 6)
 			? osgSlug_Fragment(fData)
 			: slug_ApplyDebug(fill, geom.emCoord, effectiveColor, glyphLoc, fx.bandXform, iterations)
 		;
+
+		// See the debug-mode-3 branch above for why this premultiplies conditionally.
+		color.a *= osgSlug_maskFill;
+
+		if(osgSlug_mask.type >= 0) color.rgb *= color.a;
 	}
 
 	else {
-		vec4 fillColor = fill < 0.001
+		vec4 fillColor = fill < COVERAGE_EPSILON
 			? vec4(0.0)
 			: (
 				(osgSlug_debugMode == 0 || osgSlug_debugMode == 6)
@@ -1192,6 +1252,11 @@ void main() {
 		}
 
 		color = vec4(outAlpha > 0.0001 ? outPremul / outAlpha : vec3(0.0), outAlpha);
+
+		// See the debug-mode-3 branch above for why this premultiplies conditionally.
+		color.a *= osgSlug_maskFill;
+
+		if(osgSlug_mask.type >= 0) color.rgb *= color.a;
 	}
 
 	// TODO: This line is required when using PREMULTIPLIED ALPHA!
@@ -1210,7 +1275,7 @@ vec3 osgSlug_Vertex(osgSlug_VertexData data) {
 )");
 
 const std::string Atlas::SHADER_NOOP_FRAGMENT_HOOK = resolveLibs(R"(
-#version 330 core
+#version 430 core
 
 #pragma osgSlug lib_fragment
 
@@ -1224,7 +1289,7 @@ vec4 osgSlug_Fragment(osgSlug_FragmentData data) {
 )");
 
 const std::string Atlas::SHADER_NOOP_FRAGMENT_EXT_HOOK = resolveLibs(R"(
-#version 330 core
+#version 430 core
 
 #pragma osgSlug lib_fragment
 
@@ -1449,8 +1514,8 @@ const std::string Atlas::SHADER_LIB_MASK = R"(
 // shader - see makeVertShader() in createHookStateSet()). GLSL requires each shader
 // object/stage to redeclare the buffer blocks it uses; this is normal, not a hack. Only used
 // to recover transformData.xy (each layer's own canvas-space origin) via geom.layerIndex,
-// which osgSlug_Mask_Evaluate needs and osgSlug_MaskData deliberately does not carry (see its
-// comment in SHADER_LIB_FRAGMENT).
+// which osgSlug_Mask_CoverageFor's callers need and osgSlug_MaskData deliberately does not
+// carry (see its comment in SHADER_LIB_FRAGMENT).
 struct osgSlug_LayerData {
 	vec4 color;
 	vec4 gradientMeta;
@@ -1463,8 +1528,21 @@ layout(std430, binding = 1) readonly buffer LayerBuffer {
 	osgSlug_LayerData layers[];
 };
 
+// This fragment's own layer's canvas-space origin. Exposed as a function (not just the
+// LayerBuffer declaration above) so OTHER hooks that only need this one value - e.g. a custom
+// debug/visualization hook - can forward-declare and call it without redeclaring LayerBuffer
+// themselves. Redeclaring LayerBuffer a second time would be harmless (declarations, unlike
+// function bodies, may repeat verbatim across shader objects linked into one Program), but
+// pulling in the whole mask pragma library an entire second time to get it is NOT harmless:
+// that library also pulls in every osgSlug_SDF_*/osgSlug_Mask_* function BODY below, and GLSL
+// rejects the same function being defined twice across linked shader objects of one stage --
+// exactly the trap osgslug-mask.cpp's --debug-msdf hook hit before this helper existed.
+vec2 osgSlug_Mask_LayerOrigin() {
+	return layers[int(geom.layerIndex + 0.5) - 1].transformData.xy;
+}
+
 // Private re-declaration of osgSlug_msdfTexture (see SHADER_TYPES/SHADER_FRAG): same reason as
-// LayerBuffer above -- this shader object never gets SHADER_FRAG prepended. GLSL shares the
+// LayerBuffer above - this shader object never gets SHADER_FRAG prepended. GLSL shares the
 // binding automatically across shader objects when the uniform name+type match (the Atlas's own
 // default StateSet already binds this to unit 3 unconditionally, since every glyph/shape's own
 // MSDF sampling depends on it too), so a mask's MSDF tile needs no separate texture unit.
@@ -1515,7 +1593,7 @@ float osgSlug_SDF_ArcBand(vec2 p, vec2 center, float ra, float a0, float a1, flo
 }
 
 // Rotates p by angle a (CCW, radians). Used by every rotatable mask primitive below to pre-
-// rotate the query point by -rotation into the shape's own unrotated local frame -- same trick
+// rotate the query point by -rotation into the shape's own unrotated local frame - same trick
 // for all of them, not worth a dedicated per-shape variant.
 vec2 osgSlug_SDF_Rotate(vec2 p, float a) {
 	float c = cos(a), s = sin(a);
@@ -1578,33 +1656,48 @@ float osgSlug_Mask_Coverage(float dist, vec2 emsPerPixel) {
 	return clamp(0.5 - dist / px, 0.0, 1.0);
 }
 
-// Apply osgSlug_mask.invert + alpha-gate. Returns premultiplied fragment color - the comment
-// always said so, but the code never actually multiplied rgb by alpha until now. Latent since
-// this function was written: the SrcOver fast path in ShapeDrawable::drawImplementation()
-// used to skip applyBlendMode() entirely for a single masked group, so the mismatch between
-// this straight-alpha output and applyBlendMode()'s premultiplied GL_ONE blend func was never
-// exercised. Adding mask-awareness to that fast path's condition (RenderGroup.mask) exposed
-// it: GL_ONE doesn't scale src by alpha, so any nonzero straight alpha saturated to near-full
-// foreground brightness, making the antialiased ramp look like a hard step.
-vec4 osgSlug_Mask_Apply(osgSlug_FragmentData data, float maskFill) {
-	if(osgSlug_mask.invert) maskFill = 1.0 - maskFill;
-	if(maskFill < 0.001) discard;
+// Debug-only: raw baked MSDF tile RGB (the msd.r/g/b channels, before median-of-three
+// reconstruction) at a canvas-space coordinate, or vec3(-1.0) if there's no tile or
+// canvasCoord falls outside its baked extent. NOT called by the automatic
+// osgSlug_FragmentMask() pipeline below - osgSlug_FragmentMask returns a coverage float, which
+// has no room for a raw-tile preview. Call this instead from your own FragmentExt/Fragment hook
+// when you want to visualize a baked mask's tile directly (e.g. the --debug-msdf flag in
+// osgslug-mask.cpp). Forward-declare it (`vec3 osgSlug_Mask_DebugMSDF(vec2 canvasCoord);`)
+// plus the ordinary fragment-data pragma - do NOT also pull in the mask pragma library in that
+// hook: this function's BODY is already linked in via the always-present MaskHook shader object, and
+// GLSL rejects the same function being defined twice across shader objects linked into one
+// Program. See osgslug-mask.cpp's HOOK_DEBUG_MSDF for the working pattern.
+vec3 osgSlug_Mask_DebugMSDF(vec2 canvasCoord) {
+	if(osgSlug_mask.type != 0 || osgSlug_mask.msdfLayer < 0) return vec3(-1.0);
 
-	float alpha = data.fill * maskFill * data.layerColor.a;
+	float cx = osgSlug_mask.params.x, cy = osgSlug_mask.params.y;
+	float r = osgSlug_mask.params.z, rng = osgSlug_mask.params.w;
+	vec4 bbox = vec4(cx - r - rng, cy - r - rng, cx + r + rng, cy + r + rng);
+	vec2 tileUV = (canvasCoord - bbox.xy) / (bbox.zw - bbox.xy);
 
-	return vec4(data.layerColor.rgb * alpha, alpha);
+	if(any(lessThan(tileUV, vec2(0.0))) || any(greaterThan(tileUV, vec2(1.0)))) return vec3(-1.0);
+
+	return texture(osgSlug_msdfTexture, vec3(tileUV, float(osgSlug_mask.msdfLayer))).rgb;
 }
 
-// Full mask evaluation: reads osgSlug_mask, returns the masked fragment color.
-vec4 osgSlug_Mask_Evaluate(osgSlug_FragmentData data) {
-	vec2 layerOrigin = layers[int(geom.layerIndex + 0.5) - 1].transformData.xy;
-	vec2 canvasCoord = data.emCoord + layerOrigin;
+// Coverage-only mask evaluation: reads osgSlug_mask, returns maskFill in [0,1] (invert already
+// applied). No discard, no color - callers decide what to do with the result. This is what
+// lets it run BEFORE slug_Render (see osgSlug_FragmentMask below, called early in main()) as
+// well as feed the post-slug_Render alpha gate at the end of main() - one computation, two
+// call sites, instead of the old osgSlug_Mask_Evaluate/osgSlug_Mask_Apply pair that both
+// recomputed coverage AND replaced osgSlug_Fragment's color output outright.
+float osgSlug_Mask_CoverageFor(vec2 canvasCoord, vec2 emsPerPixel) {
+	// Null sentinel (Atlas::getNullMask(), bound whenever a RenderGroup has no real mask) --
+	// always fully unmasked. Checked BEFORE invert: a "no mask" state must never invert to
+	// "hide everything."
+	if(osgSlug_mask.type < 0) return 1.0;
+
 	float maskFill;
 
 	if(osgSlug_mask.type == 0) { // MSDF - baked tile sample
 		if(osgSlug_mask.msdfLayer < 0) {
-			// No tile baked at all -- treat as "definitely outside," not a discard: an
-			// unconditional discard here runs before osgSlug_Mask_Apply ever sees invert,
+			// No tile baked at all - treat as "definitely outside," not a discard: an
+			// unconditional discard here would run before invert is ever applied below,
 			// silently making invert a no-op. maskFill = 0.0 lets invert flip it correctly.
 			maskFill = 0.0;
 		}
@@ -1616,19 +1709,18 @@ vec4 osgSlug_Mask_Evaluate(osgSlug_FragmentData data) {
 
 			// Outside the baked tile's extent: no SDF data exists there, but the tile is padded
 			// by rng beyond the shape's true bounds, so "outside" reliably means "outside the
-			// shape." Same reasoning as msdfLayer<0 above -- maskFill = 0.0, not discard, so
-			// invert still applies (see osgSlug_Mask_Apply). Procedural types (Circle/Rect/etc.)
-			// never hit this at all: their SDF formulas are closed-form and valid everywhere, so
-			// they never needed this distinction -- this brings MSDF's invert behavior in line
-			// with them instead of being a discard-shaped exception.
+			// shape." Same reasoning as msdfLayer<0 above - maskFill = 0.0, not discard, so
+			// invert still applies below. Procedural types (Circle/Rect/etc.) never hit this at
+			// all: their SDF formulas are closed-form and valid everywhere, so they never needed
+			// this distinction - this brings MSDF's invert behavior in line with them instead
+			// of being a discard-shaped exception.
 			if(any(lessThan(tileUV, vec2(0.0))) || any(greaterThan(tileUV, vec2(1.0)))) {
 				maskFill = 0.0;
 			}
 			else {
 				vec3 msd = texture(osgSlug_msdfTexture, vec3(tileUV, float(osgSlug_mask.msdfLayer))).rgb;
-				if(osgSlug_mask.debug) return vec4(msd.r, msd.g, msd.b, 1.0);
 				float maskSd = max(min(msd.r, msd.g), min(max(msd.r, msd.g), msd.b));
-				float pxRange = max(2.0 * rng / max(data.emsPerPixel.x, data.emsPerPixel.y), 1.0);
+				float pxRange = max(2.0 * rng / max(emsPerPixel.x, emsPerPixel.y), 1.0);
 				maskFill = clamp((maskSd - 0.5) * pxRange + 0.5, 0.0, 1.0);
 			}
 		}
@@ -1637,7 +1729,8 @@ vec4 osgSlug_Mask_Evaluate(osgSlug_FragmentData data) {
 	else if(osgSlug_mask.type == 1) { // Circle
 		maskFill = osgSlug_Mask_Coverage(
 			osgSlug_SDF_Circle(canvasCoord, osgSlug_mask.params.xy, osgSlug_mask.params.z),
-			data.emsPerPixel);
+			emsPerPixel
+		);
 	}
 
 	else if(osgSlug_mask.type == 2) { // Rect
@@ -1645,58 +1738,123 @@ vec4 osgSlug_Mask_Evaluate(osgSlug_FragmentData data) {
 		vec2 halfExt = osgSlug_mask.params.zw * 0.5;
 		maskFill = osgSlug_Mask_Coverage(
 			osgSlug_SDF_Box(canvasCoord, center, halfExt),
-			data.emsPerPixel);
+			emsPerPixel
+		);
 	}
 
 	else if(osgSlug_mask.type == 3) { // Capsule
 		maskFill = osgSlug_Mask_Coverage(
-			osgSlug_SDF_Capsule(canvasCoord,
-				osgSlug_mask.params.xy, osgSlug_mask.params.zw,
-				osgSlug_mask.params2.x),
-			data.emsPerPixel);
+			osgSlug_SDF_Capsule(
+				canvasCoord,
+				osgSlug_mask.params.xy,
+				osgSlug_mask.params.zw,
+				osgSlug_mask.params2.x
+			),
+			emsPerPixel
+		);
 	}
 
 	else if(osgSlug_mask.type == 4) { // Arc - filled pie sector
 		maskFill = osgSlug_Mask_Coverage(
-			osgSlug_SDF_Pie(canvasCoord, osgSlug_mask.params.xy,
-				osgSlug_mask.params.z, osgSlug_mask.params.w,
-				osgSlug_mask.params2.x),
-			data.emsPerPixel);
+			osgSlug_SDF_Pie(
+				canvasCoord,
+				osgSlug_mask.params.xy,
+				osgSlug_mask.params.z,
+				osgSlug_mask.params.w,
+				osgSlug_mask.params2.x
+			),
+			emsPerPixel
+		);
 	}
 
 	else if(osgSlug_mask.type == 5) { // ArcBand - stroked arc
 		maskFill = osgSlug_Mask_Coverage(
-			osgSlug_SDF_ArcBand(canvasCoord, osgSlug_mask.params.xy,
-				osgSlug_mask.params.z, osgSlug_mask.params.w,
-				osgSlug_mask.params2.x, osgSlug_mask.params2.y),
-			data.emsPerPixel);
+			osgSlug_SDF_ArcBand(
+				canvasCoord,
+				osgSlug_mask.params.xy,
+				osgSlug_mask.params.z,
+				osgSlug_mask.params.w,
+				osgSlug_mask.params2.x,
+				osgSlug_mask.params2.y
+			),
+			emsPerPixel
+		);
 	}
 
 	else if(osgSlug_mask.type == 6) { // Hexagon
 		maskFill = osgSlug_Mask_Coverage(
-			osgSlug_SDF_Hexagon(canvasCoord, osgSlug_mask.params.xy,
-				osgSlug_mask.params.z, osgSlug_mask.params.w),
-			data.emsPerPixel);
+			osgSlug_SDF_Hexagon(
+				canvasCoord,
+				osgSlug_mask.params.xy,
+				osgSlug_mask.params.z,
+				osgSlug_mask.params.w
+			),
+			emsPerPixel
+		);
 	}
 
 	else if(osgSlug_mask.type == 7) { // Octagon
 		maskFill = osgSlug_Mask_Coverage(
-			osgSlug_SDF_Octagon(canvasCoord, osgSlug_mask.params.xy,
-				osgSlug_mask.params.z, osgSlug_mask.params.w),
-			data.emsPerPixel);
+			osgSlug_SDF_Octagon(
+				canvasCoord,
+				osgSlug_mask.params.xy,
+				osgSlug_mask.params.z,
+				osgSlug_mask.params.w
+			),
+			emsPerPixel);
 	}
 
 	else { // Star (type == 8)
 		maskFill = osgSlug_Mask_Coverage(
-			osgSlug_SDF_Star(canvasCoord, osgSlug_mask.params.xy,
-				osgSlug_mask.params.z, osgSlug_mask.params.w,
-				osgSlug_mask.params2.x, osgSlug_mask.params2.y),
-			data.emsPerPixel);
+			osgSlug_SDF_Star(
+				canvasCoord,
+				osgSlug_mask.params.xy,
+				osgSlug_mask.params.z,
+				osgSlug_mask.params.w,
+				osgSlug_mask.params2.x,
+				osgSlug_mask.params2.y
+			),
+			emsPerPixel);
 	}
 
-	return osgSlug_Mask_Apply(data, maskFill);
+	if(osgSlug_mask.invert) maskFill = 1.0 - maskFill;
+
+	return maskFill;
 }
 )";
+
+// Default (always-linked, NOT opt-in) implementation of the osgSlug_FragmentMask early hook --
+// see main()'s call site in SHADER_FRAG and osgSlug_FragmentMaskData's comment. Unlike
+// SHADER_NOOP_FRAGMENT_HOOK/SHADER_NOOP_FRAGMENT_EXT_HOOK, this default is NOT a no-op: it IS
+// the real mask coverage evaluation, so masking works automatically the moment
+// CompositeShape.mask is set, without any user-authored hook. A power user can still override
+// MaskHook (e.g. for custom clip logic) exactly like FragmentHook/FragmentExtHook.
+//
+// Requires #version 430: lib_mask's private LayerBuffer redeclaration is a `buffer` (SSBO)
+// block, illegal pre-4.30. (All other fragment-stage shader strings in this file are also
+// 430 now, post-GL3-removal, but this is the one that actually needs it.)
+const std::string Atlas::SHADER_MASK_FRAGMENT_HOOK = resolveLibs(R"(
+#version 430 core
+
+#pragma osgSlug lib_fragment
+#pragma osgSlug lib_mask
+
+float osgSlug_FragmentMask(osgSlug_FragmentMaskData data) {
+	// Checked here, before the LayerBuffer read below, not just inside
+	// osgSlug_Mask_CoverageFor: this hook's private LayerBuffer redeclaration (see lib_mask)
+	// assumes the standard 5-vec4 osgSlug_LayerData layout, which does NOT match
+	// DecalDrawable's own 7-vec4 osgSlug_DecalLayerData at the same binding. DecalDrawable never
+	// sets a real mask (RenderGroup.mask is always null there), so its draws always have the
+	// null sentinel bound (type=-1) - returning early here means this hook never reads through
+	// that mismatched buffer for Decal, not just that it discards the (potentially
+	// out-of-bounds) result.
+	if(osgSlug_mask.type < 0) return 1.0;
+
+	vec2 canvasCoord = data.emCoord + osgSlug_Mask_LayerOrigin();
+
+	return osgSlug_Mask_CoverageFor(canvasCoord, data.emsPerPixel);
+}
+)");
 
 // ================================================================================================
 // State-set builders
@@ -1706,11 +1864,13 @@ osg::StateSet* Atlas::createDefaultStateSet(HookList hooks) const {
 	const std::string* vertEffects = &SHADER_NOOP_VERTEX_HOOK;
 	const std::string* fragEffects = &SHADER_NOOP_FRAGMENT_HOOK;
 	const std::string* fragExt = &SHADER_NOOP_FRAGMENT_EXT_HOOK;
+	const std::string* maskHook = &SHADER_MASK_FRAGMENT_HOOK;
 
 	for(const auto& [hook, src] : hooks) {
 		if(hook == VertexHook) vertEffects = &src;
 		else if(hook == FragmentHook) fragEffects = &src;
 		else if(hook == FragmentExtHook) fragExt = &src;
+		else if(hook == MaskHook) maskHook = &src;
 	}
 
 	auto* ss = new osg::StateSet();
@@ -1721,8 +1881,21 @@ osg::StateSet* Atlas::createDefaultStateSet(HookList hooks) const {
 	program->addShader(new osg::Shader(osg::Shader::FRAGMENT, SHADER_FRAG));
 	program->addShader(new osg::Shader(osg::Shader::FRAGMENT, resolveLibs(*fragEffects)));
 	program->addShader(new osg::Shader(osg::Shader::FRAGMENT, resolveLibs(*fragExt)));
+	program->addShader(new osg::Shader(osg::Shader::FRAGMENT, resolveLibs(*maskHook)));
+
+	// osgSlug_MaskBlock has no inline layout(binding=N) (illegal pre-GL4.20); bound instead via
+	// glUniformBlockBinding here, matching where RenderMask::apply() binds at draw time.
+	program->addBindUniformBlock("osgSlug_MaskBlock", RENDER_MASK_UBO_BINDING);
 
 	ss->setAttributeAndModes(program, osg::StateAttribute::ON);
+
+	// Ambient default: the null sentinel, so every fragment shader linking SHADER_FRAG can read
+	// osgSlug_mask unconditionally. Child drawables that bind a real RenderMask (ShapeDrawable's
+	// slow path) override this per-group at draw time and restore it afterward - see
+	// ShapeDrawable::drawImplementation(). Attached here (not just imperatively) so drawables
+	// that never touch masking at all (the fast path, DecalDrawable, etc.) still have something
+	// valid bound via ordinary StateSet inheritance.
+	ss->setAttributeAndModes(getNullMask()->getBinding(), osg::StateAttribute::ON);
 	ss->addUniform(new osg::Uniform("osgSlug_curveTexture", 0));
 	ss->addUniform(new osg::Uniform("osgSlug_bandTexture", 1));
 	ss->addUniform(new osg::Uniform("osgSlug_gradientTexture", 2));
@@ -1785,11 +1958,13 @@ osg::StateSet* Atlas::createHookStateSet(HookList hooks) const {
 	const std::string* vertEffects = &SHADER_NOOP_VERTEX_HOOK;
 	const std::string* fragEffects = &SHADER_NOOP_FRAGMENT_HOOK;
 	const std::string* fragExt = &SHADER_NOOP_FRAGMENT_EXT_HOOK;
+	const std::string* maskHook = &SHADER_MASK_FRAGMENT_HOOK;
 
 	for(const auto& [hook, src] : hooks) {
 		if(hook == VertexHook) vertEffects = &src;
 		else if(hook == FragmentHook) fragEffects = &src;
 		else if(hook == FragmentExtHook) fragExt = &src;
+		else if(hook == MaskHook) maskHook = &src;
 	}
 
 	auto* ss = new osg::StateSet();
@@ -1800,9 +1975,12 @@ osg::StateSet* Atlas::createHookStateSet(HookList hooks) const {
 	program->addShader(new osg::Shader(osg::Shader::FRAGMENT, SHADER_FRAG));
 	program->addShader(new osg::Shader(osg::Shader::FRAGMENT, resolveLibs(*fragEffects)));
 	program->addShader(new osg::Shader(osg::Shader::FRAGMENT, resolveLibs(*fragExt)));
+	program->addShader(new osg::Shader(osg::Shader::FRAGMENT, resolveLibs(*maskHook)));
 
 	// osgSlug_MaskBlock has no inline layout(binding=N) (illegal pre-GL4.20); bound instead via
-	// glUniformBlockBinding here, matching where RenderMask::apply() binds at draw time.
+	// glUniformBlockBinding here, matching where RenderMask::apply() binds at draw time. The
+	// actual buffer bound to that index (real mask, or the null sentinel) is inherited from the
+	// Atlas parent's own StateSet (createDefaultStateSet()) - see that function's comment.
 	program->addBindUniformBlock("osgSlug_MaskBlock", RENDER_MASK_UBO_BINDING);
 
 	ss->setAttributeAndModes(program, osg::StateAttribute::ON);
@@ -1814,11 +1992,13 @@ osg::Program* Atlas::createDecalProgram(HookList hooks) const {
 	const std::string* vertEffects = &SHADER_NOOP_VERTEX_HOOK;
 	const std::string* fragEffects = &SHADER_NOOP_FRAGMENT_HOOK;
 	const std::string* fragExt = &SHADER_NOOP_FRAGMENT_EXT_HOOK;
+	const std::string* maskHook = &SHADER_MASK_FRAGMENT_HOOK;
 
 	for(const auto& [hook, src] : hooks) {
 		if(hook == VertexHook) vertEffects = &src;
 		else if(hook == FragmentHook) fragEffects = &src;
 		else if(hook == FragmentExtHook) fragExt = &src;
+		else if(hook == MaskHook) maskHook = &src;
 	}
 
 	auto* program = new osg::Program();
@@ -1830,6 +2010,15 @@ osg::Program* Atlas::createDecalProgram(HookList hooks) const {
 	program->addShader(new osg::Shader(osg::Shader::FRAGMENT, SHADER_FRAG));
 	program->addShader(new osg::Shader(osg::Shader::FRAGMENT, resolveLibs(*fragEffects)));
 	program->addShader(new osg::Shader(osg::Shader::FRAGMENT, resolveLibs(*fragExt)));
+	program->addShader(new osg::Shader(osg::Shader::FRAGMENT, resolveLibs(*maskHook)));
+
+	// DecalDrawable never sets a real mask (see ShapeDrawable::RenderGroup usage in
+	// DecalDrawable.cpp - mask is always nullptr there), and osgSlug_FragmentMask()'s default
+	// body returns early on the null sentinel before ever reading LayerBuffer, so binding this
+	// here is just for correctness/consistency, not because Decal masking works today - see
+	// that function's comment on why it can't safely read the standard LayerBuffer layout Decal
+	// doesn't use.
+	program->addBindUniformBlock("osgSlug_MaskBlock", RENDER_MASK_UBO_BINDING);
 
 	return program;
 }

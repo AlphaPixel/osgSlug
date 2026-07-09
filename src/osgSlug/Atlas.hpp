@@ -28,6 +28,7 @@ OSGSLUG_ENABLE_WARNINGS
 namespace osgSlug {
 
 class Drawable; // forward declaration; full type needed only in Atlas.cpp
+class RenderMask; // forward declaration; full type needed only in Atlas.cpp/Atlas.shaders.cpp
 
 // ================================================================================================
 // osgSlug::Atlas
@@ -84,6 +85,13 @@ public:
 	uint32_t getShapeIndex(const slughorn::Key& key) const;
 	osgx::Vec4Array* getShapeBuffer() const { return _shapeBuffer.get(); }
 
+	// Always-valid "no mask" sentinel (type=-1), created once alongside this Atlas. Bound as an
+	// ambient default in createDefaultStateSet() so every fragment shader can read osgSlug_mask
+	// unconditionally; ShapeDrawable::drawImplementation() rebinds it after any masked
+	// RenderGroup so the next group never sees a stale real mask. See
+	// ai/context-todo-mask.md, "null UBO" plan.
+	RenderMask* getNullMask() const { return _nullMask.get(); }
+
 	// Vertex hook no-op; osgSlug_Vertex() passes pos through unchanged.
 	static const std::string SHADER_NOOP_VERTEX_HOOK;
 	// Fragment hook no-op; osgSlug_Fragment() returns coverage unchanged.
@@ -92,6 +100,12 @@ public:
 	// independent of fragEffects, so existing custom fragEffects units never need to know this hook
 	// exists.
 	static const std::string SHADER_NOOP_FRAGMENT_EXT_HOOK;
+	// Default for osgSlug_FragmentMask's early (pre-slug_Render) hook. Unlike the two NOOP hooks
+	// above, this default is NOT a no-op -- it IS the real mask coverage evaluation, always
+	// linked as its own shader unit so masking works automatically (no user hook required) and
+	// main() can discard before slug_Render for fragments outside the mask. See
+	// ai/context-todo-mask.md, "osgSlug_FragmentMask() early hook."
+	static const std::string SHADER_MASK_FRAGMENT_HOOK;
 	static const std::string SHADER_ATLAS_TYPES; // AtlasShapeData + binding 0 only
 	static const std::string SHADER_TYPES; // SHADER_ATLAS_TYPES + LayerData + binding 1
 	static const std::string SHADER_LIB_VERTEX;
@@ -104,7 +118,7 @@ public:
 	static const std::string SHADER_SCANLINE_VERT; // ScanlineDrawable vertex shader
 	static const std::string SHADER_SCANLINE_FRAG; // ScanlineDrawable fragment shader (resolved)
 
-	enum Hook { VertexHook, FragmentHook, FragmentExtHook };
+	enum Hook { VertexHook, FragmentHook, FragmentExtHook, MaskHook };
 
 	using HookList = std::vector<std::pair<Hook, std::string>>;
 
@@ -133,7 +147,9 @@ public:
 	}
 
 protected:
-	virtual ~Atlas() = default;
+	// Out-of-line (not = default): _nullMask is a ref_ptr<RenderMask>, and RenderMask is only
+	// forward-declared here (its full definition, in Drawable.hpp, includes this header).
+	virtual ~Atlas();
 
 	template<typename... Args>
 	static osg::ref_ptr<Atlas> fromAtlas(Args&&... args) {
@@ -154,6 +170,8 @@ private:
 
 	osg::ref_ptr<osgx::Vec4Array> _shapeBuffer; // atlas shape SSBO, binding 0
 	std::unordered_map<slughorn::Key, uint32_t, slughorn::KeyHash> _shapeIndex;
+
+	osg::ref_ptr<RenderMask> _nullMask; // see getNullMask()
 };
 
 }

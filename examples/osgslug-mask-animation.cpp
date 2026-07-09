@@ -65,25 +65,10 @@ static const std::array<std::string, 4> DEFAULT_EMOJIS = {
 	"red_heart", "star", "octopus", "honeybee"
 };
 
-// ================================================================================================
-// GLSL - identical to osgslug-mask.cpp's hook: osgSlug_mask is populated automatically per masked
-// RenderGroup, so the hook just delegates. Nothing here is animation-specific -- all the
-// animation work happens on the CPU side, see MaskAnimCallback below.
-// ================================================================================================
-
-static const std::string HOOK_MASK_BODY = R"(
-#version 430 core
-#pragma osgSlug lib_fragment
-#pragma osgSlug lib_mask
-
-vec2 osgSlug_FragEmCoord(vec2 emCoord, inout vec2 emsPerPixel, int effectId, float time) {
-	return emCoord;
-}
-
-vec4 osgSlug_Fragment(osgSlug_FragmentData data) {
-	return osgSlug_Mask_Evaluate(data);
-}
-)";
+// Masking is fully automatic (osgSlug_FragmentMask, an always-linked early hook, evaluates and
+// discards BEFORE slug_Render runs) -- no custom FragmentHook needed here at all anymore.
+// Nothing about this demo is animation-specific on the GLSL side; all the animation work
+// happens on the CPU side, see MaskAnimCallback below.
 
 // ================================================================================================
 // Scene construction helpers
@@ -108,7 +93,7 @@ static void heartPath(slughorn::canvas::Canvas& canvas, float cx, float cy, floa
 // layer (rigidly, as one unit -- COLR layers must move together) so the glyph's own natural
 // center lands exactly on (cx, cy).
 //
-// Deliberately does NOT touch layer.scale. osgSlug_Mask_Evaluate (Atlas.shaders.cpp) computes
+// Deliberately does NOT touch layer.scale. osgSlug_FragmentMask (Atlas.shaders.cpp) computes
 // canvasCoord = data.emCoord + layer.transform.xy using the shape's RAW, unscaled em-space
 // coordinate -- layer.scale only ever reaches Shape::computeQuad() (the on-screen vertex quad),
 // it never reaches emCoord/canvasCoord. A nonzero layer.scale therefore resizes the content on
@@ -178,7 +163,7 @@ static void animateMask(slughorn::Mask& m, double t, float phase) {
 		// The heart quad: a hand-drawn vector path baked into an MSDF tile at authoring time
 		// (see main() below) -- its geometry can't cheaply re-animate (that would mean
 		// re-baking), but its SAMPLING WINDOW (params: cx, cy, r, range) can, which is exactly
-		// the "cheaply transform-animatable" property baked masks have. osgSlug_Mask_Evaluate
+		// the "cheaply transform-animatable" property baked masks have. osgSlug_Mask_CoverageFor
 		// (Atlas.shaders.cpp) hard-clamps to maskFill=0 outside [cx-r-range, cx+r+range] in
 		// canvas space, so r IS the reveal's on-screen half-extent -- bigger r = bigger apparent
 		// heart, same direction as every other type here. (A previous version of this comment
@@ -352,9 +337,8 @@ int main(int argc, char** argv) {
 
 	sd->setUpdateCallback(new MaskAnimCallback());
 
-	auto* ss = atlas->createHookStateSet({{osgSlug::Atlas::FragmentHook, HOOK_MASK_BODY}});
-
-	sd->setStateSet(ss);
+	// No StateSet override: sd inherits the Atlas's own default StateSet, which already links
+	// the automatic masking hook -- see osgslug-mask.cpp's equivalent comment.
 	atlas->addChild(sd);
 
 	return example::run(viewer, args, atlas);
