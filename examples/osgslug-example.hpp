@@ -127,6 +127,66 @@ struct DebugModeHandler: public osgGA::GUIEventHandler {
 	}
 };
 
+// Alt+Scroll adjusts osgSlug_gamma live, in fixed 0.025 steps. Opt-in per example (add
+// `viewer.addEventHandler(new GammaHandler(ss))` where `ss` is the StateSet carrying the
+// osgSlug program) -- NOT wired into example::run() globally. Gamma correction requires
+// osgSlug_textMode (see Atlas.shaders.cpp), so the constructor always sets both uniforms
+// together: textMode alone with no explicit gamma value would leave osgSlug_gamma at GLSL's
+// zero-initialized uniform default, and pow(fill, 0.0) == 1.0 for any positive coverage --
+// every antialiased edge everywhere would snap to full opacity. Does NOT touch
+// osgSlug_stemDarken, a separate, independent knob (safe to leave unset -- defaults false/off).
+struct GammaHandler: public osgGA::GUIEventHandler {
+	static constexpr float STEP = 0.025f;
+	static constexpr float MIN_GAMMA = 0.025f;
+
+	osg::ref_ptr<osg::Uniform> _uniform;
+	float _gamma = 1.0f;
+
+	GammaHandler(osg::StateSet* ss) {
+		_uniform = ss->getUniform("osgSlug_gamma");
+
+		if(!_uniform) {
+			_uniform = new osg::Uniform("osgSlug_gamma", _gamma);
+
+			ss->addUniform(_uniform);
+		}
+
+		else _uniform->get(_gamma);
+
+		if(!ss->getUniform("osgSlug_textMode")) ss->addUniform(new osg::Uniform("osgSlug_textMode", true));
+
+		OSG_NOTICE << "GammaHandler: osgSlug_gamma = " << _gamma << " (Alt+Scroll to adjust)" << std::endl;
+	}
+
+	bool handle(const osgGA::GUIEventAdapter& ea, osgGA::GUIActionAdapter&) override {
+		// if(ea.getEventType() != osgGA::GUIEventAdapter::SCROLL) return false;
+		// if(!(ea.getModKeyMask() & osgGA::GUIEventAdapter::MODKEY_ALT)) return false;
+		if(ea.getEventType() != osgGA::GUIEventAdapter::KEYDOWN) return false;
+
+		float delta = 0.0f;
+
+		/* switch(ea.getScrollingMotion()) {
+			case osgGA::GUIEventAdapter::SCROLL_UP: delta = STEP; break;
+			case osgGA::GUIEventAdapter::SCROLL_DOWN: delta = -STEP; break;
+			default: return false;
+		} */
+
+		switch(ea.getKey()) {
+			case osgGA::GUIEventAdapter::KEY_Up: delta = STEP; break;
+			case osgGA::GUIEventAdapter::KEY_Down: delta = -STEP; break;
+			default: return false;
+		}
+
+		_gamma = std::max(MIN_GAMMA, _gamma + delta);
+
+		_uniform->set(_gamma);
+
+		OSG_NOTICE << "osgSlug_gamma = " << _gamma << std::endl;
+
+		return true;
+	}
+};
+
 // Positions a TrackballManipulator to look at the XY plane from +Z (Y-up), so
 // content built in XY space is visible face-on without a scene-graph rotation.
 inline osgGA::TrackballManipulator* makeTrackball(osg::Node* scene) {

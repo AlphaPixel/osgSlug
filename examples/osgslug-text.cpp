@@ -192,6 +192,8 @@ int main(int argc, char** argv) {
 		text->getOrCreateStateSet()->addUniform(new osg::Uniform("osgSlug_gamma", gamma));
 	}
 
+	viewer.addEventHandler(new example::GammaHandler(text->getOrCreateStateSet()));
+
 	if(args.read("--perspective")) return example::run(viewer, args, text);
 
 	else {

@@ -11,12 +11,9 @@
 //   confirmation that N, V, and the specular math are wired correctly, not just a static
 //   flat-shaded color.
 //
-// The dome normal comes from the shape's MSDF distance field via osgSlug_MSDFGradient() -- an
-// em-space central difference of the float MSDF tile. NEVER from dFdx/dFdy(msdfSd): screen-space
-// derivatives are constant per 2x2 hardware quad, and a direction built from them quantizes N
-// (and every reflection of it) into pixel-scale blocks that sharp lookups amplify into a crunchy
-// silhouette. That was BUG.md's boundary artifact (resolved 2026-07-06); run with --broken to
-// see it.
+// The dome normal comes from the shape's MSDF distance field via osgSlug_MSDFBevelNormal(), which
+// uses an em-space central difference of the float MSDF tile. That keeps N and its reflection
+// vector smooth at the silhouette instead of quantized by screen-space hardware derivatives.
 
 #include "osgslug-example.hpp"
 
@@ -46,31 +43,13 @@ static constexpr float MSDF_RANGE = 0.45f;
 // declared in makeChromeFrag() and filled by osgx::pbr::OrbitLightRig below.
 static constexpr int MAX_LIGHTS = 4;
 
-// brokenGradient bakes in the ORIGINAL dFdx/dFdy(msdfSd) bevel direction -- the confirmed root
-// cause of BUG.md's boundary artifact -- for A/B against the osgSlug_MSDFGradient() fix.
-static std::string makeChromeFrag(bool brokenGradient) {
+static std::string makeChromeFrag() {
 	std::string src = R"GLSL(
 #version 330 core
 #pragma osgSlug lib_fragment
 
 const float PI = 3.14159265359;
-
-const bool BROKEN_GRADIENT = )GLSL";
-
-	src += brokenGradient ? "true;\n" : "false;\n";
-
-	// The full osgx::pbr BRDF toolkit: D_GGX/G_Schlick/G_Smith/F_Schlick feed
-	// osgx_DirectSpecular below (F_Schlick_roughness comes along too but is unused -- the
-	// split-sum IBL combine folds Fresnel into the baked brdfLUT instead). DIRECT_SPECULAR,
-	// IBL_SPECULAR, and TONEMAP_PBR_NEUTRAL are the shape-agnostic pieces promoted to osgx::pbr
-	// once this example got a second consumer (osgslug-pbr-ibl-text.cpp) -- see
-	// ai/context-todo-lighting.md.
-	src += osgx::pbr::snippets();
-	src += osgx::pbr::DIRECT_SPECULAR;
-	src += osgx::pbr::IBL_SPECULAR;
-	src += osgx::pbr::TONEMAP_PBR_NEUTRAL;
-
-	src += R"GLSL(
+#pragma osgx::pbr *
 uniform samplerCube envMap; // unit 5 -- GGX-prefiltered cubemap (osgx::ibl::loadPrefilterCubemap)
 uniform sampler2D brdfLUT; // unit 6 -- split-sum LUT (osgx::ibl::makeBRDFLUTCamera)
 uniform mat4 osg_ViewMatrixInverse;
@@ -102,7 +81,6 @@ vec4 osgSlug_Fragment(osgSlug_FragmentData data) {
 	vec3 Nz = normalize(badgeNormalWorld);
 	vec3 camRight = normalize(osg_ViewMatrixInverse[0].xyz);
 	vec3 camUp = normalize(osg_ViewMatrixInverse[1].xyz);
-	vec3 N;
 
 	// Dome normal from the MSDF distance field: flat (Nz) only at the very deepest interior
 	// point, curving continuously all the way out to the edge as msdfSd approaches 0.5
@@ -119,34 +97,9 @@ vec4 osgSlug_Fragment(osgSlug_FragmentData data) {
 	// there, which drives how bright/edgy the rim's reflections get.
 	const float BEVEL_STRENGTH = 0.7;
 
-	if(BROKEN_GRADIENT) {
-		// BUG.md's confirmed root cause, kept only for A/B (--broken): per-2x2-quad constant
-		// derivatives quantize the direction -- and therefore N and R -- into pixel-scale
-		// blocks. Duplicates osgSlug_MSDFBevelNormal (Atlas.shaders.cpp) with the broken
-		// gradient source, since that helper always uses the correct em-space one.
-		N = Nz;
-
-		if(data.msdfSd >= 0.0) {
-			float bevel = 1.0 - clamp((data.msdfSd - 0.5) / BEVEL_WIDTH, 0.0, 1.0);
-			// Points toward DECREASING sd already (screen space).
-			vec2 grad = -vec2(dFdx(data.msdfSd), dFdy(data.msdfSd));
-			float gradLen = length(grad);
-
-			if(gradLen > 0.0001 && bevel > 0.0001) {
-				vec2 edgeDir = grad / gradLen;
-
-				N = normalize(Nz + (camRight * edgeDir.x + camUp * edgeDir.y) * bevel * BEVEL_STRENGTH);
-			}
-		}
-	}
-	else {
-		// THE FIX (see BUG.md): osgSlug_MSDFBevelNormal (Atlas.shaders.cpp) uses the em-space
-		// MSDF gradient (osgSlug_MSDFGradient), never dFdx/dFdy(msdfSd) -- per-pixel smooth
-		// instead of quantized into 2x2 hardware-derivative blocks.
-		N = osgSlug_MSDFBevelNormal(
-			data.emCoord, data.msdfSd, Nz, camRight, camUp, BEVEL_WIDTH, BEVEL_STRENGTH
-		);
-	}
+	vec3 N = osgSlug_MSDFBevelNormal(
+		data.emCoord, data.msdfSd, Nz, camRight, camUp, BEVEL_WIDTH, BEVEL_STRENGTH
+	);
 
 	// V: the camera's constant world-space back axis (osg_ViewMatrixInverse[2], same
 	// convention as camRight/camUp above). Correct and pan-invariant for this
@@ -203,7 +156,7 @@ vec4 osgSlug_Fragment(osgSlug_FragmentData data) {
 }
 )GLSL";
 
-	return src;
+	return osgx::resolveLibs(src);
 }
 
 // ================================================================================================
@@ -223,7 +176,6 @@ int main(int argc, char** argv) {
 		{"--roughness <float>", "Badge roughness, 0..1 (default: 0.08)"},
 		{"--metallic <float>", "Badge metallic, 0..1 (default: 1.0)"},
 		{"--light-intensity <float>", "Global scale for the spot-light rig (default: 0.2; 0 = IBL only)"},
-		{"--broken", "Use the old dFdx/dFdy(msdfSd) bevel direction (BUG.md artifact) for A/B"},
 	})) return 0;
 
 	std::string ktx2Path;
@@ -238,8 +190,6 @@ int main(int argc, char** argv) {
 	args.read("--roughness", roughness);
 	args.read("--metallic", metallic);
 	args.read("--light-intensity", lightIntensity);
-
-	bool broken = args.read("--broken");
 
 	auto cubemap = osgx::ibl::loadPrefilterCubemap(ktx2Path);
 
@@ -296,7 +246,7 @@ int main(int argc, char** argv) {
 
 	sd->addCompositeShape(badge);
 
-	auto* ss = atlas->createHookStateSet({{osgSlug::Atlas::FragmentHook, makeChromeFrag(broken)}});
+	auto* ss = atlas->createHookStateSet({{osgSlug::Atlas::FragmentHook, makeChromeFrag()}});
 
 	// GL_TEXTURE_CUBE_MAP_SEAMLESS -- avoids visible seams at cube edges, especially at the
 	// blurrier (high-roughness) mip levels.

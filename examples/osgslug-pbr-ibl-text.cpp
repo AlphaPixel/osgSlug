@@ -40,14 +40,9 @@ static std::string makeChromeFrag() {
 #pragma osgSlug lib_fragment
 
 const float PI = 3.14159265359;
+#pragma osgx::pbr *
 
 )GLSL";
-
-	// Same BRDF toolkit + promoted shape-agnostic pieces as the badge example.
-	src += osgx::pbr::snippets();
-	src += osgx::pbr::DIRECT_SPECULAR;
-	src += osgx::pbr::IBL_SPECULAR;
-	src += osgx::pbr::TONEMAP_PBR_NEUTRAL;
 
 	src += R"GLSL(
 uniform samplerCube envMap; // unit 5 -- GGX-prefiltered cubemap (osgx::ibl::loadPrefilterCubemap)
@@ -122,7 +117,7 @@ vec4 osgSlug_Fragment(osgSlug_FragmentData data) {
 }
 )GLSL";
 
-	return src;
+	return osgx::resolveLibs(src);
 }
 
 // ================================================================================================
