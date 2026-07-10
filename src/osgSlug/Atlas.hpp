@@ -111,7 +111,7 @@ public:
 	static const std::string SHADER_LIB_VERTEX;
 	static const std::string SHADER_LIB_FRAGMENT;
 	static const std::string SHADER_LIB_SCANLINE; // evaluate_bezier + intersect_monotonic + scanline_sweep
-	static const std::string SHADER_LIB_MASK;     // osgSlug_SDF_* + osgSlug_Mask_* impls; opt-in via #pragma osgSlug lib_mask
+	static const std::string SHADER_LIB_MASK; // osgSlug_SDF_* + osgSlug_Mask_* impls; opt-in via #pragma osgSlug lib_mask
 	static const std::string SHADER_VERT; // main SSBO vertex shader (embedded)
 	static const std::string SHADER_VERT_DECAL; // tangent-plane decal vertex shader (embedded)
 	static const std::string SHADER_FRAG; // main fragment shader (embedded, resolved)

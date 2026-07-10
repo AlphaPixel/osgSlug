@@ -1011,8 +1011,9 @@ float osgSlug_FragmentMask(osgSlug_FragmentMaskData data);
 // or -1.0 if this shape has no MSDF tile registered.
 //
 // Return value: STRAIGHT (non-premultiplied) alpha - rgb is the true color, alpha is coverage.
-// main() premultiplies internally to combine this with the normal fill result, then
-// unpremultiplies once before writing color; do not pre-weight rgb by alpha yourself.
+// main() premultiplies internally (osgSlug's fragment output + blend func are premultiplied
+// universally) to combine this with the normal fill result; do not pre-weight rgb by alpha
+// yourself.
 //
 // blendMode (out, callee MUST set it): how main() combines the returned color with fill.
 //
@@ -1161,18 +1162,11 @@ void main() {
 
 		color = mix(fillColor, borderColor, onEdge);
 
-		// Fold in the mask coverage computed early in main() (see osgSlug_maskFill above).
-		// osgSlug_mask.type < 0 (the null sentinel - no real mask bound this draw call) means
-		// osgSlug_maskFill is exactly 1.0, so color.a is left unchanged; type >= 0 means this
-		// draw call went through the premultiplied SrcOver blend func (see
-		// ShapeDrawable::drawImplementation()/applyBlendMode()), so color.rgb must be
-		// premultiplied by the final alpha here to match. This mirrors what the old
-		// osgSlug_Mask_Apply used to do by replacing color outright, but now composes with
-		// whatever osgSlug_Fragment/osgSlug_FragmentExt actually produced instead of
-		// overriding it - masking works with custom hooks now, not just the default one.
+		// Fold in the mask coverage computed early in main() (see osgSlug_maskFill above), then
+		// premultiply: osgSlug_Fragment returns straight alpha, but every draw call now uses the
+		// premultiplied SrcOver blend func, mask or no mask, so this conversion always happens.
 		color.a *= osgSlug_maskFill;
-
-		if(osgSlug_mask.type >= 0) color.rgb *= color.a;
+		color.rgb *= color.a;
 
 		return;
 	}
@@ -1198,7 +1192,10 @@ void main() {
 
 	// Using the "half white" line helps show 3D shapes, so... leaving it in for now.
 	if(fill < COVERAGE_EPSILON && extColor.a < COVERAGE_EPSILON) {
-		if(osgSlug_debugMode == 6) color = vec4(0.5, 0.5, 0.5, 0.5);
+		if(osgSlug_debugMode == 6) {
+			color = vec4(0.5, 0.5, 0.5, 0.5);
+			color.rgb *= color.a;
+		}
 
 		else discard;
 	}
@@ -1210,10 +1207,9 @@ void main() {
 			: slug_ApplyDebug(fill, geom.emCoord, effectiveColor, glyphLoc, fx.bandXform, iterations)
 		;
 
-		// See the debug-mode-3 branch above for why this premultiplies conditionally.
+		// See the debug-mode-3 branch above for why this always premultiplies.
 		color.a *= osgSlug_maskFill;
-
-		if(osgSlug_mask.type >= 0) color.rgb *= color.a;
+		color.rgb *= color.a;
 	}
 
 	else {
@@ -1228,11 +1224,9 @@ void main() {
 		;
 
 		// Combine in premultiplied space - the only space where alpha compositing/addition
-		// is well-defined - then unpremultiply back to the straight-alpha convention main()
-		// has always used. Skipping the unpremultiply hands the GL blend func
-		// (GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA) an already alpha-weighted color, which it
-		// then weights by alpha AGAIN - alpha gets squared, visibly distorting the falloff
-		// right at the edge (reads as jagged/banded, not blurry).
+		// is well-defined - and stay there: every draw call uses the premultiplied SrcOver
+		// blend func now, so outPremul/outAlpha below ARE the final color, no unpremultiply/
+		// re-premultiply round trip needed (osgSlug_maskFill folds straight into both).
 		vec3 fillPremul = fillColor.rgb * fillColor.a;
 		vec3 extPremul = extColor.rgb * extColor.a;
 
@@ -1251,16 +1245,8 @@ void main() {
 			outAlpha = fillColor.a + extColor.a * (1.0 - fillColor.a);
 		}
 
-		color = vec4(outAlpha > 0.0001 ? outPremul / outAlpha : vec3(0.0), outAlpha);
-
-		// See the debug-mode-3 branch above for why this premultiplies conditionally.
-		color.a *= osgSlug_maskFill;
-
-		if(osgSlug_mask.type >= 0) color.rgb *= color.a;
+		color = vec4(outPremul * osgSlug_maskFill, outAlpha * osgSlug_maskFill);
 	}
-
-	// TODO: This line is required when using PREMULTIPLIED ALPHA!
-	// color.rgb *= color.a;
 }
 )");
 
@@ -1940,9 +1926,11 @@ osg::StateSet* Atlas::createDefaultStateSet(HookList hooks) const {
 	}
 
 	ss->setMode(GL_BLEND, osg::StateAttribute::ON);
-	ss->setAttributeAndModes(new osg::BlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA));
-	// TODO: This is premultiplied alpha, and needs to be synchronized with the shader!
-	// ss->setAttributeAndModes(new osg::BlendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA));
+	// Premultiplied SrcOver, universally: every draw call (masked or not) writes premultiplied
+	// color out of main() now, so there is exactly one blend func for the whole pipeline. See
+	// main()'s tail for where the conversion from osgSlug_Fragment's straight-alpha return value
+	// actually happens.
+	ss->setAttributeAndModes(new osg::BlendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA));
 	ss->setMode(GL_DEPTH_TEST, osg::StateAttribute::OFF);
 	ss->setRenderingHint(osg::StateSet::TRANSPARENT_BIN);
 
