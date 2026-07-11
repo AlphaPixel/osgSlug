@@ -53,7 +53,7 @@ uniform float envMaxMip;
 uniform float iblIntensity;
 
 // Direct-light rig, animated per-frame by osgx::pbr::OrbitLightRig (osgx.hpp).
-const int MAX_LIGHTS = 4;
+const int MAX_LIGHTS = 3;
 uniform int lightCount;
 uniform vec4 lightPosIntensity[MAX_LIGHTS];
 uniform vec3 lightColor[MAX_LIGHTS];
@@ -90,7 +90,7 @@ vec4 osgSlug_Fragment(osgSlug_FragmentData data) {
 
 	vec3 spec = osgx_IBLSpecular(N, V, F0, baseRoughness, envMap, brdfLUT, envMaxMip);
 
-	const float SPOT_ROUGHNESS_FLOOR = 0.15;
+	const float SPOT_ROUGHNESS_FLOOR = 0.25;
 	float lightRoughness = max(baseRoughness, SPOT_ROUGHNESS_FLOOR);
 
 	// Per-pixel world position: text lies in the z=0 plane with em == world (identity
@@ -136,6 +136,9 @@ int main(int argc, char** argv) {
 		{"--roughness <float>", "Text roughness, 0..1 (default: 0.08)"},
 		{"--metallic <float>", "Text metallic, 0..1 (default: 1.0)"},
 		{"--light-intensity <float>", "Global scale for the spot-light rig (default: 0.2; 0 = IBL only)"},
+		{"--light-orbit-radius-scale <float>", "Scale for the spot-light orbit radii (default: 0.6)"},
+		{"--light-orbit-height-scale <float>", "Scale for how far above the text plane the lights hover; smaller brings them close to the surface for a wide, grazing sweep -- this is the main knob for making the orbit read as motion (default: 0.15; 1.0 = original badge-sized height)"},
+		{"--light-orbit-speed-scale <float>", "Scale for the spot-light orbit angular speed (default: 1.5)"},
 	})) return 0;
 
 	std::string ktx2Path;
@@ -145,6 +148,9 @@ int main(int argc, char** argv) {
 	float roughness = 0.08f;
 	float metallic = 1.0f;
 	float lightIntensity = 0.2f;
+	float lightOrbitRadiusScale = 0.6f;
+	float lightOrbitHeightScale = 0.15f;
+	float lightOrbitSpeedScale = 1.5f;
 
 	if(!args.read("--ktx2", ktx2Path)) return example::fail(
 		args, 1, "--ktx2 <path> is required"
@@ -156,6 +162,9 @@ int main(int argc, char** argv) {
 	args.read("--roughness", roughness);
 	args.read("--metallic", metallic);
 	args.read("--light-intensity", lightIntensity);
+	args.read("--light-orbit-radius-scale", lightOrbitRadiusScale);
+	args.read("--light-orbit-height-scale", lightOrbitHeightScale);
+	args.read("--light-orbit-speed-scale", lightOrbitSpeedScale);
 
 	auto cubemap = osgx::ibl::loadPrefilterCubemap(ktx2Path);
 
@@ -270,6 +279,18 @@ int main(int argc, char** argv) {
 			float((bbox->y0 + bbox->y1) * 0.5_cv),
 			0.0f
 		);
+	}
+
+	// Default orbits (osgx.hpp) are sized/paced for the badge example. What actually makes an
+	// orbiting light read as visible motion is the *ratio* of radius to height -- a light held
+	// far above the surface barely changes direction as it circles (a narrow cone, near-static
+	// highlight); pulling it down close to the plane widens that cone toward grazing angles, so
+	// the same orbit sweeps the specular highlight much further and brighter (1/dist^2) as it
+	// passes close. Speed is bumped too so the sweep repeats often enough to read in a short clip.
+	for(auto& orbit : rig->orbits) {
+		orbit.radius *= lightOrbitRadiusScale;
+		orbit.height *= lightOrbitHeightScale;
+		orbit.speed *= lightOrbitSpeedScale;
 	}
 
 	rig->intensity = lightIntensity;

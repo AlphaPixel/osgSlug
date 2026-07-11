@@ -43,7 +43,24 @@ and transforms.
 <tr>
 <td align="center">
 
-[![Animated Glyphs](https://slughorn.io/github/glyph-animate.webp)](https://slughorn.io/github/glyph-animate.mp4)
+[![PBR/IBL](https://slughorn.io/github/pbr-ibl.webp)](https://slughorn.io/github/pbr-ibl.webm)
+
+</td>
+<td>
+
+**PBR/IBL**
+
+Full PBR (Physics Based Rendering) and IBL (Image Based Lighting) can be applied
+to any shape. This video shows the standard `chromatic.hdr` file (converted to KTX2)
+applied to a text scene using high metallic/low roughness settings.
+
+</td>
+</tr>
+
+<tr>
+<td align="center">
+
+[![Animated Glyphs](https://slughorn.io/github/glyph-animate.webp)](https://slughorn.io/github/glyph-animate.webm)
 
 </td>
 <td>
@@ -59,7 +76,7 @@ accomplished by adjusting the output positions in the vertex shader.
 <tr>
 <td align="center">
 
-[![Layer Effects](https://slughorn.io/github/logo.webp)](https://slughorn.io/github/logo.mp4)
+[![Layer Effects](https://slughorn.io/github/logo.webp)](https://slughorn.io/github/logo.webm)
 
 </td>
 <td>
@@ -77,7 +94,7 @@ finally an animated GLSL algorithmic fill.
 <tr>
 <td align="center">
 
-[![Morphing](https://slughorn.io/github/morph.webp)](https://slughorn.io/github/morph.mp4)
+[![Morphing](https://slughorn.io/github/morph.webp)](https://slughorn.io/github/morph.webm)
 
 </td>
 <td>
@@ -157,7 +174,7 @@ dynamically in between.
 <tr>
 <td align="center">
 
-[![Animated HUD](https://slughorn.io/github/animated-hud.webp)](https://slughorn.io/github/animated-hud.mp4)
+[![Animated HUD](https://slughorn.io/github/animated-hud.webp)](https://slughorn.io/github/animated-hud.webm)
 
 </td>
 <td>
@@ -193,7 +210,7 @@ directions in order to cut out one closed path from another.
 <tr>
 <td align="center">
 
-[![Mixed Scenes](https://slughorn.io/github/shapes-compositeshapes-mixed.webp)](https://slughorn.io/github/shapes-compositeshapes-mixed.mp4)
+[![Mixed Scenes](https://slughorn.io/github/shapes-compositeshapes-mixed.webp)](https://slughorn.io/github/shapes-compositeshapes-mixed.webm)
 
 </td>
 <td>
@@ -211,7 +228,7 @@ mockup, seen here).
 <tr>
 <td align="center">
 
-[![Animated Scenes](https://slughorn.io/github/shapes-compositeshapes-animation.webp)](https://slughorn.io/github/shapes-compositeshapes-animation.mp4)
+[![Animated Scenes](https://slughorn.io/github/shapes-compositeshapes-animation.webp)](https://slughorn.io/github/shapes-compositeshapes-animation.webm)
 
 </td>
 <td>
@@ -228,7 +245,7 @@ A `CompositeShape` scene can reference and animate any of the participating
 <tr>
 <td align="center">
 
-[![3D Objects](https://slughorn.io/github/sphere3d.webp)](https://slughorn.io/github/sphere3d.mp4)
+[![3D Objects](https://slughorn.io/github/sphere3d.webp)](https://slughorn.io/github/sphere3d.webm)
 
 </td>
 <td>
@@ -263,7 +280,7 @@ been implemented.
 <tr>
 <td align="center">
 
-[![Text](https://slughorn.io/github/text.webp)](https://slughorn.io/github/text.mp4)
+[![Text](https://slughorn.io/github/text.webp)](https://slughorn.io/github/text.webm)
 
 </td>
 <td>
@@ -280,7 +297,7 @@ As mentioned above, each glyph in a text layout is nothing more than an instance
 <tr>
 <td align="center">
 
-[![Mixed Text](https://slughorn.io/github/text-mix.webp)](https://slughorn.io/github/text-mix.mp4)
+[![Mixed Text](https://slughorn.io/github/text-mix.webp)](https://slughorn.io/github/text-mix.webm)
 
 </td>
 <td>
@@ -290,6 +307,24 @@ As mentioned above, each glyph in a text layout is nothing more than an instance
 Text glyphs are simply an instance of `Shape`, and can be freely mixed with any
 **other** `Shape` or `CompositeShape` object. This example demonstrates replacing the
 character `F` with a simple triangle, which fits seamlessly into the layout process.
+
+</td>
+</tr>
+
+<tr>
+<td align="center">
+
+![Text Effects](https://slughorn.io/github/text-effects.png?v=2)
+
+</td>
+<td>
+
+**Text Effects**
+
+Emphasizing that glyphs truly **are** "just another `Shape`", this example
+demonstrates using "inside" *and* "outside" coverage effects (using MSDF sidecar
+data), stroking instead of filling, as well a using procedural GLSL to actively
+remove sections of a normal glyph fills!
 
 </td>
 </tr>
@@ -307,6 +342,23 @@ character `F` with a simple triangle, which fits seamlessly into the layout proc
 Individual glyphs can be easily positioned along existing `Path` instances. The
 `slughorn::canvas::Path` object can `sample` at **any position** within a
 supported `Shape` instance.
+
+</td>
+</tr>
+
+<tr>
+<td align="center">
+
+[![Compute Shaders](https://slughorn.io/github/compute.webp)](https://slughorn.io/github/compute.webm)
+
+</td>
+<td>
+
+**Compute Shaders**
+
+Not only can compute shaders animate/manipulate `slughorn` state, they can also
+act as a `fill()` source for other content. This demonstrates two stacked,
+blended shapes each using different compute shader output.
 
 </td>
 </tr>
