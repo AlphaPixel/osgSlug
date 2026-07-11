@@ -123,7 +123,7 @@ struct osgSlug_LayerData {
 	vec4 color; // RGBA flat color
 	vec4 gradientMeta; // x = gradientId (1-based), yz = gradient center, w = r0_norm
 	vec4 gradientXform;// gradient transform (B matrix / direction / sweep)
-	vec4 effectData; // x = effectId, y = shapeIndex (into AtlasShapeBuffer), z = 0, w = effectParam
+	vec4 effectData; // x = effectId, y = shapeIndex (into AtlasShapeBuffer), z = packed msdfLayer+msdfRange (see packMSDFData()) or -1 if no MSDF tile, w = effectParam
 	vec4 transformData; // xy = layer.transform.xy (canvas-space origin); zw = unused
 };
 
@@ -383,8 +383,13 @@ void main() {
 		fx.msdfRange = 0.0;
 	}
 	else {
-		fx.msdfLayer = int(ld.effectData.z) - 1;
-		fx.msdfRange = fract(ld.effectData.z);
+		// See packMSDFData() (Drawable/Util.hpp): payload lives entirely in the mantissa (bits
+		// 0-22); sign+exponent are pinned to 0x3F800000 so the bit pattern is always a normal
+		// float, never a subnormal a GPU might flush to zero on load.
+		uint msdfPacked = floatBitsToUint(ld.effectData.z);
+
+		fx.msdfLayer = int(bitfieldExtract(msdfPacked, 12, 11)) - 1;
+		fx.msdfRange = float(bitfieldExtract(msdfPacked, 0, 12)) / 256.0;
 	}
 	fx.effectParam = ld.effectData.w;
 	fx.gradientId = int(ld.gradientMeta.x + 0.5);

@@ -6,16 +6,36 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
+#include <cstring>
 
 namespace osgSlug {
 
-// Encode msdfLayer and range into a single float: float(layer + 1) + clamp(range, 0, 0.999).
-// Shader unpacks with: layer = int(value) - 1, range = fract(value).
-// Sentinel: -1.0f means "no MSDF" (effectData.z < 0 in the shader).
+// Encode msdfLayer and msdfRange into the mantissa bits of a float whose sign+exponent are
+// pinned to 0x3F800000 ("1.0") regardless of payload, unpacked in the shader via
+// floatBitsToUint + bitfieldExtract (GLSL 4.00 - unusable while the GL3 path still had to
+// compile, see TODO.md's packHalf2x16 note; both were freed up by the GL3 removal).
+// The pinned exponent matters: an earlier version of this shifted the raw payload straight
+// across all 32 bits, which for small msdfLayer/msdfRange (the common case) left the exponent
+// field at all-zero - a subnormal float, which this box's GPU (and many others) flush to zero
+// on load, silently corrupting the round trip. Pinning sign+exponent guarantees the bit
+// pattern always decodes as a normal float in [1.0, 2.0), so it's never touched by flush-to-
+// zero; only the 23 mantissa bits carry data, split 11 bits msdfLayer + 1 (up to 2046 layers)
+// / 12 bits msdfRange as Q4.8 fixed point ([0, 16) em units, ~1/256 resolution).
+// Sentinel: -1.0f (negative) means "no MSDF" - same contract as before.
 inline slug_t packMSDFData(int msdfLayer, slug_t msdfRange) {
+	static_assert(sizeof(slug_t) == sizeof(uint32_t));
+
 	if(msdfLayer < 0) return -1.0f;
 
-	return slug_t(msdfLayer + 1) + std::clamp(msdfRange, 0.0f, 0.999f);
+	const uint32_t layerBits = (static_cast<uint32_t>(msdfLayer + 1) & 0x7FFu) << 12;
+	const uint32_t rangeBits = static_cast<uint32_t>(std::clamp(msdfRange, 0.0f, 15.99f) * 256.0f) & 0xFFFu;
+	const uint32_t packed = 0x3F800000u | layerBits | rangeBits;
+	slug_t result;
+
+	std::memcpy(&result, &packed, sizeof(result));
+
+	return result;
 }
 
 struct GradientData {
