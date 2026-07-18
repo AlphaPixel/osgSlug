@@ -3,7 +3,37 @@
 #include "osgSlug/Types.hpp"
 #include "slughorn/nanosvg.hpp"
 
+OSGSLUG_DISABLE_WARNINGS
+
+#include <osg/Camera>
+
+OSGSLUG_ENABLE_WARNINGS
+
 namespace osgSlug {
+
+// Returns a slughorn::Scene calibrated to the camera's current viewport and ortho2D
+// projection. emWidth is the em-space width of the content being measured -- usually 1.0 for
+// normalized canvas/SVG content, or a Layer::scale-style factor if the camera's world units
+// aren't already 1:1 with em-space.
+//
+// Ortho2D only: for a perspective projection, pixelsPerEm varies per-fragment with distance,
+// which this does not attempt to handle (see slughorn::Scene's scope note).
+inline slughorn::Scene scene(const osg::Camera* camera, slug_t emWidth=1_cv) {
+	const osg::Viewport* vp = camera->getViewport();
+	const osg::Matrixd& proj = camera->getProjectionMatrix();
+
+	// For glOrtho(l, r, b, t, near, far): proj(0,0) = 2/(r-l), proj(1,1) = 2/(t-b).
+	const double worldW = 2.0 / proj(0, 0);
+	const double worldH = 2.0 / proj(1, 1);
+
+	slughorn::Scene s;
+
+	s.pixelsPerEmX = cv(vp->width() / worldW * emWidth);
+	s.pixelsPerEmY = cv(vp->height() / worldH * emWidth);
+
+	return s;
+}
+
 namespace util {
 
 // Returns the matrix that maps SVG canvas coordinates (Y-down, width normalized to 1.0)
