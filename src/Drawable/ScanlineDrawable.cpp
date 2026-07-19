@@ -45,7 +45,7 @@ void ScanlineDrawable::compile() {
 
 		if(!shape || !shape->scanlineCurveCount) continue;
 
-		const auto [x0, y0, x1, y1] = computeEmBounds(*shape, 0_cv);
+		const auto [x0, y0, x1, y1] = computeEmBounds(*shape);
 
 		const slug_t s = layer.scale;
 		const slug_t tx = layer.transform.x;

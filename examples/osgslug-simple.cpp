@@ -132,7 +132,7 @@ int main(int argc, char** argv) {
 	atlas->packTextures();
 
 	// osgSlug::Text takes the atlas directly; no font path, no cache
-	auto text = new osgSlug::Text(atlas, osgSlug::Text::fromPixels(100.0f));
+	auto text = new osgSlug::Text(atlas, 100_cv);
 
 	text->setFontMetrics(font->metrics());
 

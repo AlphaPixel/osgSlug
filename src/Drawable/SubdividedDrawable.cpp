@@ -17,6 +17,8 @@ static void pushEmptySlot(osgx::Vec4Array& buf) {
 		Vec4(0_cv, 0_cv, 0_cv, 0_cv),
 		Vec4(0_cv, 0_cv, 0_cv, 0_cv),
 		Vec4(0_cv, 0_cv, 0_cv, 0_cv),
+		Vec4(0_cv, 0_cv, 0_cv, 0_cv),
+		Vec4(0_cv, 0_cv, 0_cv, 0_cv),
 		Vec4(0_cv, 0_cv, 0_cv, 0_cv)
 	});
 }
@@ -64,8 +66,10 @@ void SubdividedDrawable::compile() {
 				groupBlend = layer.blendMode;
 			}
 
-			const slug_t expand = layer.expand;
-			const auto q = shape->computeQuad(layer.transform, layer.scale, expand);
+			// TRUE authored quad + em bounds (see ShapeDrawable::compile()) - the AA margin and
+			// layer.bleed are pushed outward live in SHADER_VERT. Interior grid vertices get no
+			// push (their uv is fractional, so osgSlug_CornerDir() returns 0 for them).
+			const auto q = shape->computeQuad(layer.transform, layer.scale);
 
 			PositionCallback posFn = _positionCallback
 				? _positionCallback
@@ -74,7 +78,7 @@ void SubdividedDrawable::compile() {
 				})
 			;
 
-			const auto [emX0, emY0, emX1, emY1] = computeEmBounds(*shape, expand);
+			const auto [emX0, emY0, emX1, emY1] = computeEmBounds(*shape);
 
 			const size_t ni = _isolatedVertices
 				? static_cast<size_t>(_stepsU) * static_cast<size_t>(_stepsV) * 4
@@ -137,7 +141,13 @@ void SubdividedDrawable::compile() {
 			// osgSlug_LayerData grew a 5th slot (transformData) for masking, which this class
 			// doesn't support -- pack the correct value anyway (cheap, already in scope) purely to
 			// keep this buffer's per-layer stride matching the shared struct's size.
-			layerBuf->push_back({layer.transform.x, layer.transform.y, 0_cv, 0_cv});
+			layerBuf->push_back({layer.transform.x, layer.transform.y, layer.bleed, 0_cv});
+			// [5]/[6] quad frame for SHADER_VERT's live margin push (see ShapeDrawable::compile()).
+			// Assumes the default planar posFn; a custom _positionCallback that leaves the XY plane
+			// makes the boundary push (a ~pixel) directionally approximate - harmless, but worth
+			// revisiting if a curved-surface use appears.
+			layerBuf->push_back({1_cv, 0_cv, 0_cv, layer.scale});
+			layerBuf->push_back({0_cv, 1_cv, 0_cv, layer.scale});
 
 			const index_element_type layerBase = base;
 
@@ -191,7 +201,7 @@ void SubdividedDrawable::compile() {
 
 	for(const auto& g : _groups) addPrimitiveSet(g.indices);
 
-	const auto totalSize = static_cast<GLsizeiptr>(_layers.size() * 5 * sizeof(Vec4));
+	const auto totalSize = static_cast<GLsizeiptr>(_layers.size() * 7 * sizeof(Vec4));
 
 	getOrCreateStateSet()->setAttributeAndModes(
 		new osg::ShaderStorageBufferBinding(1, _layers[0].buffer, 0, totalSize),

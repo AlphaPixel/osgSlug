@@ -85,15 +85,18 @@ inline GradientData buildGradientData(const Atlas& atlas, const slughorn::Layer&
 	return buildGradientDataFromInfo(layer.gradientId, atlas.getGradients()[layer.gradientId - 1]);
 }
 
-// em-coordinate bounding box for a shape with expand margin (quick win A).
+// em-coordinate bounding box for a shape. Like Shape::computeQuad(), this is the TRUE authored
+// bounds - no padding, no margin, ever. The AA margin (and Layer::bleed) are applied live in
+// the vertex stage (see SHADER_VERT), keeping baked coordinates exact so anchored shapes can
+// never drift.
 struct EmBounds { slug_t x0, y0, x1, y1; };
 
-inline EmBounds computeEmBounds(const slughorn::Atlas::Shape& shape, slug_t expand) {
+inline EmBounds computeEmBounds(const slughorn::Atlas::Shape& shape) {
 	return {
-		shape.bearingX - expand,
-		(shape.bearingY - shape.height) - expand,
-		(shape.bearingX + shape.width) + expand,
-		shape.bearingY + expand
+		shape.bearingX,
+		shape.bearingY - shape.height,
+		shape.bearingX + shape.width,
+		shape.bearingY
 	};
 }
 

@@ -17,13 +17,13 @@ uniform float u_hourAngle;
 uniform float u_minuteAngle;
 uniform float u_secondAngle;
 
-vec3 osgSlug_Vertex(osgSlug_VertexData data) {
+osgSlug_VertexResult osgSlug_Vertex(osgSlug_VertexData data) {
 	// Negate angles: osgSlug_Vertex_Rotate is CCW, clocks run CW.
-	if(data.effectId == 1) return osgSlug_Vertex_Rotate(data.pos, data.emCoord, data.origin, -u_secondAngle);
-	if(data.effectId == 2) return osgSlug_Vertex_Rotate(data.pos, data.emCoord, data.origin, -u_minuteAngle);
-	if(data.effectId == 3) return osgSlug_Vertex_Rotate(data.pos, data.emCoord, data.origin, -u_hourAngle);
+	if(data.effectId == 1) return osgSlug_Vertex_Rotate(data, -u_secondAngle);
+	if(data.effectId == 2) return osgSlug_Vertex_Rotate(data, -u_minuteAngle);
+	if(data.effectId == 3) return osgSlug_Vertex_Rotate(data, -u_hourAngle);
 
-	return data.pos;
+	return osgSlug_VertexDefault(data);
 }
 )";
 

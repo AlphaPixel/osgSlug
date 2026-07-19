@@ -80,6 +80,17 @@ public:
 	// Convenience: map a Unicode codepoint to its atlas key.
 	static uint32_t keyFor(uint32_t codepoint) { return codepoint; }
 
+	// em-size in world units for a given point size at dpi. Pure DPI/typography math - no
+	// camera or viewport dependency, unlike Scene's pixel-based conversions.
+	static slug_t fromPoints(slug_t pointSize, slug_t dpi=96_cv) {
+		return cv(pointSize * (dpi / 72_cv));
+	}
+
+	// Reverse: point size that corresponds to emSize at dpi.
+	static slug_t toPoints(slug_t emSize, slug_t dpi=96_cv) {
+		return emSize * (72_cv / dpi);
+	}
+
 	// -------------------------------------------------------------------------
 	// COLR emoji types
 	//

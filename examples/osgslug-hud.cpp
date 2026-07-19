@@ -11,11 +11,11 @@ const static std::string VERT_EFFECTS = R"(
 
 #pragma osgSlug lib_vertex
 
-vec3 osgSlug_Vertex(osgSlug_VertexData data) {
-	if(data.effectId == 1) return osgSlug_Vertex_Rotate(data.pos, data.emCoord, data.origin, data.effectParam * data.time);
-	if(data.effectId == 2) return osgSlug_Vertex_Scale(data.pos, data.emCoord, data.origin, 1.0 + 0.18 * sin(data.effectParam * data.time));
+osgSlug_VertexResult osgSlug_Vertex(osgSlug_VertexData data) {
+	if(data.effectId == 1) return osgSlug_Vertex_Rotate(data, data.effectParam * data.time);
+	if(data.effectId == 2) return osgSlug_Vertex_Scale(data, 1.0 + 0.18 * sin(data.effectParam * data.time));
 
-	return data.pos;
+	return osgSlug_VertexDefault(data);
 }
 )";
 

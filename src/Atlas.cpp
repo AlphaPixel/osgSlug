@@ -4,6 +4,7 @@
 OSGSLUG_DISABLE_WARNINGS
 
 #include <osg/Image>
+#include <osgUtil/CullVisitor>
 
 OSGSLUG_ENABLE_WARNINGS
 
@@ -26,6 +27,30 @@ OSGSLUG_ENABLE_WARNINGS
 #endif
 
 namespace osgSlug {
+
+namespace {
+
+// Per-cull update of the osgSlug_viewport uniform on the Atlas's own StateSet; see the
+// setCullCallback() call in Atlas::packTextures() for why this exists.
+struct ViewportUniformCallback: public osg::NodeCallback {
+	void operator()(osg::Node* node, osg::NodeVisitor* nv) override {
+		auto* cv = nv ? nv->asCullVisitor() : nullptr;
+		const auto* vp = cv && cv->getCurrentCamera() ? cv->getCurrentCamera()->getViewport() : nullptr;
+
+		if(vp) {
+			auto* ss = node->getStateSet();
+
+			if(auto* u = ss ? ss->getUniform("osgSlug_viewport") : nullptr; u) u->set(osg::Vec2(
+				static_cast<float>(vp->width()),
+				static_cast<float>(vp->height())
+			));
+		}
+
+		traverse(node, nv);
+	}
+};
+
+} // anonymous namespace
 
 Atlas::Atlas(uint32_t texWidth):
 slughorn::Atlas(texWidth),
@@ -159,6 +184,12 @@ void Atlas::packTextures() {
 
 	// Always refresh the StateSet so callers can re-apply hook changes by re-calling.
 	setStateSet(createDefaultStateSet());
+
+	// Keep osgSlug_viewport synced to whichever camera is actually rendering us. The GPU-live
+	// AA margin (SHADER_VERT) is denominated in PIXELS, so the vertex stage needs the real
+	// viewport each frame - the createDefaultStateSet() default is only a pre-first-cull
+	// fallback. (Multiple cameras: last cull wins - revisit if a multi-view use appears.)
+	setCullCallback(new ViewportUniformCallback());
 
 	_state = State::Packed;
 

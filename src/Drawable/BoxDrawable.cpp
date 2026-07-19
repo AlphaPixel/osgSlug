@@ -15,6 +15,8 @@ static void pushEmptySlot(osgx::Vec4Array& buf) {
 		Vec4(0_cv, 0_cv, 0_cv, 0_cv),
 		Vec4(0_cv, 0_cv, 0_cv, 0_cv),
 		Vec4(0_cv, 0_cv, 0_cv, 0_cv),
+		Vec4(0_cv, 0_cv, 0_cv, 0_cv),
+		Vec4(0_cv, 0_cv, 0_cv, 0_cv),
 		Vec4(0_cv, 0_cv, 0_cv, 0_cv)
 	});
 }
@@ -53,8 +55,7 @@ void BoxDrawable::compile() {
 		auto layerBuf = osgx::make_ref<osgx::Vec4Array>();
 
 		if(shape) {
-			const slug_t expand = layer.expand;
-			const auto [emX0, emY0, emX1, emY1] = computeEmBounds(*shape, expand);
+			const auto [emX0, emY0, emX1, emY1] = computeEmBounds(*shape);
 			const slug_t lidx = cv(index + 1);
 
 			auto base = static_cast<index_element_type>(vertices->size());
@@ -88,7 +89,23 @@ void BoxDrawable::compile() {
 				cv(packMSDFData(shape->msdfLayer, shape->msdfRange)),
 				layer.effectParam
 			});
-			layerBuf->push_back({layer.transform.x, layer.transform.y, 0_cv, 0_cv});
+			layerBuf->push_back({layer.transform.x, layer.transform.y, layer.bleed, 0_cv});
+
+			// [5]/[6] quad frame for SHADER_VERT's live margin push: each box face lies in its
+			// own 3D plane, so the em axes are the face's actual edge directions (NOT world XY),
+			// and worldPerEm is edge length over em span.
+			Vec3 eU = p1 - p0;
+			Vec3 eV = p3 - p0;
+			const slug_t spanU = emX1 - emX0;
+			const slug_t spanV = emY1 - emY0;
+			const slug_t rateU = spanU > 0_cv ? cv(eU.length()) / spanU : 1_cv;
+			const slug_t rateV = spanV > 0_cv ? cv(eV.length()) / spanV : 1_cv;
+
+			eU.normalize();
+			eV.normalize();
+
+			layerBuf->push_back({cv(eU.x()), cv(eU.y()), cv(eU.z()), rateU});
+			layerBuf->push_back({cv(eV.x()), cv(eV.y()), cv(eV.z()), rateV});
 		}
 		else {
 			pushEmptySlot(*layerBuf);
@@ -113,7 +130,7 @@ void BoxDrawable::compile() {
 
 	addPrimitiveSet(indices);
 
-	const auto totalSize = static_cast<GLsizeiptr>(_layers.size() * 5 * sizeof(Vec4));
+	const auto totalSize = static_cast<GLsizeiptr>(_layers.size() * 7 * sizeof(Vec4));
 
 	getOrCreateStateSet()->setAttributeAndModes(
 		new osg::ShaderStorageBufferBinding(1, _layers[0].buffer, 0, totalSize),

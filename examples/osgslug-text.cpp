@@ -158,7 +158,7 @@ int main(int argc, char** argv) {
 
 	auto text = osgx::make_ref<osgSlug::Text>(
 		atlas,
-		osgSlug::Text::fromPixels(cv(fontSize))
+		cv(fontSize)
 	);
 
 	text->setFontMetrics(font->metrics());
@@ -203,7 +203,7 @@ int main(int argc, char** argv) {
 		mat->addChild(text);
 		mat->setMatrix(osg::Matrix::translate(osgSlug::Vec3(
 			10_cv,
-			590_cv - osgSlug::Text::fromPixels(cv(fontSize)),
+			590_cv - cv(fontSize),
 			0_cv
 		)));
 

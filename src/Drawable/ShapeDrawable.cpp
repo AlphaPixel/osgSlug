@@ -86,12 +86,14 @@ static void applyMask(osg::State& state, const RenderMask* mask) {
 	if(mask) mask->apply(state);
 }
 
-// Zero-filled 5-Vec4 slice: reserved for layers that produce no geometry (invisible, or shape
+// Zero-filled 7-Vec4 slice: reserved for layers that produce no geometry (invisible, or shape
 // lookup failed) so their SSBO slot still exists at the right position -- lidx (== _layers index
 // + 1) always addresses a valid buffer, with no separate "skip counter" that can drift out of
 // sync with the buffer's actual layout.
 static void pushEmptySlot(osgx::Vec4Array& buf) {
 	buf.append_range({
+		Vec4(0_cv, 0_cv, 0_cv, 0_cv),
+		Vec4(0_cv, 0_cv, 0_cv, 0_cv),
 		Vec4(0_cv, 0_cv, 0_cv, 0_cv),
 		Vec4(0_cv, 0_cv, 0_cv, 0_cv),
 		Vec4(0_cv, 0_cv, 0_cv, 0_cv),
@@ -132,6 +134,20 @@ osg::BoundingBox ShapeDrawable::computeBoundingBox() const {
 	const auto* verts = dynamic_cast<const osgx::Vec4Array*>(getVertexAttribArray(0));
 
 	if(verts) for(const auto& v : *verts) bb.expandBy(Vec3(v.x(), v.y(), v.z()));
+
+	// Baked vertices are the TRUE authored quads; layer.bleed is rendered content pushed
+	// outward on the GPU, so culling must account for it here. (The ~pixel AA margin is NOT
+	// included: coverage past the true edge is zero, so nothing visible is ever culled away.)
+	slug_t bleed = 0_cv;
+
+	for(const auto& rs : _layers) bleed = std::max(bleed, rs.layer.bleed * rs.layer.scale);
+
+	if(bb.valid() && bleed > 0_cv) {
+		bb.xMin() -= bleed;
+		bb.yMin() -= bleed;
+		bb.xMax() += bleed;
+		bb.yMax() += bleed;
+	}
 
 	return bb;
 }
@@ -217,7 +233,7 @@ void ShapeDrawable::compile() {
 			_groups.push_back({groupBlend, slughorn::DrawMode::Visible, groupIndices, groupMask});
 	};
 
-	// Layer SSBO (binding 1): one Vec4Array per _layers entry, each holding 5 vec4s.
+	// Layer SSBO (binding 1): one Vec4Array per _layers entry, each holding 7 vec4s.
 	// All arrays share a single ShaderStorageBufferObject so the GPU sees one contiguous buffer,
 	// but each array has its own modifiedCount, enabling per-layer dirty uploads.
 	//
@@ -225,7 +241,9 @@ void ShapeDrawable::compile() {
 	// [1] gradientMeta: x=gradientId, yz=center, w=r0_norm
 	// [2] gradientXform
 	// [3] effectData: x=effectId, y=shapeIndex, z=msdfData, w=effectParam
-	// [4] transformData: xy=layer.transform.xy (canvas-space origin, read by osgSlug_Mask_Evaluate); zw=unused
+	// [4] transformData: xy=layer.transform.xy (canvas-space origin, read by osgSlug_Mask_Evaluate); z=layer.bleed; w=unused
+	// [5] axisX: xyz=model-space dir of +1 em along X, w=worldPerEm rate
+	// [6] axisY: xyz=model-space dir of +1 em along Y, w=worldPerEm rate
 	auto ssbo = osgx::make_ref<osg::ShaderStorageBufferObject>();
 
 	index_element_type base = 0;
@@ -248,8 +266,10 @@ void ShapeDrawable::compile() {
 				groupMask = rs.mask;
 			}
 
-			const slug_t expand = layer.expand;
-			const auto q = shape->computeQuad(layer.transform, layer.scale, expand);
+			// TRUE authored quad + em bounds - never padded. The AA margin and layer.bleed are
+			// pushed outward live in the vertex stage (SHADER_VERT), so these baked coordinates
+			// stay exactly what the user authored and anchoring can never drift.
+			const auto q = shape->computeQuad(layer.transform, layer.scale);
 			const slug_t z = cv(layer.transform.z);
 
 			vertices->append_range({
@@ -259,7 +279,7 @@ void ShapeDrawable::compile() {
 				{q.x0, q.y1, z, lidx}
 			});
 
-			const auto [emX0, emY0, emX1, emY1] = computeEmBounds(*shape, expand);
+			const auto [emX0, emY0, emX1, emY1] = computeEmBounds(*shape);
 
 			emCoords->append_range({
 				{emX0, emY0, 0_cv, 0_cv},
@@ -280,7 +300,12 @@ void ShapeDrawable::compile() {
 				cv(packMSDFData(shape->msdfLayer, shape->msdfRange)),
 				layer.effectParam
 			});
-			layerBuf->push_back({layer.transform.x, layer.transform.y, 0_cv, 0_cv});
+			layerBuf->push_back({layer.transform.x, layer.transform.y, layer.bleed, 0_cv});
+			// [5]/[6] quad frame: xyz = model-space direction of +1 em along each quad axis,
+			// w = worldPerEm rate along it. SHADER_VERT's live margin/bleed push uses these
+			// (a hook can override them when it deforms geometry non-uniformly).
+			layerBuf->push_back({1_cv, 0_cv, 0_cv, layer.scale});
+			layerBuf->push_back({0_cv, 1_cv, 0_cv, layer.scale});
 
 			if(rs.mask && rs.mask.get() != lastRepacked) {
 				rs.mask->repack(*atlas);
@@ -310,7 +335,7 @@ void ShapeDrawable::compile() {
 
 	for(const auto& g : _groups) addPrimitiveSet(g.indices);
 
-	const auto totalSize = static_cast<GLsizeiptr>(_layers.size() * 5 * sizeof(Vec4));
+	const auto totalSize = static_cast<GLsizeiptr>(_layers.size() * 7 * sizeof(Vec4));
 
 	getOrCreateStateSet()->setAttributeAndModes(
 		new osg::ShaderStorageBufferBinding(1, _layers[0].buffer, 0, totalSize),

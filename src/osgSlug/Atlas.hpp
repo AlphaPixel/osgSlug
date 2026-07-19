@@ -92,7 +92,8 @@ public:
 	// ai/context-todo-mask.md, "null UBO" plan.
 	RenderMask* getNullMask() const { return _nullMask.get(); }
 
-	// Vertex hook no-op; osgSlug_Vertex() passes pos through unchanged.
+	// Vertex hook no-op; osgSlug_Vertex() returns osgSlug_VertexDefault(data) - the TRUE
+	// authored pos/emCoord and the layer's baked em<->world frame, all unchanged.
 	static const std::string SHADER_NOOP_VERTEX_HOOK;
 	// Fragment hook no-op; osgSlug_Fragment() returns coverage unchanged.
 	static const std::string SHADER_NOOP_FRAGMENT_HOOK;

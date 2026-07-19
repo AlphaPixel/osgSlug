@@ -191,9 +191,20 @@ void DecalDrawable::compile() {
 				groupBlend = layer.blendMode;
 			}
 
-			const slug_t expand = layer.expand;
-			const auto q = shape->computeQuad(layer.transform, layer.scale, expand);
-			const auto [emX0, emY0, emX1, emY1] = computeEmBounds(*shape, expand);
+			// TODO(expand-removal): DecalDrawable still bakes a fixed em-space AA margin locally
+			// (its grid maps a padded em range across the fixed tangent-frame extent, insetting
+			// content slightly - the pre-removal behavior). Adapt to the GPU-live margin (like
+			// ShapeDrawable/SHADER_VERT) when decals get the full treatment; computeQuad()/
+			// computeEmBounds() themselves now always return TRUE bounds.
+			static constexpr slug_t DECAL_EXPAND = 0.01_cv;
+
+			const auto q = shape->computeQuad(layer.transform, layer.scale);
+			auto [emX0, emY0, emX1, emY1] = computeEmBounds(*shape);
+
+			emX0 -= DECAL_EXPAND;
+			emY0 -= DECAL_EXPAND;
+			emX1 += DECAL_EXPAND;
+			emY1 += DECAL_EXPAND;
 
 			const size_t ni = static_cast<size_t>(_stepsU + 1) * static_cast<size_t>(_stepsV + 1);
 
@@ -232,7 +243,9 @@ void DecalDrawable::compile() {
 				cv(layer.effectId),
 				shapeIdx,
 				cv(packMSDFData(shape->msdfLayer, shape->msdfRange)),
-				q.x1 - q.x0
+				// Padded width (pre-removal parity): q is now the TRUE quad, so re-add the local
+				// margin this drawable still bakes (see DECAL_EXPAND above).
+				(q.x1 - q.x0) + 2_cv * DECAL_EXPAND * layer.scale
 			}); // [3]
 
 			Vec4 center, tangentEast, tangentNorth;

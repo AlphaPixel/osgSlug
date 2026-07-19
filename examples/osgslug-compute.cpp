@@ -71,11 +71,18 @@ static const char* COMPUTE_SHADER = R"(
 #version 430 core
 layout(local_size_x = 1) in;
 
+// MUST stay member-identical to osgSlug::Atlas::SHADER_TYPES' osgSlug_LayerData - the compute
+// program is linked separately, so a mismatch here doesn't fail the link, it just silently
+// computes the WRONG per-layer stride and writes into the wrong slot. (This had in fact
+// already happened once: this struct was missing transformData.)
 struct LayerData {
 	vec4 color;
 	vec4 gradientMeta;
 	vec4 gradientXform;
 	vec4 effectData;
+	vec4 transformData;
+	vec4 axisX;
+	vec4 axisY;
 };
 
 layout(std430, binding = 1) buffer LayerBuffer {

@@ -14,12 +14,13 @@ static const std::string VERT_SHADER = R"(
 
 #pragma osgSlug lib_vertex
 
-vec3 osgSlug_Vertex(osgSlug_VertexData data) {
+osgSlug_VertexResult osgSlug_Vertex(osgSlug_VertexData data) {
 	if(data.effectId == 1) {
 		// effectParam (effectData.w) carries the per-bar index set via setLayerEffectParam().
-		// The actual bar width is constant: roundedRect(0.1, 0.1, 0.8, ...) * scale=1 + expand*2.
+		// The actual bar width is constant: roundedRect(0.1, 0.1, 0.8, ...) * scale=1. (Quads
+		// are the TRUE authored bounds now - no baked expand fudge in this number anymore.)
 		float i = data.effectParam;
-		const float barWidth = 0.82;
+		const float barWidth = 0.80;
 
 		float amp = 0.5 + 0.5 * sin(data.time * 4.0 + i * 0.7);
 		float sx = 0.15 + amp * 0.85;
@@ -42,7 +43,10 @@ vec3 osgSlug_Vertex(osgSlug_VertexData data) {
 		}
 	}
 
-	return data.pos;
+	// Passthrough emCoord is CORRECT here: squashing the artwork along with the quad is the
+	// point. (The default axes leave the AA margin's rate slightly off while squashed -
+	// subpixel, harmless.)
+	return osgSlug_VertexDefault(data);
 }
 )";
 

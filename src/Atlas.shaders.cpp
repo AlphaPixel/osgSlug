@@ -124,7 +124,9 @@ struct osgSlug_LayerData {
 	vec4 gradientMeta; // x = gradientId (1-based), yz = gradient center, w = r0_norm
 	vec4 gradientXform;// gradient transform (B matrix / direction / sweep)
 	vec4 effectData; // x = effectId, y = shapeIndex (into AtlasShapeBuffer), z = packed msdfLayer+msdfRange (see packMSDFData()) or -1 if no MSDF tile, w = effectParam
-	vec4 transformData; // xy = layer.transform.xy (canvas-space origin); zw = unused
+	vec4 transformData; // xy = layer.transform.xy (canvas-space origin); z = layer.bleed (em); w = unused
+	vec4 axisX; // xyz = model-space direction of +1 em along the quad's X axis, w = worldPerEm rate
+	vec4 axisY; // xyz = model-space direction of +1 em along the quad's Y axis, w = worldPerEm rate
 };
 
 layout(std430, binding = 1) buffer LayerBuffer {
@@ -135,19 +137,41 @@ layout(std430, binding = 1) buffer LayerBuffer {
 const std::string Atlas::SHADER_LIB_VERTEX = R"(
 // All per-vertex data the osgSlug_Vertex hook receives.
 // Use data.pos, data.emCoord, data.origin, data.effectParam, etc.
+//
+// pos/emCoord are the TRUE authored values - never padded. The AA margin (a ~pixel,
+// pixel-denominated) and layer.bleed are pushed outward by main() AFTER the hook runs, at the
+// last moment before rasterization, using the em<->world frame the hook returns - so the
+// coordinates a hook computes (and the coordinates the user authored) are always exact.
 struct osgSlug_VertexData {
-	vec3 pos; // world-space position (xyz of a_position)
-	vec2 emCoord; // em-space coordinate
+	vec3 pos; // model-space position (xyz of a_position) - TRUE corner, no padding
+	vec2 emCoord; // em-space coordinate - TRUE bounds, no padding
 	vec2 uv; // normalized [0,1] UV
 	int effectId; // per-layer effect selector (set via setLayerEffectId)
 	vec2 origin; // shape origin in em-space (used by Rotate/Scale helpers)
 	float effectParam; // per-layer float (set via setLayerEffectParam)
 	float time; // osg_SimulationTime
+	float bleed; // layer.bleed: em-space CONTENT margin (glow/shadow room), NOT an AA knob
+	vec4 axisX; // xyz = model-space direction of +1 em along the quad's X axis, w = worldPerEm
+	vec4 axisY; // xyz = model-space direction of +1 em along the quad's Y axis, w = worldPerEm
+};
+
+// What the osgSlug_Vertex hook returns. A rigid hook fills this via osgSlug_VertexDefault()
+// and edits pos alone. A hook that changes the local em<->world relationship (non-uniform
+// stretch, rotation, scale) must also keep emCoord and the axes truthful: emCoord is what the
+// fragment stage samples the curve/band field with, and the axes are what main() uses to push
+// the AA margin/bleed outward at a matched rate. Keeping these honest is exactly what makes
+// data.fill trustworthy under any deformation - anchored shapes can never drift.
+struct osgSlug_VertexResult {
+	vec3 pos; // TRUE model-space corner position (post-hook)
+	vec2 emCoord; // TRUE em coordinate for that corner (post-hook)
+	vec4 axisX; // xyz = +1 em X direction (unit), w = worldPerEm rate (post-hook)
+	vec4 axisY; // xyz = +1 em Y direction (unit), w = worldPerEm rate (post-hook)
 };
 
 // Helper prototypes (implementations live in the main vertex shader only - one definition per program).
-vec3 osgSlug_Vertex_Rotate(vec3 pos, vec2 emCoord, vec2 origin, float angle);
-vec3 osgSlug_Vertex_Scale(vec3 pos, vec2 emCoord, vec2 origin, float scale);
+osgSlug_VertexResult osgSlug_VertexDefault(osgSlug_VertexData data);
+osgSlug_VertexResult osgSlug_Vertex_Rotate(osgSlug_VertexData data, float angle);
+osgSlug_VertexResult osgSlug_Vertex_Scale(osgSlug_VertexData data, float scale);
 
 // Vertex-to-fragment interface contracts. Declared here so hook vertex shaders share the same
 // block definition as the main vertex shader without manual duplication.
@@ -329,28 +353,72 @@ const std::string Atlas::SHADER_VERT = R"(
 
 #pragma osgSlug lib_vertex
 
-vec3 osgSlug_Vertex_Rotate(vec3 pos, vec2 emCoord, vec2 origin, float angle) {
+// AA margin in PIXELS, pushed outward at the last moment before rasterization (see main()).
+// Deliberately an internal constant, not an authoring value: the margin exists only so the
+// rasterizer has fragments to shade slightly past the true edge - it is an implementation
+// detail of rasterization, never part of the user's coordinates.
+const float OSGSLUG_MARGIN_PX = 1.5;
+
+osgSlug_VertexResult osgSlug_VertexDefault(osgSlug_VertexData data) {
+	osgSlug_VertexResult r;
+	r.pos = data.pos;
+	r.emCoord = data.emCoord;
+	r.axisX = data.axisX;
+	r.axisY = data.axisY;
+	return r;
+}
+
+// NOTE: the pivot reconstruction (pos - emCoord + origin) is only correct at layer.scale = 1
+// (a pre-existing, documented limitation - baked curves are the workaround for glyphs).
+osgSlug_VertexResult osgSlug_Vertex_Rotate(osgSlug_VertexData data, float angle) {
 	float c = cos(angle), s = sin(angle);
 	mat2 R = mat2(c, s, -s, c);
-	vec2 pivot = pos.xy - emCoord.xy + origin;
-	pos.xy = R * (pos.xy - pivot) + pivot;
-	return pos;
+	vec2 pivot = data.pos.xy - data.emCoord.xy + data.origin;
+	osgSlug_VertexResult r = osgSlug_VertexDefault(data);
+	r.pos.xy = R * (data.pos.xy - pivot) + pivot;
+	r.axisX.xy = R * r.axisX.xy; // rotate the margin-push frame along with the quad
+	r.axisY.xy = R * r.axisY.xy;
+	return r;
 }
 
-vec3 osgSlug_Vertex_Scale(vec3 pos, vec2 emCoord, vec2 origin, float scale) {
-	vec2 pivot = pos.xy - emCoord.xy + origin;
-	pos.xy = (pos.xy - pivot) * scale + pivot;
-	return pos;
+osgSlug_VertexResult osgSlug_Vertex_Scale(osgSlug_VertexData data, float scale) {
+	vec2 pivot = data.pos.xy - data.emCoord.xy + data.origin;
+	osgSlug_VertexResult r = osgSlug_VertexDefault(data);
+	r.pos.xy = (data.pos.xy - pivot) * scale + pivot;
+	r.axisX.w *= scale; // uniform scale changes the em<->world rate, not the directions
+	r.axisY.w *= scale;
+	return r;
 }
 
-layout(location = 0) in vec4 a_position; // xyz = world pos, w = layer index (1-based)
-layout(location = 1) in vec4 a_emCoord; // xy = em-coord, zw = UV [0,1]
+layout(location = 0) in vec4 a_position; // xyz = world pos (TRUE corner), w = layer index (1-based)
+layout(location = 1) in vec4 a_emCoord; // xy = em-coord (TRUE bounds), zw = UV [0,1]
 
 uniform mat4 osg_ModelViewProjectionMatrix;
 uniform float osg_SimulationTime;
+uniform vec2 osgSlug_viewport; // live viewport size (Atlas::ViewportUniformCallback)
 
 // Defined in the linked effects or noop unit.
-vec3 osgSlug_Vertex(osgSlug_VertexData data);
+osgSlug_VertexResult osgSlug_Vertex(osgSlug_VertexData data);
+
+// +/-1 at quad-boundary corners (uv is exactly 0 or 1 there), 0 for interior grid vertices
+// (SubdividedDrawable) so they are never pushed.
+vec2 osgSlug_CornerDir(vec2 uv) {
+	return vec2(
+		uv.x <= 0.0 ? -1.0 : (uv.x >= 1.0 ? 1.0 : 0.0),
+		uv.y <= 0.0 ? -1.0 : (uv.y >= 1.0 ? 1.0 : 0.0)
+	);
+}
+
+// World units per screen pixel at pos, moving along the (unit) model-space direction axis.
+// Exact under an orthographic projection; first-order (excellent) under perspective.
+float osgSlug_WorldPerPixel(vec3 pos, vec3 axis) {
+	vec4 c = osg_ModelViewProjectionMatrix * vec4(pos, 1.0);
+	vec4 d = osg_ModelViewProjectionMatrix * vec4(axis, 0.0);
+	float cw2 = max(c.w * c.w, 1e-12);
+	vec2 ndcPerWorld = (d.xy * c.w - c.xy * d.w) / cw2;
+	float pixelsPerWorld = length(ndcPerWorld * osgSlug_viewport * 0.5);
+	return 1.0 / max(pixelsPerWorld, 1e-8);
+}
 
 void main() {
 	int layerIdx = int(a_position.w + 0.5) - 1;
@@ -368,10 +436,25 @@ void main() {
 	vData.origin = sd.originData.xy;
 	vData.effectParam = ld.effectData.w;
 	vData.time = osg_SimulationTime;
+	vData.bleed = ld.transformData.z;
+	vData.axisX = ld.axisX;
+	vData.axisY = ld.axisY;
 
-	vec3 pos = osgSlug_Vertex(vData);
+	osgSlug_VertexResult r = osgSlug_Vertex(vData);
 
-	geom.emCoord = a_emCoord.xy;
+	// Rasterization-space fudge, applied at the LAST possible moment: push boundary corners
+	// outward by the pixel AA margin plus any authored layer.bleed, and push emCoord by the
+	// exactly-matching em amount, so the em<->world rate across the margin band equals the
+	// quad's own (post-hook) rate BY CONSTRUCTION. The authored/logical coordinates in r are
+	// never disturbed - anchored shapes cannot drift, by design rather than by tuning.
+	vec2 dir = osgSlug_CornerDir(a_emCoord.zw);
+	float rateX = max(r.axisX.w, 1e-8);
+	float rateY = max(r.axisY.w, 1e-8);
+	float pushX = dir.x * (OSGSLUG_MARGIN_PX * osgSlug_WorldPerPixel(r.pos, r.axisX.xyz) + vData.bleed * rateX);
+	float pushY = dir.y * (OSGSLUG_MARGIN_PX * osgSlug_WorldPerPixel(r.pos, r.axisY.xyz) + vData.bleed * rateY);
+	vec3 pos = r.pos + r.axisX.xyz * pushX + r.axisY.xyz * pushY;
+
+	geom.emCoord = r.emCoord + vec2(pushX / rateX, pushY / rateY);
 	geom.uv = a_emCoord.zw;
 	geom.layerIndex = a_position.w;
 	geom.color = ld.color;
@@ -405,18 +488,35 @@ const std::string Atlas::SHADER_VERT_DECAL = R"(
 
 #pragma osgSlug lib_vertex
 
-vec3 osgSlug_Vertex_Rotate(vec3 pos, vec2 emCoord, vec2 origin, float angle) {
-	float c = cos(angle), s = sin(angle);
-	mat2 R = mat2(c, s, -s, c);
-	vec2 pivot = pos.xy - emCoord.xy + origin;
-	pos.xy = R * (pos.xy - pivot) + pivot;
-	return pos;
+// Same helper implementations as SHADER_VERT (each program links exactly one main vertex
+// unit, so the duplication across the two strings is intentional and safe).
+osgSlug_VertexResult osgSlug_VertexDefault(osgSlug_VertexData data) {
+	osgSlug_VertexResult r;
+	r.pos = data.pos;
+	r.emCoord = data.emCoord;
+	r.axisX = data.axisX;
+	r.axisY = data.axisY;
+	return r;
 }
 
-vec3 osgSlug_Vertex_Scale(vec3 pos, vec2 emCoord, vec2 origin, float scale) {
-	vec2 pivot = pos.xy - emCoord.xy + origin;
-	pos.xy = (pos.xy - pivot) * scale + pivot;
-	return pos;
+osgSlug_VertexResult osgSlug_Vertex_Rotate(osgSlug_VertexData data, float angle) {
+	float c = cos(angle), s = sin(angle);
+	mat2 R = mat2(c, s, -s, c);
+	vec2 pivot = data.pos.xy - data.emCoord.xy + data.origin;
+	osgSlug_VertexResult r = osgSlug_VertexDefault(data);
+	r.pos.xy = R * (data.pos.xy - pivot) + pivot;
+	r.axisX.xy = R * r.axisX.xy;
+	r.axisY.xy = R * r.axisY.xy;
+	return r;
+}
+
+osgSlug_VertexResult osgSlug_Vertex_Scale(osgSlug_VertexData data, float scale) {
+	vec2 pivot = data.pos.xy - data.emCoord.xy + data.origin;
+	osgSlug_VertexResult r = osgSlug_VertexDefault(data);
+	r.pos.xy = (data.pos.xy - pivot) * scale + pivot;
+	r.axisX.w *= scale;
+	r.axisY.w *= scale;
+	return r;
 }
 
 // Vertex layout (set by DecalDrawable::compile()):
@@ -431,7 +531,7 @@ uniform mat4 osg_ModelViewProjectionMatrix;
 uniform float osg_SimulationTime;
 
 // Defined in the linked effects or noop unit.
-vec3 osgSlug_Vertex(osgSlug_VertexData data);
+osgSlug_VertexResult osgSlug_Vertex(osgSlug_VertexData data);
 
 struct osgSlug_DecalLayerData {
 	vec4 color;
@@ -475,10 +575,18 @@ void main() {
 	vData.origin = sd.originData.xy;
 	vData.effectParam = ld.effectData.w;
 	vData.time = osg_SimulationTime;
+	// TODO(expand-removal): decals still bake their AA margin on the CPU (DecalDrawable.cpp's
+	// DECAL_EXPAND) rather than using the GPU-live margin push, so hooks get a neutral frame
+	// here and main() applies no push. Adapt like SHADER_VERT when decals get the full
+	// treatment (the tangent frame Te/Tn is the natural axis source).
+	vData.bleed = 0.0;
+	vData.axisX = vec4(1.0, 0.0, 0.0, 1.0);
+	vData.axisY = vec4(0.0, 1.0, 0.0, 1.0);
 
-	vec3 pos = osgSlug_Vertex(vData);
+	osgSlug_VertexResult r = osgSlug_Vertex(vData);
+	vec3 pos = r.pos;
 
-	geom.emCoord = a_emCoord.xy;
+	geom.emCoord = r.emCoord;
 	geom.uv = a_emCoord.zw;
 	geom.layerIndex = a_position.w;
 	geom.color = ld.color;
@@ -1260,8 +1368,8 @@ const std::string Atlas::SHADER_NOOP_VERTEX_HOOK = resolveLibs(R"(
 
 #pragma osgSlug lib_vertex
 
-vec3 osgSlug_Vertex(osgSlug_VertexData data) {
-	return data.pos;
+osgSlug_VertexResult osgSlug_Vertex(osgSlug_VertexData data) {
+	return osgSlug_VertexDefault(data);
 }
 )");
 
@@ -1513,6 +1621,8 @@ struct osgSlug_LayerData {
 	vec4 gradientXform;
 	vec4 effectData;
 	vec4 transformData;
+	vec4 axisX; // MUST stay member-identical to SHADER_TYPES' declaration (GL links by block
+	vec4 axisY; // layout) - see the expand-removal / GPU-live margin work
 };
 
 layout(std430, binding = 1) readonly buffer LayerBuffer {
@@ -1901,6 +2011,9 @@ osg::StateSet* Atlas::createDefaultStateSet(HookList hooks) const {
 		static_cast<int>(std::countr_zero(getTextureWidth()))
 	));
 	ss->addUniform(new osg::Uniform("osgSlug_emTile", osg::Vec2(1.0f, 1.0f)));
+	// Pre-first-cull fallback only; kept live per-frame by Atlas's ViewportUniformCallback
+	// (see Atlas::packTextures()). SHADER_VERT's pixel-denominated AA margin reads this.
+	ss->addUniform(new osg::Uniform("osgSlug_viewport", osg::Vec2(1280.0f, 720.0f)));
 	ss->setTextureAttributeAndModes(0, _curveTexture, osg::StateAttribute::ON);
 	ss->setTextureAttributeAndModes(1, _bandTexture, osg::StateAttribute::ON);
 

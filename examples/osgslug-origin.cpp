@@ -21,12 +21,12 @@ const static std::string VERT_EFFECTS = R"(
 
 #pragma osgSlug lib_vertex
 
-vec3 osgSlug_Vertex(osgSlug_VertexData data) {
+osgSlug_VertexResult osgSlug_Vertex(osgSlug_VertexData data) {
 	// See the comment below (setLayerEffectParam) for HOW `effectParam` could be used...
-	// if(data.effectId == 1) return osgSlug_Vertex_Rotate(data.pos, data.emCoord, data.origin, data.effectParam * data.time);
-	if(data.effectId == 1) return osgSlug_Vertex_Rotate(data.pos, data.emCoord, data.origin, data.time);
+	// if(data.effectId == 1) return osgSlug_Vertex_Rotate(data, data.effectParam * data.time);
+	if(data.effectId == 1) return osgSlug_Vertex_Rotate(data, data.time);
 
-	return data.pos;
+	return osgSlug_VertexDefault(data);
 }
 )";
 

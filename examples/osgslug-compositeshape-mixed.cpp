@@ -12,7 +12,7 @@ static const std::string VERT_SHADER = R"(
 
 #pragma osgSlug lib_vertex
 
-vec3 osgSlug_Vertex(osgSlug_VertexData data) {
+osgSlug_VertexResult osgSlug_Vertex(osgSlug_VertexData data) {
 	if(data.effectId >= 1 && data.effectId <= 6) {
 		// effectId encodes the per-stalk phase via a lookup; effectParam carries the
 		// stalk's world-space root Y so branches anchor to the same cantilever origin.
@@ -20,7 +20,7 @@ vec3 osgSlug_Vertex(osgSlug_VertexData data) {
 		data.pos.x += sin(data.time * 1.2 + phases[data.effectId - 1]) * 0.08 * (data.pos.y - data.effectParam);
 	}
 
-	return data.pos;
+	return osgSlug_VertexDefault(data);
 }
 )";
 

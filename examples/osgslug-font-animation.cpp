@@ -10,7 +10,9 @@ static const std::string VERT_SHADER = R"(
 
 #pragma osgSlug lib_vertex
 
-vec3 osgSlug_Vertex(osgSlug_VertexData data) {
+osgSlug_VertexResult osgSlug_Vertex(osgSlug_VertexData data) {
+	osgSlug_VertexResult r = osgSlug_VertexDefault(data);
+
 	if(data.effectId == 1) {
 		// Wave: data.pos.x varies smoothly across the string, giving a continuous ripple.
 		data.pos.y += sin(data.pos.x * 2.0 + data.time * 4.0) * 0.1;
@@ -19,9 +21,13 @@ vec3 osgSlug_Vertex(osgSlug_VertexData data) {
 		// letter pulses uniformly (no shear). Different time rate = compound motion.
 		float s = 1.0 + 0.4 * sin(data.origin.x * 2.0 + data.time * 3.0);
 		data.pos.xy = data.origin + (data.pos.xy - data.origin) * s;
+
+		r.pos = data.pos;
+		r.axisX.w *= s; // uniform pulse changes the local em<->world rate
+		r.axisY.w *= s;
 	}
 
-	return data.pos;
+	return r;
 }
 )";
 
