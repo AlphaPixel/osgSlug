@@ -491,8 +491,8 @@ inline auto run(
 #ifdef OSGDEBUG_IMGUI
 		auto* gui = new osgDebug::imgui::Widget(viewer);
 
-		gui->addProfilerSection(sceneData.get());
-		gui->addTextureSection();
+		gui->addProfilerSection(viewer, sceneData.get());
+		gui->addTextureSection(viewer, sceneData.get());
 #else
 
 		auto dv = osgDebug::ProfilerVisitor<>();

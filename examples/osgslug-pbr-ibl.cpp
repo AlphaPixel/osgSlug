@@ -156,7 +156,10 @@ vec4 osgSlug_Fragment(osgSlug_FragmentData data) {
 }
 )GLSL";
 
-	return osgx::resolveLibs(src);
+	osgx::pbr::registerShaderLibs();
+	osgx::ibl::registerShaderLibs();
+
+	return osgx::resolveShaderLibs(src);
 }
 
 // ================================================================================================

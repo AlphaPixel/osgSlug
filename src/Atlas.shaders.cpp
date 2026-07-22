@@ -9,82 +9,36 @@ OSGSLUG_ENABLE_WARNINGS
 
 namespace {
 
-std::string_view::size_type caseInsensitiveFind(
-	std::string_view haystack,
-	std::string_view needle,
-	std::string_view::size_type pos=0
-) {
-	if(pos > haystack.size()) return std::string_view::npos;
+// SHADER_LIB_VERTEX and SHADER_LIB_FRAGMENT are initialized before the first call to
+// resolveShaderLibs() below. The later scanline/mask catalogs register immediately after their
+// source strings are initialized, before any shader asks to expand them.
+void registerOsgSlugCoreShaderLibs() {
+	static const bool registered = [] {
+		const osgx::ShaderLib libs[] = {
+			{"lib_vertex", {}, osgSlug::Atlas::SHADER_LIB_VERTEX},
+			{"lib_fragment", {}, osgSlug::Atlas::SHADER_LIB_FRAGMENT}
+		};
 
-	const auto equalIgnoringCase = [](char lhs, char rhs) noexcept {
-		const auto lhsUnsigned = static_cast<unsigned char>(lhs);
-		const auto rhsUnsigned = static_cast<unsigned char>(rhs);
+		osgx::registerShaderLibs("osgSlug", libs);
 
-		return std::tolower(lhsUnsigned) == std::tolower(rhsUnsigned);
-	};
+		return true;
+	}();
 
-	const std::string_view tail = haystack.substr(pos);
-
-	const auto it = std::search(
-		tail.begin(),
-		tail.end(),
-		needle.begin(),
-		needle.end(),
-		equalIgnoringCase
-	);
-
-	if(it == tail.end()) return std::string_view::npos;
-
-	return pos + static_cast<std::string_view::size_type>(
-		std::distance(tail.begin(), it)
-	);
+	(void)registered;
 }
 
-std::string resolveLib(std::string src, const std::string& pragma, const std::string& lib) {
-	size_t pos = 0;
+// Resolves both osgSlug's registered hook libraries and osgx's PBR/IBL catalogs.
+std::string resolveShaderLibs(std::string src) {
+	registerOsgSlugCoreShaderLibs();
+	osgx::pbr::registerShaderLibs();
+	osgx::ibl::registerShaderLibs();
 
-	while((pos = caseInsensitiveFind(src, pragma, pos)) != std::string::npos) {
-		src.replace(pos, pragma.size(), lib);
-
-		pos += lib.size();
-	}
-
-	return src;
-}
-
-// Replaces #pragma osgSlug lib_vertex / lib_fragment with the actual library source.
-// Used by SHADER_FRAG / SHADER_NOOP_* static initializers AND by createDefaultStateSet.
-std::string resolveLibs(std::string src) {
-	src = resolveLib(
-		std::move(src),
-		"#pragma osgSlug lib_vertex",
-		osgSlug::Atlas::SHADER_LIB_VERTEX
-	);
-
-	src = resolveLib(
-		std::move(src),
-		"#pragma osgSlug lib_fragment",
-		osgSlug::Atlas::SHADER_LIB_FRAGMENT
-	);
-
-	src = resolveLib(
-		std::move(src),
-		"#pragma osgSlug lib_scanline",
-		osgSlug::Atlas::SHADER_LIB_SCANLINE
-	);
-
-	src = resolveLib(
-		std::move(src),
-		"#pragma osgSlug lib_mask",
-		osgSlug::Atlas::SHADER_LIB_MASK
-	);
-
-	return src;
+	return osgx::resolveShaderLibs(std::move(src));
 }
 
 // Prepend `types` immediately after the #version directive in `src`, then resolve libs.
 osg::Shader* makeVertShader(const std::string& src, const std::string& types) {
-	const std::string resolved = resolveLibs(src);
+	const std::string resolved = resolveShaderLibs(src);
 	const auto vp = resolved.find("#version");
 	const auto nl = (vp != std::string::npos) ? resolved.find('\n', vp) : std::string::npos;
 
@@ -607,7 +561,7 @@ void main() {
 // Main fragment shader. Stored pre-resolved so PathDrawable.cpp can use it directly.
 // The #pragma osgSlug lib_fragment is expanded at static init time - SHADER_FRAG always
 // contains the fully substituted SHADER_LIB_FRAGMENT content (struct defs + effect helpers).
-const std::string Atlas::SHADER_FRAG = resolveLibs(R"(
+const std::string Atlas::SHADER_FRAG = resolveShaderLibs(R"(
 #version 430 core
 
 #pragma osgSlug lib_fragment
@@ -1363,7 +1317,7 @@ void main() {
 }
 )");
 
-const std::string Atlas::SHADER_NOOP_VERTEX_HOOK = resolveLibs(R"(
+const std::string Atlas::SHADER_NOOP_VERTEX_HOOK = resolveShaderLibs(R"(
 #version 430 core
 
 #pragma osgSlug lib_vertex
@@ -1373,7 +1327,7 @@ osgSlug_VertexResult osgSlug_Vertex(osgSlug_VertexData data) {
 }
 )");
 
-const std::string Atlas::SHADER_NOOP_FRAGMENT_HOOK = resolveLibs(R"(
+const std::string Atlas::SHADER_NOOP_FRAGMENT_HOOK = resolveShaderLibs(R"(
 #version 430 core
 
 #pragma osgSlug lib_fragment
@@ -1387,7 +1341,7 @@ vec4 osgSlug_Fragment(osgSlug_FragmentData data) {
 }
 )");
 
-const std::string Atlas::SHADER_NOOP_FRAGMENT_EXT_HOOK = resolveLibs(R"(
+const std::string Atlas::SHADER_NOOP_FRAGMENT_EXT_HOOK = resolveShaderLibs(R"(
 #version 430 core
 
 #pragma osgSlug lib_fragment
@@ -1556,8 +1510,18 @@ void main() {
 }
 )";
 
+const bool REGISTER_SCANLINE_SHADER_LIB = [] {
+	const osgx::ShaderLib libs[] = {
+		{"lib_scanline", {}, Atlas::SHADER_LIB_SCANLINE}
+	};
+
+	osgx::registerShaderLibs("osgSlug", libs);
+
+	return true;
+}();
+
 // Pre-resolved at static-init time so ScanlineDrawable can use it without re-resolving.
-const std::string Atlas::SHADER_SCANLINE_FRAG = resolveLibs(R"(
+const std::string Atlas::SHADER_SCANLINE_FRAG = resolveShaderLibs(R"(
 #version 430 core
 
 #pragma osgSlug lib_scanline
@@ -1934,7 +1898,17 @@ float osgSlug_Mask_CoverageFor(vec2 canvasCoord, vec2 emsPerPixel) {
 // Requires #version 430: lib_mask's private LayerBuffer redeclaration is a `buffer` (SSBO)
 // block, illegal pre-4.30. (All other fragment-stage shader strings in this file are also
 // 430 now, post-GL3-removal, but this is the one that actually needs it.)
-const std::string Atlas::SHADER_MASK_FRAGMENT_HOOK = resolveLibs(R"(
+const bool REGISTER_MASK_SHADER_LIB = [] {
+	const osgx::ShaderLib libs[] = {
+		{"lib_mask", {}, Atlas::SHADER_LIB_MASK}
+	};
+
+	osgx::registerShaderLibs("osgSlug", libs);
+
+	return true;
+}();
+
+const std::string Atlas::SHADER_MASK_FRAGMENT_HOOK = resolveShaderLibs(R"(
 #version 430 core
 
 #pragma osgSlug lib_fragment
@@ -1980,9 +1954,9 @@ osg::StateSet* Atlas::createDefaultStateSet(HookList hooks) const {
 	program->addShader(makeVertShader(SHADER_VERT, SHADER_TYPES));
 	program->addShader(makeVertShader(*vertEffects, SHADER_TYPES));
 	program->addShader(new osg::Shader(osg::Shader::FRAGMENT, SHADER_FRAG));
-	program->addShader(new osg::Shader(osg::Shader::FRAGMENT, resolveLibs(*fragEffects)));
-	program->addShader(new osg::Shader(osg::Shader::FRAGMENT, resolveLibs(*fragExt)));
-	program->addShader(new osg::Shader(osg::Shader::FRAGMENT, resolveLibs(*maskHook)));
+	program->addShader(new osg::Shader(osg::Shader::FRAGMENT, resolveShaderLibs(*fragEffects)));
+	program->addShader(new osg::Shader(osg::Shader::FRAGMENT, resolveShaderLibs(*fragExt)));
+	program->addShader(new osg::Shader(osg::Shader::FRAGMENT, resolveShaderLibs(*maskHook)));
 
 	// osgSlug_MaskBlock has no inline layout(binding=N) (illegal pre-GL4.20); bound instead via
 	// glUniformBlockBinding here, matching where RenderMask::apply() binds at draw time.
@@ -2079,9 +2053,9 @@ osg::StateSet* Atlas::createHookStateSet(HookList hooks) const {
 	program->addShader(makeVertShader(SHADER_VERT, SHADER_TYPES));
 	program->addShader(makeVertShader(*vertEffects, SHADER_TYPES));
 	program->addShader(new osg::Shader(osg::Shader::FRAGMENT, SHADER_FRAG));
-	program->addShader(new osg::Shader(osg::Shader::FRAGMENT, resolveLibs(*fragEffects)));
-	program->addShader(new osg::Shader(osg::Shader::FRAGMENT, resolveLibs(*fragExt)));
-	program->addShader(new osg::Shader(osg::Shader::FRAGMENT, resolveLibs(*maskHook)));
+	program->addShader(new osg::Shader(osg::Shader::FRAGMENT, resolveShaderLibs(*fragEffects)));
+	program->addShader(new osg::Shader(osg::Shader::FRAGMENT, resolveShaderLibs(*fragExt)));
+	program->addShader(new osg::Shader(osg::Shader::FRAGMENT, resolveShaderLibs(*maskHook)));
 
 	// osgSlug_MaskBlock has no inline layout(binding=N) (illegal pre-GL4.20); bound instead via
 	// glUniformBlockBinding here, matching where RenderMask::apply() binds at draw time. The
@@ -2114,9 +2088,9 @@ osg::Program* Atlas::createDecalProgram(HookList hooks) const {
 	program->addShader(makeVertShader(SHADER_VERT_DECAL, SHADER_ATLAS_TYPES));
 	program->addShader(makeVertShader(*vertEffects, SHADER_ATLAS_TYPES));
 	program->addShader(new osg::Shader(osg::Shader::FRAGMENT, SHADER_FRAG));
-	program->addShader(new osg::Shader(osg::Shader::FRAGMENT, resolveLibs(*fragEffects)));
-	program->addShader(new osg::Shader(osg::Shader::FRAGMENT, resolveLibs(*fragExt)));
-	program->addShader(new osg::Shader(osg::Shader::FRAGMENT, resolveLibs(*maskHook)));
+	program->addShader(new osg::Shader(osg::Shader::FRAGMENT, resolveShaderLibs(*fragEffects)));
+	program->addShader(new osg::Shader(osg::Shader::FRAGMENT, resolveShaderLibs(*fragExt)));
+	program->addShader(new osg::Shader(osg::Shader::FRAGMENT, resolveShaderLibs(*maskHook)));
 
 	// DecalDrawable never sets a real mask (see ShapeDrawable::RenderGroup usage in
 	// DecalDrawable.cpp - mask is always nullptr there), and osgSlug_FragmentMask()'s default

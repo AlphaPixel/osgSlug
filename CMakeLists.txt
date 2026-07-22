@@ -152,7 +152,7 @@ target_link_libraries(osgSlug PUBLIC
 target_include_directories(osgSlug PUBLIC
 	${OPENSCENEGRAPH_INCLUDE_DIRS}
 	"${CMAKE_CURRENT_SOURCE_DIR}/src"
-	# TODO: REMOVE THIS!
+	# TODO: Make this "overridable" with a local checkout...
 	"${CMAKE_CURRENT_SOURCE_DIR}/ext/osgdebug"
 )
 
