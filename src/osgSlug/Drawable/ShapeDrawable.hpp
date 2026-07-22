@@ -3,6 +3,7 @@
 #include "osgSlug/Drawable.hpp"
 
 #include <initializer_list>
+#include <stdexcept>
 
 namespace osgSlug {
 
@@ -52,6 +53,18 @@ public:
 	// Snapshot of the authored Layer data (by value -- _layers itself holds the richer
 	// RenderShape, not exposed here).
 	std::vector<slughorn::Layer> getLayers() const;
+
+	size_t getNumLayers() const { return _layers.size(); }
+
+	// Single-layer counterpart to getLayers(). Throws std::out_of_range -- unlike
+	// getLayerBuffer()/getLayerMask() (which return nullptr), a reference can't signal "missing".
+	const slughorn::Layer& getLayer(size_t index) const {
+		if(index >= _layers.size()) throw std::out_of_range(
+			"ShapeDrawable::getLayer(): index out of range"
+		);
+
+		return _layers[index].layer;
+	}
 
 	void clear() { _layers.clear(); }
 

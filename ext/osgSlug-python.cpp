@@ -15,6 +15,8 @@
 #include <pybind11/stl/filesystem.h>
 #include <pybind11/functional.h>
 
+#include <memory>
+
 using namespace slughorn::literals;
 using slughorn::slug_t;
 
@@ -87,6 +89,124 @@ namespace detail {
 			PYBIND11_OVERRIDE(void, osgSlug::ShapeDrawable, dirtyLayers, index);
 		}
 	};
+
+	// Layer handle for ShapeDrawable's `layers` sequence proxy (see the pyx::SequenceTraits
+	// specialization below). slughorn::Layer isn't independently addressable -- it lives inside
+	// the private RenderShape entries of a std::vector, with no stable identity across mutation --
+	// so instead of wrapping a pointer to existing data, this wraps (owner, index) and forwards
+	// each property through ShapeDrawable's existing per-index accessors. Unlike those raw C++
+	// setters (which deliberately leave dirtyLayers() to the caller, for batched mutation),
+	// writing through this handle auto-dirties: it's the Python-only convenience layer, not the
+	// hot path.
+	class Layer {
+	public:
+		Layer(osgSlug::ShapeDrawable* owner, size_t index): _owner(owner), _index(index) {}
+
+		size_t index() const { return _index; }
+		slughorn::Layer layer() const { return _owner->getLayer(_index); }
+
+		slughorn::Color getColor() const { return _owner->getLayer(_index).color; }
+
+		void setColor(const slughorn::Color& color) {
+			_owner->setLayerColor(_index, color);
+			_owner->dirtyLayers(_index);
+		}
+
+		uint32_t getEffectId() const { return _owner->getLayer(_index).effectId; }
+
+		void setEffectId(uint32_t effectId) {
+			_owner->setLayerEffectId(_index, effectId);
+			_owner->dirtyLayers(_index);
+		}
+
+		slug_t getEffectParam() const { return _owner->getLayer(_index).effectParam; }
+
+		void setEffectParam(slug_t param) {
+			_owner->setLayerEffectParam(_index, param);
+			_owner->dirtyLayers(_index);
+		}
+
+		// Raw GPU-only overrides: written straight into the packed SSBO slot, never mirrored back
+		// into the Layer struct, so there's no accurate getter to pair with these. Read `.layer`
+		// for the pre-override values.
+		void setShapeIndex(size_t shapeIndex) {
+			_owner->setLayerShapeIndex(_index, shapeIndex);
+			_owner->dirtyLayers(_index);
+		}
+
+		void setGradientTransform(const slughorn::Matrix& m) {
+			_owner->setLayerGradientTransform(_index, m);
+			_owner->dirtyLayers(_index);
+		}
+
+		// Declared as the osg::Vec4Array base (not osgx::Vec4Array) on purpose: osgx::Vec4Array
+		// has never been registered with pybind11 anywhere in this stack, but it's a safe public
+		// upcast, and pybind11 falls back to a pointer's statically declared type when the
+		// dynamic RTTI type isn't registered -- so this resolves to the already-registered
+		// OpenSceneGraph.osg.Vec4Array instead of throwing.
+		osg::Vec4Array* buffer() const { return _owner->getLayerBuffer(_index); }
+		osgSlug::RenderMask* mask() const { return _owner->getLayerMask(_index); }
+
+	private:
+		osg::ref_ptr<osgSlug::ShapeDrawable> _owner;
+		size_t _index;
+	};
+
+	// Gives pyx::SequenceTraits<ShapeDrawable>::get() a stable Layer* per index -- SlotCache
+	// (inside SequenceProxy) compares pointer identity to decide whether to rebuild its cached
+	// py::object, so the same index must always resolve to the same Layer instance.
+	class LayerCache {
+	public:
+		explicit LayerCache() = default;
+		explicit LayerCache(osgSlug::ShapeDrawable*) {}
+
+		Layer* get(osgSlug::ShapeDrawable* owner, size_t index) {
+			if(index >= _handles.size()) _handles.resize(index + 1);
+			if(!_handles[index]) _handles[index] = std::make_unique<Layer>(owner, index);
+
+			return _handles[index].get();
+		}
+
+	private:
+		std::vector<std::unique_ptr<Layer>> _handles;
+	};
+
+	// Declared ahead of the pyx::SequenceTraits specialization below purely to break an ordering
+	// cycle: SequenceTraits::get() needs somewhere to keep persistent Layer handles, but the
+	// *sequence* proxy itself (LayersProxy, below) can't be named until SequenceTraits<ShapeDrawable>
+	// is a complete specialization. Two sidecars on the same owner deviates from pybind11x's usual
+	// "one canonical storage per owner" rule, but there's no way around it here.
+	using LayerHandleStorage = pyx::ProxyStorageOSG<osgSlug::ShapeDrawable, LayerCache>;
+}
+
+template<>
+struct pyx::SequenceTraits<osgSlug::ShapeDrawable> {
+	// Fully qualified (::detail::...) because pybind11x.hpp itself declares a nested
+	// pybind11x::detail namespace, which would otherwise shadow our global ::detail here.
+	using element_type = ::detail::Layer;
+	using value_type = slughorn::Layer;
+
+	static value_type from_python(py::handle h) {
+		return h.cast<value_type>();
+	}
+
+	static size_t size(const osgSlug::ShapeDrawable* d) {
+		return d->getNumLayers();
+	}
+
+	static element_type* get(osgSlug::ShapeDrawable* d, size_t i) {
+		return ::detail::LayerHandleStorage::get(*d)->template proxy<::detail::LayerCache>().get(d, i);
+	}
+
+	static void set(osgSlug::ShapeDrawable* d, size_t i, value_type layer) {
+		d->updateLayer(i, layer);
+		d->dirtyLayers(i);
+	}
+};
+
+namespace detail {
+	using LayersProxy = pyx::SequenceProxy<osgSlug::ShapeDrawable>;
+	using ShapeDrawableStorage = pyx::ProxyStorageOSG<osgSlug::ShapeDrawable, LayersProxy>;
 }
 
 PYBIND11_MODULE(osgSlug, m) {
@@ -197,30 +317,51 @@ PYBIND11_MODULE(osgSlug, m) {
 		)
 	;
 
-	py::class_<
+	// Opaque identity handle -- never bound before Layer.mask needed to return one. RenderGroup
+	// compares these by pointer, not value, so no methods are exposed yet; add them if a real
+	// use case shows up.
+	py::class_<osgSlug::RenderMask, osg::ref_ptr<osgSlug::RenderMask>>(m, "RenderMask");
+
+	auto shapeDrawable = py::class_<
 		osgSlug::ShapeDrawable,
 		detail::ShapeDrawable,
 		osgSlug::Drawable,
 		osg::ref_ptr<osgSlug::ShapeDrawable>
-	>(m, "ShapeDrawable")
+	>(m, "ShapeDrawable");
+
+	// Per-layer handle: shape.layers[i].color = ..., etc. See detail::Layer's comment for why
+	// this can't just be a pointer into existing data.
+	py::class_<detail::Layer>(shapeDrawable, "Layer")
+		.def_property_readonly("index", &detail::Layer::index)
+		// Snapshot of the full slughorn.Layer at this index (by value).
+		.def_property_readonly("layer", &detail::Layer::layer)
+		.def_property("color", &detail::Layer::getColor, &detail::Layer::setColor)
+		.def_property("effectId", &detail::Layer::getEffectId, &detail::Layer::setEffectId)
+		.def_property("effectParam", &detail::Layer::getEffectParam, &detail::Layer::setEffectParam)
+		.def("setShapeIndex", &detail::Layer::setShapeIndex, "shapeIndex"_a)
+		.def("setGradientTransform", &detail::Layer::setGradientTransform, "matrix"_a)
+		// Raw per-layer SSBO slice (osg.Vec4Array, backed by an osg.ShaderStorageBufferObject).
+		// Valid after compile(); None if the drawable hasn't been compiled yet. Combined with
+		// Array.bufferObject and BufferObject.glBufferObject(contextID).glObjectID (both in
+		// OpenSceneGraph.py core), this is the path to the raw GL buffer id something outside
+		// OSG entirely -- e.g. a CUDA kernel via cudaGraphicsGLRegisterBuffer() -- needs to write
+		// into this same layer data directly.
+		.def_property_readonly("buffer", &detail::Layer::buffer, py::return_value_policy::reference)
+		// Shared across every layer from the same addCompositeShape() call; None if that layer's
+		// composite had no mask. Valid immediately, no compile() required.
+		.def_property_readonly("mask", &detail::Layer::mask, py::return_value_policy::reference)
+	;
+
+	pyx::bind_proxy_property<detail::LayersProxy, osgSlug::ShapeDrawable, detail::ShapeDrawableStorage>(
+		shapeDrawable, "_Layers", "layers"
+	);
+
+	shapeDrawable
 		.def(py::init<>())
 		.def("addLayer", &osgSlug::ShapeDrawable::addLayer)
 		.def("addCompositeShape", &osgSlug::ShapeDrawable::addCompositeShape)
 		.def("clear", &osgSlug::ShapeDrawable::clear)
-
-		.def_property_readonly(
-			"layers",
-			[](const osgSlug::ShapeDrawable& self) { return self.getLayers(); }
-		)
-
-		.def("setLayerColor", &osgSlug::ShapeDrawable::setLayerColor)
-		.def("setLayerEffectId", &osgSlug::ShapeDrawable::setLayerEffectId)
-		.def("setLayerEffectParam", &osgSlug::ShapeDrawable::setLayerEffectParam)
-		.def("setLayerShapeIndex", &osgSlug::ShapeDrawable::setLayerShapeIndex)
-		.def("setLayerGradientTransform", &osgSlug::ShapeDrawable::setLayerGradientTransform)
-		.def("updateLayer", &osgSlug::ShapeDrawable::updateLayer)
 		.def("dirtyLayers", py::overload_cast<>(&osgSlug::ShapeDrawable::dirtyLayers))
-		.def("dirtyLayers", py::overload_cast<size_t>(&osgSlug::ShapeDrawable::dirtyLayers))
 	;
 
 	py::class_<
