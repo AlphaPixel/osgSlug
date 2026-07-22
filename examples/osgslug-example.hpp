@@ -10,6 +10,7 @@
 
 OSGSLUG_DISABLE_WARNINGS
 
+#include <osg/Group>
 #include <osg/MatrixTransform>
 #include <osg/Uniform>
 #include <osg/io_utils>
@@ -202,9 +203,78 @@ inline osgGA::TrackballManipulator* makeTrackball(osg::Node* scene) {
 	return m;
 }
 
+// Keeps a Grid's u_canvasSize synced to the actual live viewport every frame - the same
+// technique osgSlug::Atlas uses for its own osgSlug_viewport uniform (Atlas.cpp's
+// ViewportUniformCallback), mirrored rather than reused because Grid (osgdebug) is a separate,
+// framework-agnostic library with its own independent shader/StateSet - osgSlug_viewport isn't
+// visible to it. Without this, u_canvasSize sits at Grid's built-in (300,300) default regardless
+// of actual window size, so gridInterval/lineWidthPx end up scaled against the wrong reference:
+// too dense (small window) or too sparse (large window), not what LINE_SCREEN_PIXELS promises.
+// Safe to capture the Grid* directly (rather than a name-based StateSet uniform lookup like
+// Atlas's version does): Grid's StateSet is built once in its constructor and never replaced.
+//
+// Deliberately cv->getViewport(), NOT cv->getCurrentCamera()->getViewport(): Grid::orthoCamera()
+// leaves its own Viewport unset by design (its doc comment: "inherits the window's current
+// viewport"), so the camera's OWN getViewport() is null - the CullVisitor's getViewport() is the
+// currently-EFFECTIVE (inherited) viewport, which is what actually rendered this frame.
+struct GridViewportCallback: public osg::NodeCallback {
+	osg::ref_ptr<osgx::Grid> grid;
+
+	GridViewportCallback(osgx::Grid* g): grid(g) {}
+
+	void operator()(osg::Node* node, osg::NodeVisitor* nv) override {
+		auto* cv = nv ? nv->asCullVisitor() : nullptr;
+		const auto* vp = cv ? cv->getViewport() : nullptr;
+
+		if(vp) grid->setCanvasSize(osg::Vec2(
+			static_cast<float>(vp->width()),
+			static_cast<float>(vp->height())
+		));
+
+		traverse(node, nv);
+	}
+};
+
+// Fullscreen "graph paper" background for Ortho2DManipulator: a PRE_RENDER camera drawing one
+// osgx::Grid quad in NDC space (see ~/dev/osgdebug/osgx/Grid.hpp - Ben Golus' "Pristine Grid"
+// technique), composited under the actual scene (transparent bg by default, alpha-blended
+// lines). EDGE_HIDE since a fullscreen overlay has no real boundary to draw a half-clipped line
+// on; LINE_SCREEN_PIXELS for constant-pixel hairlines regardless of zoom. Caller must
+// depth-only-clear the main camera while this is visible (example::run() + ManipulatorToggleHandler
+// handle this) or the main camera's own color clear stomps this camera's paint every frame.
+inline osg::ref_ptr<osg::Camera> makeGrid2D() {
+	auto grid = osgx::make_ref<osgx::Grid>();
+
+	grid->setEdgeMode(osgx::Grid::EDGE_HIDE);
+	grid->setLineMode(osgx::Grid::LINE_SCREEN_PIXELS);
+	grid->setGridInterval(10.0f); // minor line every 10px
+	grid->setGridIntervalStrong(100.0f); // major line every 100px
+	grid->setColorLine(osg::Vec4(0.45f, 0.45f, 0.50f, 0.35f)); // subtle, not dominant
+	grid->setColorLineStrong(osg::Vec4(0.85f, 0.85f, 0.90f, 0.55f));
+	grid->setColorBg(osg::Vec4(0.0f, 0.0f, 0.0f, 0.0f)); // explicit: fully transparent, see-through
+
+	auto camera = grid->orthoCamera();
+
+	camera->setCullCallback(new GridViewportCallback(grid));
+
+	return camera;
+}
+
+// Optional grid-background node (see makeGrid2D above), shown only under Ortho2DManipulator -
+// a 3D equivalent for TrackballManipulator was attempted and dropped (2026-07-18): an isotropic
+// cube sized off the content's bounding-sphere radius alone doesn't track the camera's actual
+// frustum robustly across arbitrarily-shaped/scaled scenes, and kept landing the camera at a bad
+// grazing angle against one wall for large scenes. Defaults to null (example::run() only builds
+// it when --grid is passed), in which case this class behaves exactly as before that flag existed.
 struct ManipulatorToggleHandler: public osgGA::GUIEventHandler {
 	osg::Matrixd _savedProjection;
 	bool _hasSavedProjection = false;
+
+	osg::ref_ptr<osg::Camera> _grid2D;
+
+	ManipulatorToggleHandler(osg::Camera* grid2D=nullptr):
+	_grid2D(grid2D) {
+	}
 
 	bool handle(const osgGA::GUIEventAdapter& ea, osgGA::GUIActionAdapter& aa) override {
 		if(ea.getEventType() != osgGA::GUIEventAdapter::KEYDOWN) return false;
@@ -241,6 +311,12 @@ struct ManipulatorToggleHandler: public osgGA::GUIEventHandler {
 
 			view->setCameraManipulator(makeTrackball(view->getSceneData()));
 
+			if(_grid2D) {
+				_grid2D->setNodeMask(0);
+				// Undo the depth-only clear the 2D grid needed - normal scenes expect a full clear.
+				cam->setClearMask(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+			}
+
 			OSG_NOTICE << "Manipulator: TrackballManipulator" << std::endl;
 		}
 
@@ -250,6 +326,13 @@ struct ManipulatorToggleHandler: public osgGA::GUIEventHandler {
 			_hasSavedProjection = true;
 
 			view->setCameraManipulator(new osgx::Ortho2DManipulator());
+
+			if(_grid2D) {
+				_grid2D->setNodeMask(~0u);
+				// The 2D grid is a fullscreen PRE_RENDER overlay with its own clear; the main
+				// camera must only clear depth or its default color clear stomps the grid.
+				cam->setClearMask(GL_DEPTH_BUFFER_BIT);
+			}
 
 			OSG_NOTICE << "Manipulator: Ortho2DManipulator" << std::endl;
 		}
@@ -357,6 +440,12 @@ inline bool setupArguments(
 		"Traverse the scene, find all ShapeDrawables, and write the first atlas to <file> (.slug or .slugb)"
 	);
 
+	args.getApplicationUsage()->addCommandLineOption(
+		"--grid",
+		"Draws an osgx::Grid reference background - 2D graph paper under Ortho2DManipulator "
+		"only; hidden under TrackballManipulator"
+	);
+
 	for(const auto& a : extraArgs) args.getApplicationUsage()->addCommandLineOption(
 		a.first,
 		a.second
@@ -381,6 +470,17 @@ inline auto run(
 	OSG_NOTICE << "Bounds: center=" << b.center() << " radius=" << b.radius() << std::endl;
 
 	viewer.setSceneData(sceneData);
+
+	// Added directly to the camera, NOT wrapped around sceneData - keeps it out of getSceneData()
+	// entirely, so neither manipulator's bounding-sphere auto-fit (which reads
+	// getSceneData()->getBound()) is affected by it.
+	osg::ref_ptr<osg::Camera> grid2D;
+
+	if(args.read("--grid")) {
+		grid2D = makeGrid2D();
+
+		viewer.getCamera()->addChild(grid2D);
+	}
 
 	if(args.read("--profile")) {
 		setenv("__GL_SYNC_TO_VBLANK", "0", 1);
@@ -410,6 +510,11 @@ inline auto run(
 	if(args.read("--trackball")) {
 		viewer.setCameraManipulator(makeTrackball(sceneData.get()));
 
+		if(grid2D) {
+			grid2D->setNodeMask(0);
+			viewer.getCamera()->setClearMask(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+		}
+
 		OSG_NOTICE << "Manipulator: TrackballManipulator" << std::endl;
 	}
 
@@ -423,6 +528,11 @@ inline auto run(
 
 		viewer.setCameraManipulator(m);
 
+		if(grid2D) {
+			grid2D->setNodeMask(~0u);
+			viewer.getCamera()->setClearMask(GL_DEPTH_BUFFER_BIT);
+		}
+
 		OSG_NOTICE
 			<< "Manipulator: Ortho2DManipulator"
 			<< "\n  center=" << m->getCenter()
@@ -435,7 +545,7 @@ inline auto run(
 	viewer.addEventHandler(new osgViewer::StatsHandler());
 	viewer.addEventHandler(new osgGA::StateSetManipulator(viewer.getCamera()->getOrCreateStateSet()));
 	viewer.addEventHandler(new DebugModeHandler(viewer.getCamera()->getOrCreateStateSet()));
-	viewer.addEventHandler(new ManipulatorToggleHandler());
+	viewer.addEventHandler(new ManipulatorToggleHandler(grid2D));
 	viewer.setUpViewInWindow(50, 50, 800, 600);
 
 	// Grab all the atlases in the scene.
