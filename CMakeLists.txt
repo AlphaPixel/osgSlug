@@ -60,59 +60,30 @@ find_package(OpenSceneGraph REQUIRED
 	osgWidget
 	osgAnimation
 )
+find_package(osgx REQUIRED)
 
 if(WIN32)
-	set(OSGSLUG_COMPILE_OPTIONS
-		"/W4"
-		"/WX"
-		"/wd4100"
-		"/analyze"
-		# "/wd4225"
-		# "/wd4244"
-		# "/wd4668"
-		# "/wd4146"
-		# "/wd4267"
-		# "/wd4996"
-		# "/wd4334"
-		# "/wd4311"
+	set(OSGX_WARNING_OPTIONS
+		/W4
+		/WX
+		/wd4100
+		/analyze
 	)
-
-else(WIN32)
-	if(CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
-		set(OSGSLUG_COMPILE_OPTIONS
-			"-W"
-			"-Wall"
-			"-Wshadow"
-			"-Wconversion"
-			"-Wpedantic"
-			"-Wextra"
-			"-Werror"
-			"-Wno-unused-parameter"
-			#"-Wno-conversion"
-			#"-Wno-missing-field-initializers"
-			#"-Wno-implicit-fallthrough"
-			#"-Wno-shadow"
-			#"-Wno-empty-body"
-			#"-Wno-sign-compare"
-		)
-	else(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
-		set(OSGSLUG_COMPILE_OPTIONS
-			"-W"
-			"-Wall"
-			"-Wshadow"
-			"-Wconversion"
-			"-Wpedantic"
-			"-Wextra"
-			"-Werror"
-			"-Wno-unused-parameter"
-			#"-Wno-conversion"
-			#"-Wno-missing-field-initializers"
-			#"-Wno-implicit-fallthrough"
-			#"-Wno-shadow"
-			#"-Wno-empty-body"
-			#"-Wno-sign-compare"
-		)
-	endif()
+elseif(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+	set(OSGX_WARNING_OPTIONS
+		-W
+		-Wall
+		-Wshadow
+		-Wconversion
+		-Wsign-conversion
+		-Wfloat-conversion
+		-Wpedantic
+		-Wextra
+		-Werror
+		-Wno-unused-parameter
+	)
+else()
+	set(OSGX_WARNING_OPTIONS)
 endif()
 
 if(SKIA_DIR AND SKIA_BUILD_DIR)
@@ -143,23 +114,22 @@ add_library(osgSlug SHARED
 )
 set_target_properties(osgSlug PROPERTIES POSITION_INDEPENDENT_CODE ON)
 target_compile_features(osgSlug PRIVATE cxx_std_20)
-target_compile_options(osgSlug PRIVATE ${OSGSLUG_COMPILE_OPTIONS})
+target_compile_options(osgSlug PRIVATE ${OSGX_WARNING_OPTIONS})
 target_link_libraries(osgSlug PUBLIC
 	${OPENSCENEGRAPH_LIBRARIES}
 	Freetype::Freetype
 	slughorn
+	osgx::osgx
 )
 target_include_directories(osgSlug PUBLIC
 	${OPENSCENEGRAPH_INCLUDE_DIRS}
 	"${CMAKE_CURRENT_SOURCE_DIR}/src"
-	# TODO: Make this "overridable" with a local checkout...
-	"${CMAKE_CURRENT_SOURCE_DIR}/ext/osgdebug"
 )
 
 # OSG/osgDB ReaderWriter plugin
 add_library(osgdb_slug SHARED "plugins/ReaderWriterSLUG.cpp")
 target_compile_features(osgdb_slug PRIVATE cxx_std_20)
-target_compile_options(osgdb_slug PRIVATE ${OSGSLUG_COMPILE_OPTIONS})
+target_compile_options(osgdb_slug PRIVATE ${OSGX_WARNING_OPTIONS})
 target_link_libraries(osgdb_slug PRIVATE osgSlug)
 target_include_directories(osgdb_slug PRIVATE
 	${OPENSCENEGRAPH_INCLUDE_DIRS}
@@ -184,7 +154,7 @@ if(OSGSLUG_BUILD_EXAMPLES)
 		add_executable(${name} ${OSGSLUG_EXAMPLE_SOURCES})
 
 		target_compile_features(${name} PRIVATE cxx_std_20)
-		target_compile_options(${name} PRIVATE ${OSGSLUG_COMPILE_OPTIONS})
+		target_compile_options(${name} PRIVATE ${OSGX_WARNING_OPTIONS})
 		target_link_libraries(${name} PRIVATE
 			osgSlug
 			${OSGSLUG_EXAMPLE_LIBS}

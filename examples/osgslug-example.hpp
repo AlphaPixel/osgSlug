@@ -6,7 +6,8 @@
 
 #include "slughorn/serial.hpp"
 
-#include "osgDebug.hpp"
+#include "osgx/Debug.hpp"
+#include "osgx/ImGui.hpp"
 
 OSGSLUG_DISABLE_WARNINGS
 
@@ -432,7 +433,7 @@ inline bool setupArguments(
 
 	args.getApplicationUsage()->addCommandLineOption(
 		"--profile",
-		"Applies an osgDebug::DrawVisitor for profiling"
+		"Applies an osgx::debug::ProfilerVisitor for profiling"
 	);
 
 	args.getApplicationUsage()->addCommandLineOption(
@@ -489,20 +490,20 @@ inline auto run(
 		sceneData->accept(dsv);
 
 #ifdef OSGDEBUG_IMGUI
-		auto* gui = new osgDebug::imgui::Widget(viewer);
+		auto* gui = new osgx::imgui::Widget(viewer);
 
 		gui->addProfilerSection(viewer, sceneData.get());
 		gui->addTextureSection(viewer, sceneData.get());
 #else
 
-		auto dv = osgDebug::ProfilerVisitor<>();
+		auto dv = osgx::debug::ProfilerVisitor<>();
 
 		sceneData->accept(dv);
 
-		osgDebug::appendCameraDrawCallback(
+		osgx::debug::appendCameraDrawCallback(
 			viewer.getCamera(),
-			osgDebug::CameraDrawCallbackSlot::FINAL_DRAW,
-			new osgDebug::ProfilerFinalCallback<>()
+			osgx::debug::CameraDrawCallbackSlot::FINAL_DRAW,
+			new osgx::debug::ProfilerFinalCallback<>()
 		);
 #endif
 	}

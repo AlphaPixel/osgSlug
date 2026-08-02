@@ -1,7 +1,7 @@
 #pragma once
 
 #include "slughorn/slughorn.hpp"
-#include "osgx.hpp"
+#include "osgx/osgx.hpp"
 
 #define OSGSLUG_DISABLE_WARNINGS \
 	_Pragma("GCC diagnostic push") \

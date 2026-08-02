@@ -381,10 +381,10 @@ PYBIND11_MODULE(osgSlug, m) {
 		.def(py::init<>())
 		.def("setStepsU", &osgSlug::SubdividedDrawable::setStepsU, "steps"_a)
 		.def("setStepsV", &osgSlug::SubdividedDrawable::setStepsV, "steps"_a)
-		.def("setIsolatedVertices", &osgSlug::SubdividedDrawable::setIsolatedVertices, "isolated"_a)
-		.def_property_readonly(
+		.def_property(
 			"isolatedVertices",
-			&osgSlug::SubdividedDrawable::getIsolatedVertices
+			&osgSlug::SubdividedDrawable::getIsolatedVertices,
+			&osgSlug::SubdividedDrawable::setIsolatedVertices
 		)
 		.def("setPositionCallback",
 			[](osgSlug::SubdividedDrawable& self, py::function cb) {
