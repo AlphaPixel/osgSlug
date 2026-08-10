@@ -370,7 +370,7 @@ PYBIND11_MODULE(osgSlug, m) {
 		osg::ref_ptr<osgSlug::BoxDrawable>
 	>(m, "BoxDrawable")
 		.def(py::init<>())
-		.def("setLayer", &osgSlug::BoxDrawable::setLayer)
+		.def("setFace", &osgSlug::BoxDrawable::setFace, "face"_a, "composite"_a)
 	;
 
 	py::class_<

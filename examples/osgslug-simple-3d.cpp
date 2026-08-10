@@ -98,10 +98,12 @@ int main(int argc, char** argv) {
 	else if(shape == "box") {
 		auto sdb = osgx::make_ref<osgSlug::BoxDrawable>();
 
-		for(uint32_t i = 0; i < 6; i++) sdb->addLayer({
-			.key = key,
-			.color = {1_cv, 0.5_cv, 0_cv, 1_cv},
-			.effectId = i % 5
+		for(uint32_t i = 0; i < 6; i++) sdb->setFace(i, slughorn::CompositeShape{
+			.layers = {{
+				.key = key,
+				.color = {1_cv, 0.5_cv, 0_cv, 1_cv},
+				.effectId = i % 5
+			}}
 		});
 
 		sd = sdb;
