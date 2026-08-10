@@ -110,7 +110,22 @@ public:
 	static const std::string SHADER_ATLAS_TYPES; // AtlasShapeData + binding 0 only
 	static const std::string SHADER_TYPES; // SHADER_ATLAS_TYPES + LayerData + binding 1
 	static const std::string SHADER_LIB_VERTEX;
+	// Struct/interface content ONLY (osgSlug_FragmentData, geom/fx blocks, etc.) -- MUST stay
+	// body-free. SHADER_FRAG, SHADER_MASK_FRAGMENT_HOOK, and whichever FragmentHook is active
+	// all pull this in and get linked into the same Program; GLSL only allows one of several
+	// linked shader objects to define a given function, so a real function body here would
+	// duplicate-define across units. (A 2026-08-10 attempt to bundle a default
+	// osgSlug_FragEmCoord in here broke exactly this way -- reverted.)
 	static const std::string SHADER_LIB_FRAGMENT;
+	// Opt-in default (identity passthrough) osgSlug_FragEmCoord via #pragma osgSlug
+	// lib_fragment_em. A custom osgSlug_Fragment hook must always define BOTH
+	// osgSlug_FragEmCoord and osgSlug_Fragment (linking fails otherwise -- the hook unit
+	// replaces the whole no-op unit, not just one function of it); most hooks don't care about
+	// tiling/em-coord remapping and were forgetting this one every time. Safe as a separate
+	// opt-in (unlike folding it into SHADER_LIB_FRAGMENT above) because exactly one shader
+	// object -- the active FragmentHook -- ever pulls it in. Skip this pragma and write your own
+	// osgSlug_FragEmCoord if you DO need custom em-coord behavior (e.g. tiling).
+	static const std::string SHADER_LIB_FRAGMENT_EM;
 	static const std::string SHADER_LIB_SCANLINE; // evaluate_bezier + intersect_monotonic + scanline_sweep
 	static const std::string SHADER_LIB_MASK; // osgSlug_SDF_* + osgSlug_Mask_* impls; opt-in via #pragma osgSlug lib_mask
 	static const std::string SHADER_VERT; // main SSBO vertex shader (embedded)

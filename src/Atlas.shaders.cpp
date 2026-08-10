@@ -14,9 +14,17 @@ namespace {
 // source strings are initialized, before any shader asks to expand them.
 void registerOsgSlugCoreShaderLibs() {
 	static const bool registered = [] {
+		// "lib_fragment" is struct/interface content only (osgSlug_FragmentData, geom/fx blocks,
+		// etc.) -- it MUST stay body-free, since SHADER_FRAG, SHADER_MASK_FRAGMENT_HOOK, and
+		// whichever FragmentHook is active all pull it in and get linked into the same Program;
+		// GLSL only allows ONE of several linked shader objects to provide a given function's
+		// body. "lib_fragment_em" (a real default osgSlug_FragEmCoord body) is therefore a
+		// SEPARATE, opt-in pragma -- safe only because exactly one shader object (the active
+		// FragmentHook) ever chooses to pull it in.
 		const osgx::ShaderLib libs[] = {
 			{"lib_vertex", {}, osgSlug::Atlas::SHADER_LIB_VERTEX},
-			{"lib_fragment", {}, osgSlug::Atlas::SHADER_LIB_FRAGMENT}
+			{"lib_fragment", {}, osgSlug::Atlas::SHADER_LIB_FRAGMENT},
+			{"lib_fragment_em", {}, osgSlug::Atlas::SHADER_LIB_FRAGMENT_EM}
 		};
 
 		osgx::registerShaderLibs("osgSlug", libs);
@@ -302,6 +310,13 @@ layout(std140) uniform osgSlug_MaskBlock {
 };
 )";
 
+// Opt-in via #pragma osgSlug lib_fragment_em -- see Atlas.hpp's SHADER_LIB_FRAGMENT_EM comment.
+const std::string Atlas::SHADER_LIB_FRAGMENT_EM = R"(
+vec2 osgSlug_FragEmCoord(vec2 emCoord, inout vec2 emsPerPixel, int effectId, float time) {
+	return emCoord;
+}
+)";
+
 const std::string Atlas::SHADER_VERT = R"(
 #version 430 core
 
@@ -513,12 +528,12 @@ void main() {
 	float lv = a_position.y - 0.5;
 
 	vec3 P = ld.center.xyz;
-	float r = ld.center.w;
+	float sphereR = ld.center.w;
 	vec3 Te = ld.tangentEast.xyz;
 	vec3 Tn = ld.tangentNorth.xyz;
 
 	// Gnomonic (central) projection: project tangent-plane point back onto sphere surface.
-	vec3 world = normalize(P + lu * Te + lv * Tn) * r;
+	vec3 world = normalize(P + lu * Te + lv * Tn) * sphereR;
 
 	osgSlug_VertexData vData;
 
