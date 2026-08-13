@@ -115,7 +115,10 @@ int main(int argc, char** argv) {
 		canvas.rotate(cv(i) * 2_cv * slughorn::PI_CV / 12_cv);
 		canvas.moveTo(0_cv, TICK_INNER);
 		canvas.lineTo(0_cv, TICK_OUTER);
-		canvas.strokePath(TICK_WIDTH);
+		canvas.strokePath(
+			TICK_WIDTH, false,
+			slughorn::canvas::LineJoin::Miter, slughorn::canvas::LineCap::Square
+		);
 		canvas.restore();
 	}
 
@@ -156,13 +159,15 @@ int main(int argc, char** argv) {
 	canvas.moveTo(CX, CY);
 	canvas.lineTo(CX, CY + HOUR_LENGTH);
 	canvas.stroke(HOUR_WIDTH, {0.12_cv, 0.12_cv, 0.18_cv, 1_cv}, 1_cv,
-		"clock_hour_hand", slughorn::Atlas::ShapeInfo::Origin(CX, CY));
+		"clock_hour_hand", slughorn::Atlas::ShapeInfo::Origin(CX, CY),
+		slughorn::canvas::LineJoin::Miter, slughorn::canvas::LineCap::Round);
 
 	canvas.beginPath();
 	canvas.moveTo(CX, CY);
 	canvas.lineTo(CX, CY + MIN_LENGTH);
 	canvas.stroke(MIN_WIDTH, {0.12_cv, 0.12_cv, 0.18_cv, 1_cv}, 1_cv,
-		"clock_minute_hand", slughorn::Atlas::ShapeInfo::Origin(CX, CY));
+		"clock_minute_hand", slughorn::Atlas::ShapeInfo::Origin(CX, CY),
+		slughorn::canvas::LineJoin::Miter, slughorn::canvas::LineCap::Round);
 
 	canvas.beginPath();
 	canvas.moveTo(CX, CY);
