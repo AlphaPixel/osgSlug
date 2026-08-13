@@ -6,13 +6,12 @@ file(GLOB TMP_SOURCES CONFIGURE_DEPENDS "osgslug-tmp.*.cpp")
 foreach(source ${TMP_SOURCES})
 	cmake_path(GET source STEM LAST_ONLY name)
 
-	osgslug_example(${name} SOURCES "${source}")
-
-	# TODO: Implement this! We need some way to indicate whether the scratchpad
-	# example needs additional flags!
-	# if(name STREQUAL "osgslug-tmp.cairo.*")
-	# 	osgslug_example(${name} SOURCES "${source}" LIBS "PkgConfig::CAIRO" "skia")
-	# else()
-	# 	osgslug_example(${name} SOURCES "${source}")
-	# endif()
+	# osgx::gltf_pbribl (PBRIBL.cpp) is its own static lib target, separate from osgx::osgx --
+	# osgSlug only links the latter, so anything calling into osgx::gltf::pbribl needs this added
+	# explicitly or it fails at link time with undefined references, not compile time.
+	if(name STREQUAL "osgslug-tmp.decalcube")
+		osgslug_example(${name} SOURCES "${source}" LIBS "osgx::gltf_pbribl")
+	else()
+		osgslug_example(${name} SOURCES "${source}")
+	endif()
 endforeach()

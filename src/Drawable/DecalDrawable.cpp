@@ -68,7 +68,31 @@ void DecalDrawable::addDecal(
 	slug_t halfWidthDeg,
 	slug_t halfHeightDeg
 ) {
-	_decalEntries.push_back({layer, {latDeg, lonDeg, halfWidthDeg, halfHeightDeg}});
+	Anchor anchor;
+
+	anchor.latDeg = latDeg;
+	anchor.lonDeg = lonDeg;
+	anchor.halfWidthDeg = halfWidthDeg;
+	anchor.halfHeightDeg = halfHeightDeg;
+
+	_decalEntries.push_back({layer, anchor});
+	addLayer(layer);
+}
+
+void DecalDrawable::addPlanarDecal(
+	const slughorn::Layer& layer,
+	const Vec3& origin,
+	const Vec3& tangentU,
+	const Vec3& tangentV
+) {
+	Anchor anchor;
+
+	anchor.planar = true;
+	anchor.origin = origin;
+	anchor.tangentU = tangentU;
+	anchor.tangentV = tangentV;
+
+	_decalEntries.push_back({layer, anchor});
 	addLayer(layer);
 }
 
@@ -82,7 +106,12 @@ void DecalDrawable::updateDecalPosition(
 	if(index >= _decalEntries.size() || index >= _layers.size() || !_layers[index].buffer) return;
 
 	auto& entry = _decalEntries[index];
-	entry.anchor = {latDeg, lonDeg, halfWidthDeg, halfHeightDeg};
+
+	entry.anchor.planar = false;
+	entry.anchor.latDeg = latDeg;
+	entry.anchor.lonDeg = lonDeg;
+	entry.anchor.halfWidthDeg = halfWidthDeg;
+	entry.anchor.halfHeightDeg = halfHeightDeg;
 
 	const slug_t halfH = halfHeightDeg < 0.f ? halfWidthDeg : halfHeightDeg;
 
@@ -102,6 +131,31 @@ void DecalDrawable::updateDecalPosition(
 	dirtyLayers(index);
 }
 
+void DecalDrawable::updatePlanarDecalPosition(
+	size_t index,
+	const Vec3& origin,
+	const Vec3& tangentU,
+	const Vec3& tangentV
+) {
+	if(index >= _decalEntries.size() || index >= _layers.size() || !_layers[index].buffer) return;
+
+	auto& entry = _decalEntries[index];
+
+	entry.anchor.planar = true;
+	entry.anchor.origin = origin;
+	entry.anchor.tangentU = tangentU;
+	entry.anchor.tangentV = tangentV;
+
+	auto& buf = *_layers[index].buffer;
+
+	// center.w = 0 is the planar sentinel the vertex shader branches on - see SHADER_VERT_DECAL.
+	buf[4] = Vec4(origin, 0_cv);
+	buf[5] = Vec4(tangentU, 0_cv);
+	buf[6] = Vec4(tangentV, 0_cv);
+
+	dirtyLayers(index);
+}
+
 void DecalDrawable::setDecalTransform(
 	size_t index,
 	slug_t latDeg,
@@ -113,7 +167,12 @@ void DecalDrawable::setDecalTransform(
 	if(index >= _decalEntries.size() || index >= _layers.size() || !_layers[index].buffer) return;
 
 	auto& entry = _decalEntries[index];
-	entry.anchor = {latDeg, lonDeg, halfWidthDeg, halfHeightDeg};
+
+	entry.anchor.planar = false;
+	entry.anchor.latDeg = latDeg;
+	entry.anchor.lonDeg = lonDeg;
+	entry.anchor.halfWidthDeg = halfWidthDeg;
+	entry.anchor.halfHeightDeg = halfHeightDeg;
 
 	const slug_t halfH = halfHeightDeg < 0.f ? halfWidthDeg : halfHeightDeg;
 
@@ -138,6 +197,40 @@ void DecalDrawable::setDecalTransform(
 	buf[6] = Tn;
 
 	dirtyLayers(index);
+}
+
+osg::BoundingBox DecalDrawable::computeBoundingBox() const {
+	osg::BoundingBox bb;
+	bool hasSphere = false;
+
+	for(const auto& entry : _decalEntries) {
+		const auto& anchor = entry.anchor;
+
+		if(anchor.planar) {
+			const Vec3 halfU = anchor.tangentU * 0.5f;
+			const Vec3 halfV = anchor.tangentV * 0.5f;
+
+			for(float su : {-1.0f, 1.0f}) {
+				for(float sv : {-1.0f, 1.0f}) {
+					bb.expandBy(anchor.origin + halfU * su + halfV * sv);
+				}
+			}
+		}
+
+		else hasSphere = true;
+	}
+
+	// Every sphere-type decal in a DecalDrawable shares the same globe, centered at this
+	// drawable's own local origin with radius _radius (see SHADER_VERT_DECAL) - one shared
+	// bound covers every sphere decal regardless of its individual lat/lon.
+	if(hasSphere) {
+		const auto r = static_cast<float>(_radius);
+
+		bb.expandBy(Vec3(-r, -r, -r));
+		bb.expandBy(Vec3(r, r, r));
+	}
+
+	return bb;
 }
 
 void DecalDrawable::updateLayer(size_t index, const slughorn::Layer& layer) {
@@ -250,12 +343,22 @@ void DecalDrawable::compile() {
 
 			Vec4 center, tangentEast, tangentNorth;
 
-			const slug_t halfH = anchor.halfHeightDeg < 0.f ? anchor.halfWidthDeg : anchor.halfHeightDeg;
+			if(anchor.planar) {
+				// center.w = 0 is the planar sentinel the vertex shader branches on - no sphere
+				// radius, no reprojection, see SHADER_VERT_DECAL.
+				center = Vec4(anchor.origin, 0_cv);
+				tangentEast = Vec4(anchor.tangentU, 0_cv);
+				tangentNorth = Vec4(anchor.tangentV, 0_cv);
+			}
 
-			computeDecalTangentFrame(
-				anchor.latDeg, anchor.lonDeg, anchor.halfWidthDeg, halfH, cv(_radius),
-				center, tangentEast, tangentNorth
-			);
+			else {
+				const slug_t halfH = anchor.halfHeightDeg < 0.f ? anchor.halfWidthDeg : anchor.halfHeightDeg;
+
+				computeDecalTangentFrame(
+					anchor.latDeg, anchor.lonDeg, anchor.halfWidthDeg, halfH, cv(_radius),
+					center, tangentEast, tangentNorth
+				);
+			}
 
 			layerBuf->push_back(center); // [4]
 			layerBuf->push_back(tangentEast); // [5]

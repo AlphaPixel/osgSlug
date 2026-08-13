@@ -532,8 +532,12 @@ void main() {
 	vec3 Te = ld.tangentEast.xyz;
 	vec3 Tn = ld.tangentNorth.xyz;
 
-	// Gnomonic (central) projection: project tangent-plane point back onto sphere surface.
-	vec3 world = normalize(P + lu * Te + lv * Tn) * sphereR;
+	vec3 planePos = P + lu * Te + lv * Tn;
+
+	// sphereR == 0 is the planar sentinel (DecalDrawable::addPlanarDecal()): use the tangent-plane
+	// point directly, no gnomonic reprojection. sphereR > 0 keeps the original sphere-surface
+	// projection back onto the sphere.
+	vec3 world = sphereR > 0.0 ? normalize(planePos) * sphereR : planePos;
 
 	osgSlug_VertexData vData;
 
@@ -563,8 +567,18 @@ void main() {
 	fx.shapeData = sd.shapeData;
 	fx.effectId = effectId;
 	fx.gradientId = int(ld.gradientMeta.x + 0.5);
-	fx.msdfLayer = -1;
-	fx.msdfRange = 0.0;
+	// DecalDrawable::compile() already packs this the same way SHADER_VERT does (see
+	// packMSDFData()) - just never got unpacked here until now.
+	if(ld.effectData.z < 0.0) {
+		fx.msdfLayer = -1;
+		fx.msdfRange = 0.0;
+	}
+	else {
+		uint msdfPacked = floatBitsToUint(ld.effectData.z);
+
+		fx.msdfLayer = int(bitfieldExtract(msdfPacked, 12, 11)) - 1;
+		fx.msdfRange = float(bitfieldExtract(msdfPacked, 0, 12)) / 256.0;
+	}
 	fx.effectParam = ld.effectData.w;
 	geom.gradientMeta = ld.gradientMeta;
 	geom.gradientXform = ld.gradientXform;
