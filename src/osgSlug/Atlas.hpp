@@ -107,6 +107,13 @@ public:
 	// main() can discard before slug_Render for fragments outside the mask. See
 	// ai/context-todo-mask.md, "osgSlug_FragmentMask() early hook."
 	static const std::string SHADER_MASK_FRAGMENT_HOOK;
+	// createDecalProgram()'s default MaskHook. Evaluates against data.uv (the decal quad's own
+	// [0,1] tangent-plane position) instead of data.emCoord + osgSlug_Mask_LayerOrigin() -- a
+	// decal has no per-layer canvas origin to look up, and osgSlug_Mask_LayerOrigin() reads
+	// through a LayerBuffer redeclaration that assumes the standard 5-vec4 osgSlug_LayerData
+	// layout, which does not match DecalDrawable's own 7-vec4 osgSlug_DecalLayerData at the same
+	// SSBO binding. See SHADER_MASK_FRAGMENT_HOOK_DECAL's definition for the full reasoning.
+	static const std::string SHADER_MASK_FRAGMENT_HOOK_DECAL;
 	static const std::string SHADER_ATLAS_TYPES; // AtlasShapeData + binding 0 only
 	static const std::string SHADER_TYPES; // SHADER_ATLAS_TYPES + LayerData + binding 1
 	static const std::string SHADER_LIB_VERTEX;

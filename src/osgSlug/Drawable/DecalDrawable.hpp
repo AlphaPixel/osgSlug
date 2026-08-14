@@ -32,11 +32,17 @@ public:
 	// `tangentU`/`tangentV` are the FULL width/height vectors (not half-extents) spanning the
 	// patch - e.g. a cube face's edge vectors. No reprojection: world = origin + lu*tangentU +
 	// lv*tangentV directly, lu/lv in [-0.5, 0.5].
+	//
+	// `mask`, if given, clips the decal quad against Canvas::mask()'s centered [-0.5,0.5] space
+	// (same convention as lu/lv above) - see Atlas::SHADER_MASK_FRAGMENT_HOOK_DECAL. Useful for
+	// clipping a bounding-box-sized quad to a non-rectangular patch's true silhouette (e.g. a
+	// triangular/pentagonal polyhedron face).
 	void addPlanarDecal(
 		const slughorn::Layer& layer,
 		const Vec3& origin,
 		const Vec3& tangentU,
-		const Vec3& tangentV
+		const Vec3& tangentV,
+		std::optional<slughorn::Mask> mask=std::nullopt
 	);
 
 	// Reposition an existing decal without recompiling.
@@ -86,7 +92,9 @@ private:
 		Vec3 origin, tangentU, tangentV;
 	};
 
-	struct DecalEntry { slughorn::Layer layer; Anchor anchor; };
+	// mask mirrors ShapeDrawable::RenderShape::mask: set immediately by addPlanarDecal() (no
+	// Atlas required yet), null means unmasked. See DecalDrawable::compile()'s group-splitting.
+	struct DecalEntry { slughorn::Layer layer; Anchor anchor; osg::ref_ptr<RenderMask> mask; };
 
 	std::vector<DecalEntry> _decalEntries;
 	slug_t _radius = 1_cv;

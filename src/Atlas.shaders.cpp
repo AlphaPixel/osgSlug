@@ -191,6 +191,8 @@ in osgSlug_FxBlock {
 // ai/context-todo-mask.md, "osgSlug_FragmentMask() early hook."
 struct osgSlug_FragmentMaskData {
 	vec2 emCoord; // em-space coordinate (geom.emCoord, raw/untiled)
+	vec2 uv; // normalized [0,1] UV (geom.uv) -- the decal mask hook reads this instead, since a
+	// decal quad has no meaningful "canvas em-space"/layer origin of its own to evaluate against.
 	vec2 emsPerPixel; // fwidth(geom.emCoord), precomputed in main() before any discard
 	float time; // osg_SimulationTime
 };
@@ -1147,7 +1149,7 @@ void main() {
 	// real coverage - osgSlug_maskFill is folded into the final alpha further down, once
 	// osgSlug_Fragment/osgSlug_FragmentExt have run. See ai/context-todo-mask.md.
 	float osgSlug_maskFill = osgSlug_FragmentMask(
-		osgSlug_FragmentMaskData(geom.emCoord, emsPerPixel, osg_SimulationTime)
+		osgSlug_FragmentMaskData(geom.emCoord, geom.uv, emsPerPixel, osg_SimulationTime)
 	);
 
 	if(osgSlug_maskFill < COVERAGE_EPSILON) discard;
@@ -1944,19 +1946,30 @@ const std::string Atlas::SHADER_MASK_FRAGMENT_HOOK = resolveShaderLibs(R"(
 #pragma osgSlug lib_mask
 
 float osgSlug_FragmentMask(osgSlug_FragmentMaskData data) {
-	// Checked here, before the LayerBuffer read below, not just inside
-	// osgSlug_Mask_CoverageFor: this hook's private LayerBuffer redeclaration (see lib_mask)
-	// assumes the standard 5-vec4 osgSlug_LayerData layout, which does NOT match
-	// DecalDrawable's own 7-vec4 osgSlug_DecalLayerData at the same binding. DecalDrawable never
-	// sets a real mask (RenderGroup.mask is always null there), so its draws always have the
-	// null sentinel bound (type=-1) - returning early here means this hook never reads through
-	// that mismatched buffer for Decal, not just that it discards the (potentially
-	// out-of-bounds) result.
+	// osgSlug_Mask_CoverageFor() also checks this internally, but checking here first skips the
+	// LayerBuffer read below (see lib_mask's private redeclaration) whenever nothing is masked -
+	// the common case for most drawables most of the time.
 	if(osgSlug_mask.type < 0) return 1.0;
 
 	vec2 canvasCoord = data.emCoord + osgSlug_Mask_LayerOrigin();
 
 	return osgSlug_Mask_CoverageFor(canvasCoord, data.emsPerPixel);
+}
+)");
+
+// createDecalProgram()'s default MaskHook (see Atlas.hpp's declaration comment for the full
+// LayerBuffer/DecalLayerBuffer mismatch reasoning). data.uv is the decal quad's own [0,1]
+// tangent-plane position (see SHADER_VERT_DECAL/geom.uv) - centering it to match the vertex
+// shader's own lu-0.5/lv-0.5 convention gives exactly the coordinate space a face-outline mask
+// (built via Canvas::mask() in that same centered [-0.5,0.5] space) should be authored in.
+const std::string Atlas::SHADER_MASK_FRAGMENT_HOOK_DECAL = resolveShaderLibs(R"(
+#version 430 core
+
+#pragma osgSlug lib_fragment
+#pragma osgSlug lib_mask
+
+float osgSlug_FragmentMask(osgSlug_FragmentMaskData data) {
+	return osgSlug_Mask_CoverageFor(data.uv - vec2(0.5), data.emsPerPixel);
 }
 )");
 
@@ -2101,7 +2114,7 @@ osg::Program* Atlas::createDecalProgram(HookList hooks) const {
 	const std::string* vertEffects = &SHADER_NOOP_VERTEX_HOOK;
 	const std::string* fragEffects = &SHADER_NOOP_FRAGMENT_HOOK;
 	const std::string* fragExt = &SHADER_NOOP_FRAGMENT_EXT_HOOK;
-	const std::string* maskHook = &SHADER_MASK_FRAGMENT_HOOK;
+	const std::string* maskHook = &SHADER_MASK_FRAGMENT_HOOK_DECAL;
 
 	for(const auto& [hook, src] : hooks) {
 		if(hook == VertexHook) vertEffects = &src;
@@ -2121,12 +2134,6 @@ osg::Program* Atlas::createDecalProgram(HookList hooks) const {
 	program->addShader(new osg::Shader(osg::Shader::FRAGMENT, resolveShaderLibs(*fragExt)));
 	program->addShader(new osg::Shader(osg::Shader::FRAGMENT, resolveShaderLibs(*maskHook)));
 
-	// DecalDrawable never sets a real mask (see ShapeDrawable::RenderGroup usage in
-	// DecalDrawable.cpp - mask is always nullptr there), and osgSlug_FragmentMask()'s default
-	// body returns early on the null sentinel before ever reading LayerBuffer, so binding this
-	// here is just for correctness/consistency, not because Decal masking works today - see
-	// that function's comment on why it can't safely read the standard LayerBuffer layout Decal
-	// doesn't use.
 	program->addBindUniformBlock("osgSlug_MaskBlock", RENDER_MASK_UBO_BINDING);
 
 	return program;

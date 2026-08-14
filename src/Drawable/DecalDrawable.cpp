@@ -4,6 +4,7 @@
 
 #include <osg/BufferIndexBinding>
 #include <osg/BufferObject>
+#include <osg/Depth>
 #include <stdexcept>
 #include <limits>
 #include <cmath>
@@ -75,7 +76,7 @@ void DecalDrawable::addDecal(
 	anchor.halfWidthDeg = halfWidthDeg;
 	anchor.halfHeightDeg = halfHeightDeg;
 
-	_decalEntries.push_back({layer, anchor});
+	_decalEntries.push_back({layer, anchor, nullptr});
 	addLayer(layer);
 }
 
@@ -83,7 +84,8 @@ void DecalDrawable::addPlanarDecal(
 	const slughorn::Layer& layer,
 	const Vec3& origin,
 	const Vec3& tangentU,
-	const Vec3& tangentV
+	const Vec3& tangentV,
+	std::optional<slughorn::Mask> mask
 ) {
 	Anchor anchor;
 
@@ -92,7 +94,13 @@ void DecalDrawable::addPlanarDecal(
 	anchor.tangentU = tangentU;
 	anchor.tangentV = tangentV;
 
-	_decalEntries.push_back({layer, anchor});
+	// One RenderMask per call, exactly like ShapeDrawable::addCompositeShape() - identity (not
+	// value) is what compile() groups on below.
+	osg::ref_ptr<RenderMask> renderMask;
+
+	if(mask) renderMask = new RenderMask(*mask, RENDER_MASK_UBO_BINDING);
+
+	_decalEntries.push_back({layer, anchor, renderMask});
 	addLayer(layer);
 }
 
@@ -253,6 +261,16 @@ void DecalDrawable::compile() {
 		osg::StateAttribute::ON
 	);
 
+	// A masked (or just AA-edged) decal has fragments whose maskFill sits between the early
+	// discard threshold and 1.0 - not discarded, so not skipped, but not fully opaque either.
+	// Without this, those fragments still write depth at full mask-edge alpha's *position* (GL's
+	// default), which can incorrectly occlude anything drawn afterward right at a mask boundary -
+	// e.g. a decal quad's oversized bounding-box corners clipped by a face outline mask, exactly
+	// where an adjacent face's own geometry sits. Same fix PathDrawable/ScanlineDrawable already
+	// use for their own translucent/AA-edged content: test against the scene's depth (so a decal
+	// still self-occludes behind the surface it's on) but never write into it.
+	getOrCreateStateSet()->setAttributeAndModes(new osg::Depth(osg::Depth::LESS, 0.0, 1.0, false));
+
 	auto vertices = osgx::make_ref<osgx::Vec4Array>();
 	auto emCoords = osgx::make_ref<osgx::Vec4Array>();
 
@@ -260,28 +278,36 @@ void DecalDrawable::compile() {
 
 	osg::ref_ptr<index_type> groupIndices;
 	slughorn::BlendMode groupBlend = slughorn::BlendMode::SrcOver;
+	osg::ref_ptr<RenderMask> groupMask;
 
 	auto flushGroup = [&]() {
 		if(groupIndices && !groupIndices->empty())
-			_groups.push_back({groupBlend, slughorn::DrawMode::Visible, groupIndices, nullptr});
+			_groups.push_back({groupBlend, slughorn::DrawMode::Visible, groupIndices, groupMask});
 	};
 
 	auto ssbo = osgx::make_ref<osg::ShaderStorageBufferObject>();
 
 	index_element_type base = 0;
+	RenderMask* lastRepacked = nullptr; // dedupes repack() across consecutive shared-mask entries
 
 	for(size_t i = 0; i < _decalEntries.size(); i++) {
-		const auto& [layer, anchor] = _decalEntries[i];
+		const auto& [layer, anchor, entryMask] = _decalEntries[i];
 		const slug_t lidx = cv(i + 1);
 
 		auto layerBuf = osgx::make_ref<osgx::Vec4Array>();
 		const auto shape = atlas->getShape(layer.key);
 
 		if(shape) {
-			if(!groupIndices || layer.blendMode != groupBlend) {
+			if(!groupIndices || layer.blendMode != groupBlend || entryMask.get() != groupMask.get()) {
 				flushGroup();
 				groupIndices = osgx::make_ref<index_type>();
 				groupBlend = layer.blendMode;
+				groupMask = entryMask;
+			}
+
+			if(entryMask && entryMask.get() != lastRepacked) {
+				entryMask->repack(*atlas);
+				lastRepacked = entryMask.get();
 			}
 
 			// TODO(expand-removal): DecalDrawable still bakes a fixed em-space AA margin locally
