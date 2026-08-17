@@ -364,6 +364,16 @@ osgSlug_VertexResult osgSlug_Vertex_Scale(osgSlug_VertexData data, float scale) 
 layout(location = 0) in vec4 a_position; // xyz = world pos (TRUE corner), w = layer index (1-based)
 layout(location = 1) in vec4 a_emCoord; // xy = em-coord (TRUE bounds), zw = UV [0,1]
 
+#ifdef OSGSLUG_AXIS_PER_VERTEX
+// Real per-vertex tangent frame (SubdividedDrawable, curved custom posFn only) - see
+// Atlas::createSubdividedProgram() and SubdividedDrawable::compile(). Same meaning as
+// osgSlug_LayerData's axisX/axisY, just supplied per-vertex instead of per-layer, since a
+// curved surface's true em<->world rate/direction varies continuously over (u,v) - a single
+// per-layer constant is only exact for a flat, uniformly-scaled quad.
+layout(location = 2) in vec4 a_axisX; // xyz = model-space dir of +1 em along X, w = worldPerEm rate
+layout(location = 3) in vec4 a_axisY; // xyz = model-space dir of +1 em along Y, w = worldPerEm rate
+#endif
+
 uniform mat4 osg_ModelViewProjectionMatrix;
 uniform float osg_SimulationTime;
 uniform vec2 osgSlug_viewport; // live viewport size (Atlas::ViewportUniformCallback)
@@ -408,8 +418,13 @@ void main() {
 	vData.effectParam = ld.effectData.w;
 	vData.time = osg_SimulationTime;
 	vData.bleed = ld.transformData.z;
+#ifdef OSGSLUG_AXIS_PER_VERTEX
+	vData.axisX = a_axisX;
+	vData.axisY = a_axisY;
+#else
 	vData.axisX = ld.axisX;
 	vData.axisY = ld.axisY;
+#endif
 
 	osgSlug_VertexResult r = osgSlug_Vertex(vData);
 
@@ -2129,6 +2144,37 @@ osg::Program* Atlas::createDecalProgram(HookList hooks) const {
 	// and binding 1 itself, avoiding conflict with the standard osgSlug_LayerData / binding 1.
 	program->addShader(makeVertShader(SHADER_VERT_DECAL, SHADER_ATLAS_TYPES));
 	program->addShader(makeVertShader(*vertEffects, SHADER_ATLAS_TYPES));
+	program->addShader(new osg::Shader(osg::Shader::FRAGMENT, SHADER_FRAG));
+	program->addShader(new osg::Shader(osg::Shader::FRAGMENT, resolveShaderLibs(*fragEffects)));
+	program->addShader(new osg::Shader(osg::Shader::FRAGMENT, resolveShaderLibs(*fragExt)));
+	program->addShader(new osg::Shader(osg::Shader::FRAGMENT, resolveShaderLibs(*maskHook)));
+
+	program->addBindUniformBlock("osgSlug_MaskBlock", RENDER_MASK_UBO_BINDING);
+
+	return program;
+}
+
+osg::Program* Atlas::createSubdividedProgram(HookList hooks) const {
+	const std::string* vertEffects = &SHADER_NOOP_VERTEX_HOOK;
+	const std::string* fragEffects = &SHADER_NOOP_FRAGMENT_HOOK;
+	const std::string* fragExt = &SHADER_NOOP_FRAGMENT_EXT_HOOK;
+	const std::string* maskHook = &SHADER_MASK_FRAGMENT_HOOK;
+
+	for(const auto& [hook, src] : hooks) {
+		if(hook == VertexHook) vertEffects = &src;
+		else if(hook == FragmentHook) fragEffects = &src;
+		else if(hook == FragmentExtHook) fragExt = &src;
+		else if(hook == MaskHook) maskHook = &src;
+	}
+
+	auto* program = new osg::Program();
+
+	// Same SHADER_VERT/SHADER_TYPES as createDefaultStateSet() - just one #define ahead of it, so
+	// main() reads axisX/axisY from a_axisX/a_axisY (per-vertex) instead of ld.axisX/ld.axisY
+	// (per-layer). One source of truth for the shader body either way; see the
+	// OSGSLUG_AXIS_PER_VERTEX guards in SHADER_VERT.
+	program->addShader(makeVertShader(SHADER_VERT, "#define OSGSLUG_AXIS_PER_VERTEX\n" + SHADER_TYPES));
+	program->addShader(makeVertShader(*vertEffects, SHADER_TYPES));
 	program->addShader(new osg::Shader(osg::Shader::FRAGMENT, SHADER_FRAG));
 	program->addShader(new osg::Shader(osg::Shader::FRAGMENT, resolveShaderLibs(*fragEffects)));
 	program->addShader(new osg::Shader(osg::Shader::FRAGMENT, resolveShaderLibs(*fragExt)));

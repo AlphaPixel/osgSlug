@@ -159,6 +159,14 @@ public:
 	// (DecalDrawable::compile() calls this automatically.)
 	osg::Program* createDecalProgram(HookList hooks={}) const;
 
+	// Returns a Program using the same SHADER_VERT as createDefaultStateSet(), but compiled with
+	// OSGSLUG_AXIS_PER_VERTEX defined: main() reads the em<->world tangent frame from per-vertex
+	// a_axisX/a_axisY attributes instead of the per-layer LayerBuffer SSBO. Needed by any
+	// SubdividedDrawable with a curved custom _positionCallback, where that frame genuinely
+	// varies over the surface and a single per-layer constant is wrong (see
+	// SubdividedDrawable::compile(), which calls this automatically when a callback is set).
+	osg::Program* createSubdividedProgram(HookList hooks={}) const;
+
 	static osg::ref_ptr<Atlas> fromAtlas(const slughorn::Atlas& src) {
 		osg::ref_ptr<Atlas> atlas = new osgSlug::Atlas();
 

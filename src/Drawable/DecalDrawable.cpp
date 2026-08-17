@@ -318,7 +318,27 @@ void DecalDrawable::compile() {
 			static constexpr slug_t DECAL_EXPAND = 0.01_cv;
 
 			const auto q = shape->computeQuad(layer.transform, layer.scale);
-			auto [emX0, emY0, emX1, emY1] = computeEmBounds(*shape);
+
+			// The decal's UV grid always spans the shape's FULL given tangent frame -- one fixed
+			// [0,1] window, same for every layer regardless of what it references (see this file's
+			// vertex shader: world = P + (u-0.5)*Te + (v-0.5)*Tn, no per-layer scaling). Prior to
+			// this, that [0,1] window was mapped directly onto computeEmBounds(*shape) -- the
+			// shape's OWN raw declared bounds -- which is only correct when the referenced shape's
+			// declared bounds equal that same fixed [0,1] convention (true for every shape baked by
+			// this file's canvas.setAutoMetrics(false), by construction). Shared/referenced shapes
+			// with real per-shape metrics (e.g. Canvas::textGlyph()'s angle==0 fast path against a
+			// real font glyph) have their OWN, real, non-[0,1] declared bounds, so that direct
+			// mapping stretched them to fill the whole decal. Deriving the window from
+			// layer.transform/layer.scale instead -- the same per-INSTANCE placement data
+			// Shape::computeQuad() already consumes for ordinary (non-decal) rendering -- fixes
+			// this in general: it reduces to exactly the old computeEmBounds()-equivalent [0,1]
+			// result when transform=(0,0)/scale=1 (every currently-baked shape in this codebase,
+			// confirmed unchanged), and correctly derives a real window for any other transform/
+			// scale instead of assuming the shape's own declared bounds already match one.
+			slug_t emX0 = -layer.transform.x;
+			slug_t emY0 = -layer.transform.y;
+			slug_t emX1 = 1_cv / layer.scale - layer.transform.x;
+			slug_t emY1 = 1_cv / layer.scale - layer.transform.y;
 
 			emX0 -= DECAL_EXPAND;
 			emY0 -= DECAL_EXPAND;
