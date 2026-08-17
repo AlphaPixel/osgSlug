@@ -19,6 +19,8 @@
 
 #include "slughorn/canvas.hpp"
 
+#include <osgx/Gizmos.hpp>
+
 #include <osg/TextureCubeMap>
 
 // ================================================================================================
@@ -39,15 +41,14 @@ static float packMaterial(float roughness, float metallic) {
 // the center -- rather than saturating a few pixels in from the edge.
 static constexpr float MSDF_RANGE = 0.45f;
 
-// Number of direct lights the shader loop supports; keep in sync with the uniform arrays
-// declared in makeChromeFrag() and filled by osgx::pbr::OrbitLightRig below.
-static constexpr int MAX_LIGHTS = 4;
-
 static std::string makeChromeFrag() {
 	std::string src = R"GLSL(
-#version 330 core
+#version 430 core
 #pragma osgSlug lib_fragment
 
+// 430, not 330: `#pragma osgx::pbr *` pulls in LIGHT_UNIFORMS, which declares the osgx_lights
+// SSBO (`buffer osgx_LightBuffer`) -- SSBOs require GLSL 430+, matching osgSlug's own
+// SHADER_VERT/SHADER_FRAG (Atlas.shaders.cpp).
 const float PI = 3.14159265359;
 #pragma osgx::pbr *
 uniform samplerCube envMap; // unit 5 -- GGX-prefiltered cubemap (osgx::ibl::loadPrefilterCubemap)
@@ -57,13 +58,10 @@ uniform vec3 badgeNormalWorld;
 uniform float envMaxMip;
 uniform float iblIntensity;
 
-// Direct-light rig, animated per-frame by osgx::pbr::OrbitLightRig (osgx.hpp).
-// lightPosIntensity: xyz = world-space position, w = intensity (already scaled by
-// --light-intensity). Unused slots have w = 0.
-const int MAX_LIGHTS = 4;
-uniform int lightCount;
-uniform vec4 lightPosIntensity[MAX_LIGHTS];
-uniform vec3 lightColor[MAX_LIGHTS];
+// Direct-light rig, animated per-frame by osgx::pbr::OrbitLightRig (osgx.hpp). osgx_lightCount/
+// osgx_lights come from LIGHT_UNIFORMS (already spliced in via `#pragma osgx::pbr *` above) --
+// the same SSBO-backed osgx::pbr::LightSet that OrbitLightRig writes position/intensity into
+// every frame, so this loop stays in sync with it instead of hand-copying a shadow uniform API.
 
 vec2 osgSlug_FragEmCoord(vec2 emCoord, inout vec2 emsPerPixel, int effectId, float time) {
 	return emCoord;
@@ -130,14 +128,12 @@ vec4 osgSlug_Fragment(osgSlug_FragmentData data) {
 
 	vec3 direct = vec3(0.0);
 
-	for(int i = 0; i < lightCount; i++) {
-		vec3 toL = lightPosIntensity[i].xyz - P;
-		float dist2 = dot(toL, toL);
-		vec3 L = toL * inversesqrt(dist2);
+	for(int i = 0; i < osgx_lightCount; i++) {
+		vec3 L;
+		vec3 radiance = osgx_PointLightRadiance(osgx_lights[i].posIntensity, osgx_lights[i].color, P, L);
 
 		// No diffuse term -- metallic=1 has kD = 0 by definition, and this example is chrome.
-		direct += osgx_DirectSpecular(N, V, L, NdotV, lightRoughness, F0)
-			* lightColor[i] * (lightPosIntensity[i].w / dist2);
+		direct += osgx_DirectSpecular(N, V, L, NdotV, lightRoughness, F0) * radiance;
 	}
 
 	// No SH diffuse yet (osgx::ibl task 3, still pending) -- a small flat floor keeps the
@@ -166,7 +162,7 @@ vec4 osgSlug_Fragment(osgSlug_FragmentData data) {
 // main
 // ================================================================================================
 
-// Per-frame light rig: MAX_LIGHTS point lights orbiting in front of the badge -- now
+// Per-frame light rig: a handful of point lights orbiting in front of the badge -- now
 // osgx::pbr::OrbitLightRig (osgx.hpp), generalized out of this example so
 // osgslug-pbr-ibl-text.cpp can reuse it. See ai/context-todo-lighting.md.
 
@@ -265,21 +261,14 @@ int main(int argc, char** argv) {
 
 	// ---- Direct-light rig ---- //
 
-	auto* lightPos = new osg::Uniform(osg::Uniform::FLOAT_VEC4, "lightPosIntensity", MAX_LIGHTS);
-	auto* lightCol = new osg::Uniform(osg::Uniform::FLOAT_VEC3, "lightColor", MAX_LIGHTS);
+	auto lights = osgx::pbr::LightSet::create(ss);
 
-	// Theatrical gels: warm key, cool fill, magenta accent. Unused slot stays black/zero.
-	lightCol->setElement(0, osg::Vec3(1.00f, 0.95f, 0.80f));
-	lightCol->setElement(1, osg::Vec3(0.55f, 0.70f, 1.00f));
-	lightCol->setElement(2, osg::Vec3(1.00f, 0.45f, 0.70f));
-
-	for(int i = 0; i < MAX_LIGHTS; i++) lightPos->setElement(
-		static_cast<unsigned int>(i), osg::Vec4(0.0f, 0.0f, 1.0f, 0.0f)
-	);
-
-	ss->addUniform(new osg::Uniform("lightCount", 3));
-	ss->addUniform(lightPos);
-	ss->addUniform(lightCol);
+	// Theatrical gels: warm key, cool fill, magenta accent. Position/intensity get overwritten
+	// every frame by OrbitLightRig below; only color is fixed here.
+	lights.setPoint(0, osg::Vec3(0.0f, 0.0f, 1.0f), osg::Vec3(1.00f, 0.95f, 0.80f), 0.0f);
+	lights.setPoint(1, osg::Vec3(0.0f, 0.0f, 1.0f), osg::Vec3(0.55f, 0.70f, 1.00f), 0.0f);
+	lights.setPoint(2, osg::Vec3(0.0f, 0.0f, 1.0f), osg::Vec3(1.00f, 0.45f, 0.70f), 0.0f);
+	lights.setCount(3);
 
 	sd->setStateSet(ss);
 	atlas->addChild(sd);
@@ -290,15 +279,25 @@ int main(int argc, char** argv) {
 
 	auto rig = osgx::make_ref<osgx::pbr::OrbitLightRig>();
 
-	rig->ss = ss;
+	rig->lights = lights;
 	rig->center = osg::Vec3(0.5f, 0.5f, 0.0f); // canvas.circle(0.5, 0.5, ...) -- badge center
 	rig->intensity = lightIntensity;
 	badgeXform->setUpdateCallback(rig);
+
+	// Depth-tested wireframe markers at each orbiting light's live position -- rebuilt every
+	// frame straight from `lights`, so they track OrbitLightRig's animation for free. No
+	// directional lights here (all three are setPoint()), so gizmos.overlay draws nothing, but
+	// costs nothing to add either. Sibling of `sd` under `atlas`, not a child of it, so the
+	// markers don't inherit the chrome StateSet.
+	auto gizmos = osgx::gizmo::createLightGizmos(lights, atlas);
+
+	atlas->addChild(gizmos.markers);
 
 	auto root = osgx::make_ref<osg::Group>();
 
 	root->addChild(bakeCam);
 	root->addChild(badgeXform);
+	root->addChild(gizmos.overlay);
 
 	return example::run(viewer, args, root);
 }

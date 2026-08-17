@@ -33,49 +33,55 @@ int main(int argc, char** argv) {
 
 	auto atlas = osgx::make_ref<osgSlug::Atlas>();
 
-	osgSlug::Atlas::ShapeInfo tri;
+	slughorn::canvas::Canvas canvas(*atlas);
 
-	tri.numBandsX = 3;
-	tri.numBandsY = 3;
-	tri.curves = {
-		{0.0_cv, 0.0_cv, 0.5_cv, 0.35_cv, 1.0_cv, 0.0_cv}, // bottom
-		{1.0_cv, 0.0_cv, 0.75_cv, 0.35_cv, 0.5_cv, 0.7_cv}, // right
-		{0.5_cv, 0.7_cv, 0.25_cv, 0.35_cv, 0.0_cv, 0.0_cv}, // le_cvt
+	// Simple tic-tac-toe grid (2 vertical + 2 horizontal lines, each drawn full-length so the
+	// shape's own ink bounds span the full [0,1] canvas). Deliberately plain, high-contrast
+	// content: thin lines crossing SphereDrawable's longitude seam (u=0/u=1) show even a
+	// sub-pixel per-vertex tangent mismatch immediately, unlike a single flat-filled shape's
+	// edge - see project_subdivided_curved_axes_bug (memory). Used below by sphere/box/
+	// half-cylinder via `key`, so a regression on any of those shows up too.
+	canvas.beginPath();
+
+	for(int i = 1; i < 3; i++) {
+		const slug_t t = cv(i) / 3_cv;
+
+		canvas.moveTo(t, 0_cv);
+		canvas.lineTo(t, 1_cv);
+		canvas.moveTo(0_cv, t);
+		canvas.lineTo(1_cv, t);
+	}
+
+	auto gridLayer = canvas.stroke(0.01_cv, {1_cv, 0.5_cv, 0_cv, 1_cv});
+	auto key = gridLayer.key;
+
+	// Three disconnected rects sharing one left-to-right gradient -- proves that a single
+	// shape can have multiple disconnected sub-paths and the gradient clips correctly to each.
+	// Used by the "subdivide" shape option below.
+	auto grad = canvas.createLinearGradient(
+		0.1_cv, 0.5_cv, // left edge
+		0.9_cv, 0.5_cv, // right edge
+		{
+			{0.0_cv, {0_cv, 0.8_cv, 1_cv, 1_cv}}, // cyan
+			{0.5_cv, {0.6_cv, 0_cv, 1_cv, 1_cv}}, // violet
+			{1.0_cv, {1_cv, 0_cv, 0.8_cv, 1_cv}} // magenta
+		}
+	);
+
+	auto addRect = [&](slug_t x, slug_t y, slug_t w, slug_t h) {
+		canvas.moveTo(x, y);
+		canvas.lineTo(x + w, y);
+		canvas.lineTo(x + w, y + h);
+		canvas.lineTo(x, y + h);
+		canvas.closePath();
 	};
 
-	auto key = slughorn::Key("tri");
+	canvas.beginPath();
+	addRect(0.1_cv, 0.25_cv, 0.2_cv, 0.5_cv); // left
+	addRect(0.4_cv, 0.25_cv, 0.2_cv, 0.5_cv); // center
+	addRect(0.7_cv, 0.25_cv, 0.2_cv, 0.5_cv); // right
+	auto layer = canvas.fillGradient(grad);
 
-#if 1
-		slughorn::canvas::Canvas canvas(*atlas);
-
-		// Three disconnected rects sharing one left-to-right gradient -- proves that a single
-		// shape can have multiple disconnected sub-paths and the gradient clips correctly to each.
-		auto grad = canvas.createLinearGradient(
-			0.1_cv, 0.5_cv, // left edge
-			0.9_cv, 0.5_cv, // right edge
-			{
-				{0.0_cv, {0_cv, 0.8_cv, 1_cv, 1_cv}}, // cyan
-				{0.5_cv, {0.6_cv, 0_cv, 1_cv, 1_cv}}, // violet
-				{1.0_cv, {1_cv, 0_cv, 0.8_cv, 1_cv}} // magenta
-			}
-		);
-
-		auto addRect = [&](slug_t x, slug_t y, slug_t w, slug_t h) {
-			canvas.moveTo(x, y);
-			canvas.lineTo(x + w, y);
-			canvas.lineTo(x + w, y + h);
-			canvas.lineTo(x, y + h);
-			canvas.closePath();
-		};
-
-		canvas.beginPath();
-		addRect(0.1_cv, 0.25_cv, 0.2_cv, 0.5_cv); // left
-		addRect(0.4_cv, 0.25_cv, 0.2_cv, 0.5_cv); // center
-		addRect(0.7_cv, 0.25_cv, 0.2_cv, 0.5_cv); // right
-		auto layer = canvas.fillGradient(grad);
-#endif
-
-	atlas->addShape(key, tri);
 	atlas->build();
 	atlas->packTextures();
 

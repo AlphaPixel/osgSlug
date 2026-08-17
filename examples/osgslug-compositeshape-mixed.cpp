@@ -265,6 +265,39 @@ int main(int argc, char** argv) {
 
 	if(!font->load()) return 1;
 
+	// ── FLAVOR TEXT (same atlas as everything above) ───────────────────────────
+	// Regular and italic faces both define e.g. Key(48) for their own '0' glyph;
+	// registering both in one Atlas would silently alias one onto the other
+	// (previously worked around with a second Atlas just to keep them apart — a
+	// second ShapeDrawable, a second RenderBin, a second root child). Loading the
+	// italic face under Key mask=1 keeps both fonts, and everything else, in one
+	// Atlas/Canvas/ShapeDrawable instead. See slughorn::Key's mask convention.
+
+	canvas
+		.beginPath()
+		.roundedRect(22_cv, 330_cv, 316_cv, 145_cv, 8_cv)
+		.fill({0.06_cv, 0.06_cv, 0.12_cv, 0.75_cv})
+	;
+
+	canvas
+		.beginPath()
+		.roundedRect(22_cv, 330_cv, 316_cv, 145_cv, 8_cv)
+		.stroke(1.5_cv, {0.85_cv, 0.66_cv, 0.26_cv, 0.5_cv})
+	;
+
+	auto flavorBox = canvas.finalize();
+
+	auto fontItalic = osgx::make_ref<osgSlug::Font>(
+		"font/EB_Garamond/EBGaramond-Italic-VariableFont_wght.ttf",
+		atlas
+	);
+
+	slughorn::freetype::LoadConfig italicConfig;
+
+	italicConfig.mask = 1;
+
+	if(!fontItalic->load(&italicConfig)) return 1;
+
 	atlas->build();
 	atlas->packTextures();
 
@@ -283,9 +316,33 @@ int main(int argc, char** argv) {
 
 	canvas.finalize("text");
 
+	const slughorn::Color flavorColor = {0.92_cv, 0.88_cv, 0.78_cv, 1.0_cv};
+
+	canvas.text(
+		"We hacked off every limb.",
+		22_cv, 180_cv, 375_cv, flavorColor,
+		fontItalic->metrics(),
+		slughorn::canvas::TextAnchorY::Baseline,
+		slughorn::canvas::TextAlignX::Center,
+		/*mask=*/1
+	);
+
+	canvas.text(
+		"We ran out of swords first.",
+		22_cv, 180_cv, 410_cv, flavorColor,
+		fontItalic->metrics(),
+		slughorn::canvas::TextAnchorY::Baseline,
+		slughorn::canvas::TextAlignX::Center,
+		/*mask=*/1
+	);
+
+	auto flavor = canvas.finalize();
+
 	sd->addCompositeShape(*atlas->getCompositeShape("cardShape"));
 	sd->addCompositeShape(axo);
 	sd->addCompositeShape(*atlas->getCompositeShape("text"));
+	sd->addCompositeShape(flavorBox);
+	sd->addCompositeShape(flavor);
 
 	sd->setStateSet(atlas->createHookStateSet({{osgSlug::Atlas::VertexHook, VERT_SHADER}}));
 	sd->getOrCreateStateSet()->setRenderBinDetails(0, "RenderBin");
@@ -303,79 +360,5 @@ int main(int argc, char** argv) {
 			for(size_t b = 0; b < 4; b++) sd->setLayerEffectParam(GILL_START + grp * 4 + b, rootYs[grp]);
 	}
 
-	// ── SECOND ATLAS: italic flavor text ─────────────────────────────────────
-	// Separate Atlas so the italic glyphs don't collide with the regular ones
-	// already loaded above.
-
-	auto atlas2 = osgx::make_ref<osgSlug::Atlas>();
-
-	slughorn::canvas::Canvas canvas2(*atlas2);
-
-	canvas2.translate(0_cv, 520_cv);
-	canvas2.scale(1_cv, -1_cv);
-
-	// Flavor text frame — SVG y=330..475.
-	canvas2
-		.beginPath()
-		.roundedRect(22_cv, 330_cv, 316_cv, 145_cv, 8_cv)
-		.fill({0.06_cv, 0.06_cv, 0.12_cv, 0.75_cv})
-	;
-
-	canvas2
-		.beginPath()
-		.roundedRect(22_cv, 330_cv, 316_cv, 145_cv, 8_cv)
-		.stroke(1.5_cv, {0.85_cv, 0.66_cv, 0.26_cv, 0.5_cv})
-	;
-
-	// canvas2.finalize("flavorBox");
-	auto fb = canvas2.finalize();
-
-	auto fontItalic = osgx::make_ref<osgSlug::Font>(
-		"font/EB_Garamond/EBGaramond-Italic-VariableFont_wght.ttf",
-		atlas2
-	);
-
-	fontItalic->load();
-	atlas2->build();
-	atlas2->packTextures();
-
-	const slughorn::Color flavorColor = {0.92_cv, 0.88_cv, 0.78_cv, 1.0_cv};
-
-	canvas2.text(
-		"We hacked off every limb.",
-		22_cv, 180_cv, 375_cv, flavorColor,
-		fontItalic->metrics(),
-		slughorn::canvas::TextAnchorY::Baseline,
-		slughorn::canvas::TextAlignX::Center
-	);
-
-	canvas2.text(
-		"We ran out of swords first.",
-		22_cv, 180_cv, 410_cv, flavorColor,
-		fontItalic->metrics(),
-		slughorn::canvas::TextAnchorY::Baseline,
-		slughorn::canvas::TextAlignX::Center
-	);
-
-	// canvas2.finalize("flavor");
-	auto f = canvas2.finalize();
-
-	auto sdtext = example::makeShapeDrawable();
-
-	// sdtext->addCompositeShape(*atlas2->getCompositeShape("flavorBox"));
-	// sdtext->addCompositeShape(*atlas2->getCompositeShape("flavor"));
-	sdtext->addCompositeShape(fb);
-	sdtext->addCompositeShape(f);
-
-	sdtext->getOrCreateStateSet()->setRenderBinDetails(1, "RenderBin");
-
-	atlas2->addChild(sdtext);
-
-	// Two separate atlases; both are children of a common root Group.
-	auto root = osgx::make_ref<osg::Group>();
-
-	root->addChild(atlas);
-	root->addChild(atlas2);
-
-	return example::run(viewer, args, root);
+	return example::run(viewer, args, atlas);
 }
