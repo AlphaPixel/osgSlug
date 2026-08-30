@@ -38,8 +38,8 @@ void registerOsgSlugCoreShaderLibs() {
 // Resolves both osgSlug's registered hook libraries and osgx's PBR/IBL catalogs.
 std::string resolveShaderLibs(std::string src) {
 	registerOsgSlugCoreShaderLibs();
-	osgx::pbr::registerShaderLibs();
-	osgx::ibl::registerShaderLibs();
+	osgx::registerPBRShaderLibs();
+	osgx::registerIBLShaderLibs();
 
 	return osgx::resolveShaderLibs(std::move(src));
 }
@@ -872,12 +872,16 @@ float slug_Render(
 	int iters = 0;
 
 	uvec2 hbandData = texelFetch(osgSlug_bandTexture, ivec2(glyphLoc.x + 2 * SLUG_INDIRECTION_SIZE + bandY, glyphLoc.y), 0).xy;
-	ivec2 hbandLoc = slug_CalcBandLoc(glyphLoc, hbandData.y);
 
 	for(curveIndex = 0; curveIndex < int(hbandData.x); curveIndex++) {
 		iters++;
 
-		ivec2 curveLoc = ivec2(texelFetch(osgSlug_bandTexture, ivec2(hbandLoc.x + curveIndex, hbandLoc.y), 0).xy);
+		// 2026-08-26: re-derive this fetch's row every iteration (instead of computing
+		// hbandLoc once and flat-adding curveIndex to its X) so a band's curve-index list
+		// can span more than one texture row - see slughorn.cpp's Atlas::build() comment
+		// at the (now-removed) "count > _texWidth" guard for the full story.
+		ivec2 hbandLoc = slug_CalcBandLoc(glyphLoc, hbandData.y + uint(curveIndex));
+		ivec2 curveLoc = ivec2(texelFetch(osgSlug_bandTexture, hbandLoc, 0).xy);
 
 		vec4 p12 = texelFetch(osgSlug_curveTexture, curveLoc, 0) - vec4(renderCoord, renderCoord);
 		vec2 p3 = texelFetch(osgSlug_curveTexture, ivec2(curveLoc.x + 1, curveLoc.y), 0).xy - renderCoord;
@@ -905,12 +909,13 @@ float slug_Render(
 	float ywgt = 0.0;
 
 	uvec2 vbandData = texelFetch(osgSlug_bandTexture, ivec2(glyphLoc.x + 2 * SLUG_INDIRECTION_SIZE + bandMax.y + 1 + bandX, glyphLoc.y), 0).xy;
-	ivec2 vbandLoc = slug_CalcBandLoc(glyphLoc, vbandData.y);
 
 	for(curveIndex = 0; curveIndex < int(vbandData.x); curveIndex++) {
 		iters++;
 
-		ivec2 curveLoc = ivec2(texelFetch(osgSlug_bandTexture, ivec2(vbandLoc.x + curveIndex, vbandLoc.y), 0).xy);
+		// See the matching comment in the horizontal-band loop above.
+		ivec2 vbandLoc = slug_CalcBandLoc(glyphLoc, vbandData.y + uint(curveIndex));
+		ivec2 curveLoc = ivec2(texelFetch(osgSlug_bandTexture, vbandLoc, 0).xy);
 
 		vec4 p12 = texelFetch(osgSlug_curveTexture, curveLoc, 0) - vec4(renderCoord, renderCoord);
 		vec2 p3 = texelFetch(osgSlug_curveTexture, ivec2(curveLoc.x + 1, curveLoc.y), 0).xy - renderCoord;
