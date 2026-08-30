@@ -402,6 +402,37 @@ bool validateArgument(
 	return true;
 }
 
+// Applies shared example-level Atlas configuration parsed from the command line. Call after
+// constructing the Atlas -- however a given example needs to (default texWidth, a custom one,
+// etc.) -- but before build(). Meant to grow over time as more example-wide Atlas options show
+// up; currently just --curve-precision. Deliberately takes an already-constructed Atlas rather
+// than being a factory itself: construction genuinely varies per example (e.g.
+// osgslug-nanosvg.cpp and osgslug-tmp.tilestream.cpp both pass a custom texWidth), so a
+// one-size-fits-all constructor wrapper would need to forward that anyway.
+inline bool configureAtlas(osg::ArgumentParser& args, slughorn::Atlas& atlas) {
+	// --curve-precision <16|32> (default: 32, matching slughorn::Atlas's own default).
+	// 16-bit halves curve-texture memory but is a real precision tradeoff, not just a repack:
+	// it can visibly degrade shape edges under heavy zoom. Exists here so every example can be
+	// re-run at both precisions for direct A/B comparison, e.g. when reproducing a
+	// precision-sensitive bug.
+	std::string precision = "32";
+
+	while(args.read("--curve-precision", precision)) {
+		if(!validateArgument(args, "--curve-precision", precision, {
+			std::string("16"),
+			std::string("32")
+		})) return false;
+	}
+
+	atlas.setCurveTextureFormat(
+		precision == "16"
+			? slughorn::Atlas::TextureData::Format::RGBA16F
+			: slughorn::Atlas::TextureData::Format::RGBA32F
+	);
+
+	return true;
+}
+
 // We always add 1 to `num` to account for the implicit argv[0] itself.
 inline bool validatePositional(osg::ArgumentParser& args, int num, const std::string& pos) {
 	if(args.argc() < num + 1) {
@@ -445,6 +476,13 @@ inline bool setupArguments(
 		"--grid",
 		"Draws an osgx::Grid reference background - 2D graph paper under Ortho2DManipulator "
 		"only; hidden under TrackballManipulator"
+	);
+
+	args.getApplicationUsage()->addCommandLineOption(
+		"--curve-precision <16|32>",
+		"Curve texture float precision (DEFAULT 32). 16 halves curve-texture memory but is a "
+		"real precision tradeoff -- can visibly degrade shape edges under heavy zoom. Only "
+		"takes effect if the example calls example::configureAtlas() on its Atlas."
 	);
 
 	for(const auto& a : extraArgs) args.getApplicationUsage()->addCommandLineOption(

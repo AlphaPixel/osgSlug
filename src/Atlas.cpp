@@ -25,6 +25,12 @@ OSGSLUG_ENABLE_WARNINGS
 #ifndef GL_RGB32F
 #define GL_RGB32F 0x8815
 #endif
+#ifndef GL_RGBA16F_ARB
+#define GL_RGBA16F_ARB 0x881A
+#endif
+#ifndef GL_HALF_FLOAT
+#define GL_HALF_FLOAT 0x140B
+#endif
 
 namespace osgSlug {
 
@@ -222,6 +228,13 @@ osg::ref_ptr<osg::Texture2D> Atlas::_makeTexture(const slughorn::Atlas::TextureD
 	if(data.format == slughorn::Atlas::TextureData::Format::RGBA32F) {
 		img->allocateImage(width, height, 1, GL_RGBA, GL_FLOAT);
 		img->setInternalTextureFormat(GL_RGBA32F_ARB);
+	}
+
+	else if(data.format == slughorn::Atlas::TextureData::Format::RGBA16F) {
+		// Curve texture. Bytes are already packed as half-floats by Atlas::packTextures();
+		// GL_HALF_FLOAT tells GL to upload them as-is, not to convert from GL_FLOAT.
+		img->allocateImage(width, height, 1, GL_RGBA, GL_HALF_FLOAT);
+		img->setInternalTextureFormat(GL_RGBA16F_ARB);
 	}
 
 	else if(data.format == slughorn::Atlas::TextureData::Format::RGBA16UI) {
