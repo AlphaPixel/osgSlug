@@ -3,7 +3,7 @@
 // Same chrome/IBL technique as osgslug-pbr-ibl.cpp (the circle badge), applied to real text
 // glyphs instead of a single primitive -- see ai/context-todo-lighting.md's "Ultimate Goal".
 // Shares the promoted osgx::pbr GLSL (DIRECT_SPECULAR/IBL_SPECULAR/TONEMAP_PBR_NEUTRAL) and
-// osgx::pbr::OrbitLightRig with the badge example; only the shape-specific bits (glyph loading,
+// osgx::OrbitLightRig with the badge example; only the shape-specific bits (glyph loading,
 // per-layer material/MSDF registration, light-rig centering on the text's bounding box) differ.
 //
 // The bevel/normal reconstruction (osgSlug_MSDFBevelNormal, Atlas.shaders.cpp) is untested so
@@ -48,16 +48,16 @@ const float PI = 3.14159265359;
 )GLSL";
 
 	src += R"GLSL(
-uniform samplerCube envMap; // unit 5 -- GGX-prefiltered cubemap (osgx::ibl::loadPrefilterCubemap)
-uniform sampler2D brdfLUT; // unit 6 -- split-sum LUT (osgx::ibl::makeBRDFLUTCamera)
+uniform samplerCube envMap; // unit 5 -- GGX-prefiltered cubemap (osgx::loadPrefilterCubemap)
+uniform sampler2D brdfLUT; // unit 6 -- split-sum LUT (osgx::makeBRDFLUTCamera)
 uniform mat4 osg_ViewMatrixInverse;
 uniform vec3 textNormalWorld;
 uniform float envMaxMip;
 uniform float iblIntensity;
 
-// Direct-light rig, animated per-frame by osgx::pbr::OrbitLightRig (osgx.hpp). osgx_lightCount/
+// Direct-light rig, animated per-frame by osgx::OrbitLightRig (osgx.hpp). osgx_lightCount/
 // osgx_lights come from LIGHT_UNIFORMS (already spliced in via `#pragma osgx::pbr *` above) --
-// the same SSBO-backed osgx::pbr::LightSet that OrbitLightRig writes position/intensity into
+// the same SSBO-backed osgx::LightSet that OrbitLightRig writes position/intensity into
 // every frame, so this loop stays in sync with it instead of hand-copying a shadow uniform API.
 
 vec2 osgSlug_FragEmCoord(vec2 emCoord, inout vec2 emsPerPixel, int effectId, float time) {
@@ -117,8 +117,8 @@ vec4 osgSlug_Fragment(osgSlug_FragmentData data) {
 }
 )GLSL";
 
-	osgx::pbr::registerShaderLibs();
-	osgx::ibl::registerShaderLibs();
+	osgx::registerPBRShaderLibs();
+	osgx::registerIBLShaderLibs();
 
 	return osgx::resolveShaderLibs(src);
 }
@@ -169,7 +169,7 @@ int main(int argc, char** argv) {
 	args.read("--light-orbit-height-scale", lightOrbitHeightScale);
 	args.read("--light-orbit-speed-scale", lightOrbitSpeedScale);
 
-	auto cubemap = osgx::ibl::loadPrefilterCubemap(ktx2Path);
+	auto cubemap = osgx::loadPrefilterCubemap(ktx2Path);
 
 	if(!cubemap) return example::fail(args, 1, "failed to load --ktx2 " + ktx2Path);
 
@@ -182,7 +182,7 @@ int main(int argc, char** argv) {
 	else OSG_WARN << "osgslug-pbr-ibl-text: cubemap->getImage(0) returned null" << std::endl;
 
 	auto lut = osgx::make_ref<osg::Texture2D>();
-	auto bakeCam = osgx::ibl::makeBRDFLUTCamera(512, lut);
+	auto bakeCam = osgx::makeBRDFLUTCamera(512, lut);
 
 	// ---- Text shape: chrome material via effectData.w on every glyph layer ---- //
 
@@ -247,14 +247,16 @@ int main(int argc, char** argv) {
 
 	// ---- Direct-light rig ---- //
 
-	auto lights = osgx::pbr::LightSet::create(ss);
+	auto lights = osgx::make_ref<osgx::LightSet>();
+
+	ss->setAttributeAndModes(lights);
 
 	// Theatrical gels: warm key, cool fill, magenta accent. Position/intensity get overwritten
 	// every frame by OrbitLightRig below; only color is fixed here.
-	lights.setPoint(0, osg::Vec3(0.0f, 0.0f, 1.0f), osg::Vec3(1.00f, 0.95f, 0.80f), 0.0f);
-	lights.setPoint(1, osg::Vec3(0.0f, 0.0f, 1.0f), osg::Vec3(0.55f, 0.70f, 1.00f), 0.0f);
-	lights.setPoint(2, osg::Vec3(0.0f, 0.0f, 1.0f), osg::Vec3(1.00f, 0.45f, 0.70f), 0.0f);
-	lights.setCount(3);
+	lights->setPoint(0, osg::Vec3(0.0f, 0.0f, 1.0f), osg::Vec3(1.00f, 0.95f, 0.80f), 0.0f);
+	lights->setPoint(1, osg::Vec3(0.0f, 0.0f, 1.0f), osg::Vec3(0.55f, 0.70f, 1.00f), 0.0f);
+	lights->setPoint(2, osg::Vec3(0.0f, 0.0f, 1.0f), osg::Vec3(1.00f, 0.45f, 0.70f), 0.0f);
+	lights->setCount(3);
 
 	sd->setStateSet(ss);
 	atlas->addChild(sd);
@@ -263,7 +265,7 @@ int main(int argc, char** argv) {
 
 	textXform->addChild(atlas);
 
-	auto rig = osgx::make_ref<osgx::pbr::OrbitLightRig>();
+	auto rig = osgx::make_ref<osgx::OrbitLightRig>();
 
 	rig->lights = lights;
 
@@ -294,21 +296,21 @@ int main(int argc, char** argv) {
 
 	// Depth-tested wireframe markers at each orbiting light's live position -- rebuilt every
 	// frame straight from `lights`, so they track OrbitLightRig's animation for free. No
-	// directional lights here (all three are setPoint()), so gizmos.overlay draws nothing, but
+	// directional lights here (all three are setPoint()), so gizmos->getOverlay() draws nothing, but
 	// costs nothing to add either. Sibling of `sd` under `atlas`, not a child of it, so the
 	// markers don't inherit the chrome StateSet. minMarkerRadius scales off fontSize, unlike the
 	// badge example's default -- text glyphs sit at --font-size scale (0.2 default), not the
 	// badge's ~0.5 radius, so the default 0.05 minMarkerRadius would read disproportionately
 	// large/small depending on --font-size.
-	auto gizmos = osgx::gizmo::createLightGizmos(lights, atlas, fontSize * 0.25f);
+	auto gizmos = osgx::make_ref<osgx::LightGizmos>(*lights, atlas, fontSize * 0.25f);
 
-	atlas->addChild(gizmos.markers);
+	atlas->addChild(gizmos->getMarkers());
 
 	auto root = osgx::make_ref<osg::Group>();
 
 	root->addChild(bakeCam);
 	root->addChild(textXform);
-	root->addChild(gizmos.overlay);
+	root->addChild(gizmos->getOverlay());
 
 	return example::run(viewer, args, root);
 }

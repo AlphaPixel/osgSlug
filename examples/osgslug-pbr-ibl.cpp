@@ -7,7 +7,7 @@
 //   using osgx::pbr (BRDF math) and osgx::ibl (cubemap load + BRDF LUT bake) from
 //   ~/dev/osgdebug/osgx.hpp.
 // - Direct: a small rig of animated point lights ("spot lights" thrown into the scene, see
-//   osgx::pbr::OrbitLightRig) whose highlights slide across the dome per-frame -- the motion is the
+//   osgx::OrbitLightRig) whose highlights slide across the dome per-frame -- the motion is the
 //   confirmation that N, V, and the specular math are wired correctly, not just a static
 //   flat-shaded color.
 //
@@ -51,16 +51,16 @@ static std::string makeChromeFrag() {
 // SHADER_VERT/SHADER_FRAG (Atlas.shaders.cpp).
 const float PI = 3.14159265359;
 #pragma osgx::pbr *
-uniform samplerCube envMap; // unit 5 -- GGX-prefiltered cubemap (osgx::ibl::loadPrefilterCubemap)
-uniform sampler2D brdfLUT; // unit 6 -- split-sum LUT (osgx::ibl::makeBRDFLUTCamera)
+uniform samplerCube envMap; // unit 5 -- GGX-prefiltered cubemap (osgx::loadPrefilterCubemap)
+uniform sampler2D brdfLUT; // unit 6 -- split-sum LUT (osgx::makeBRDFLUTCamera)
 uniform mat4 osg_ViewMatrixInverse;
 uniform vec3 badgeNormalWorld;
 uniform float envMaxMip;
 uniform float iblIntensity;
 
-// Direct-light rig, animated per-frame by osgx::pbr::OrbitLightRig (osgx.hpp). osgx_lightCount/
+// Direct-light rig, animated per-frame by osgx::OrbitLightRig (osgx.hpp). osgx_lightCount/
 // osgx_lights come from LIGHT_UNIFORMS (already spliced in via `#pragma osgx::pbr *` above) --
-// the same SSBO-backed osgx::pbr::LightSet that OrbitLightRig writes position/intensity into
+// the same SSBO-backed osgx::LightSet that OrbitLightRig writes position/intensity into
 // every frame, so this loop stays in sync with it instead of hand-copying a shadow uniform API.
 
 vec2 osgSlug_FragEmCoord(vec2 emCoord, inout vec2 emsPerPixel, int effectId, float time) {
@@ -108,11 +108,11 @@ vec4 osgSlug_Fragment(osgSlug_FragmentData data) {
 
 	vec3 F0 = mix(vec3(0.04), data.layerColor.rgb, metallic);
 
-	// ---- IBL specular: split-sum (Karis 2013), via osgx::pbr::IBL_SPECULAR ---- //
+	// ---- IBL specular: split-sum (Karis 2013), via osgx::IBL_SPECULAR ---- //
 
 	vec3 spec = osgx_IBLSpecular(N, V, F0, baseRoughness, envMap, brdfLUT, envMaxMip);
 
-	// ---- Direct specular: the spot-light rig, full GGX per light, via osgx::pbr::DIRECT_SPECULAR ---- //
+	// ---- Direct specular: the spot-light rig, full GGX per light, via osgx::DIRECT_SPECULAR ---- //
 
 	// Floor the direct-light roughness: at a true mirror value (0.08) the GGX lobe is
 	// sub-pixel -- a singular sparkle that aliases exactly like the bug we just fixed.
@@ -152,8 +152,8 @@ vec4 osgSlug_Fragment(osgSlug_FragmentData data) {
 }
 )GLSL";
 
-	osgx::pbr::registerShaderLibs();
-	osgx::ibl::registerShaderLibs();
+	osgx::registerPBRShaderLibs();
+	osgx::registerIBLShaderLibs();
 
 	return osgx::resolveShaderLibs(src);
 }
@@ -163,7 +163,7 @@ vec4 osgSlug_Fragment(osgSlug_FragmentData data) {
 // ================================================================================================
 
 // Per-frame light rig: a handful of point lights orbiting in front of the badge -- now
-// osgx::pbr::OrbitLightRig (osgx.hpp), generalized out of this example so
+// osgx::OrbitLightRig (osgx.hpp), generalized out of this example so
 // osgslug-pbr-ibl-text.cpp can reuse it. See ai/context-todo-lighting.md.
 
 int main(int argc, char** argv) {
@@ -190,7 +190,7 @@ int main(int argc, char** argv) {
 	args.read("--metallic", metallic);
 	args.read("--light-intensity", lightIntensity);
 
-	auto cubemap = osgx::ibl::loadPrefilterCubemap(ktx2Path);
+	auto cubemap = osgx::loadPrefilterCubemap(ktx2Path);
 
 	if(!cubemap) return example::fail(args, 1, "failed to load --ktx2 " + ktx2Path);
 
@@ -210,7 +210,7 @@ int main(int argc, char** argv) {
 	else OSG_WARN << "osgslug-pbr-ibl: cubemap->getImage(0) returned null" << std::endl;
 
 	auto lut = osgx::make_ref<osg::Texture2D>();
-	auto bakeCam = osgx::ibl::makeBRDFLUTCamera(512, lut);
+	auto bakeCam = osgx::makeBRDFLUTCamera(512, lut);
 
 	// ---- Badge shape: a single filled circle, chrome material via effectData.w ---- //
 
@@ -261,14 +261,16 @@ int main(int argc, char** argv) {
 
 	// ---- Direct-light rig ---- //
 
-	auto lights = osgx::pbr::LightSet::create(ss);
+	auto lights = osgx::make_ref<osgx::LightSet>();
+
+	ss->setAttributeAndModes(lights);
 
 	// Theatrical gels: warm key, cool fill, magenta accent. Position/intensity get overwritten
 	// every frame by OrbitLightRig below; only color is fixed here.
-	lights.setPoint(0, osg::Vec3(0.0f, 0.0f, 1.0f), osg::Vec3(1.00f, 0.95f, 0.80f), 0.0f);
-	lights.setPoint(1, osg::Vec3(0.0f, 0.0f, 1.0f), osg::Vec3(0.55f, 0.70f, 1.00f), 0.0f);
-	lights.setPoint(2, osg::Vec3(0.0f, 0.0f, 1.0f), osg::Vec3(1.00f, 0.45f, 0.70f), 0.0f);
-	lights.setCount(3);
+	lights->setPoint(0, osg::Vec3(0.0f, 0.0f, 1.0f), osg::Vec3(1.00f, 0.95f, 0.80f), 0.0f);
+	lights->setPoint(1, osg::Vec3(0.0f, 0.0f, 1.0f), osg::Vec3(0.55f, 0.70f, 1.00f), 0.0f);
+	lights->setPoint(2, osg::Vec3(0.0f, 0.0f, 1.0f), osg::Vec3(1.00f, 0.45f, 0.70f), 0.0f);
+	lights->setCount(3);
 
 	sd->setStateSet(ss);
 	atlas->addChild(sd);
@@ -277,7 +279,7 @@ int main(int argc, char** argv) {
 
 	badgeXform->addChild(atlas);
 
-	auto rig = osgx::make_ref<osgx::pbr::OrbitLightRig>();
+	auto rig = osgx::make_ref<osgx::OrbitLightRig>();
 
 	rig->lights = lights;
 	rig->center = osg::Vec3(0.5f, 0.5f, 0.0f); // canvas.circle(0.5, 0.5, ...) -- badge center
@@ -286,18 +288,18 @@ int main(int argc, char** argv) {
 
 	// Depth-tested wireframe markers at each orbiting light's live position -- rebuilt every
 	// frame straight from `lights`, so they track OrbitLightRig's animation for free. No
-	// directional lights here (all three are setPoint()), so gizmos.overlay draws nothing, but
+	// directional lights here (all three are setPoint()), so gizmos->getOverlay() draws nothing, but
 	// costs nothing to add either. Sibling of `sd` under `atlas`, not a child of it, so the
 	// markers don't inherit the chrome StateSet.
-	auto gizmos = osgx::gizmo::createLightGizmos(lights, atlas);
+	auto gizmos = osgx::make_ref<osgx::LightGizmos>(*lights, atlas);
 
-	atlas->addChild(gizmos.markers);
+	atlas->addChild(gizmos->getMarkers());
 
 	auto root = osgx::make_ref<osg::Group>();
 
 	root->addChild(bakeCam);
 	root->addChild(badgeXform);
-	root->addChild(gizmos.overlay);
+	root->addChild(gizmos->getOverlay());
 
 	return example::run(viewer, args, root);
 }
