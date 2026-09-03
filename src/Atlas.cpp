@@ -31,6 +31,15 @@ OSGSLUG_ENABLE_WARNINGS
 #ifndef GL_HALF_FLOAT
 #define GL_HALF_FLOAT 0x140B
 #endif
+#ifndef GL_RG
+#define GL_RG 0x8227
+#endif
+#ifndef GL_RG_INTEGER
+#define GL_RG_INTEGER 0x8228
+#endif
+#ifndef GL_RG16UI
+#define GL_RG16UI 0x823A
+#endif
 
 namespace osgSlug {
 
@@ -237,7 +246,17 @@ osg::ref_ptr<osg::Texture2D> Atlas::_makeTexture(const slughorn::Atlas::TextureD
 		img->setInternalTextureFormat(GL_RGBA16F_ARB);
 	}
 
+	else if(data.format == slughorn::Atlas::TextureData::Format::RG16UI) {
+		// Band texture (current default). B/A are never consumed by the shader (which only
+		// ever reads .xy), so this is lossless, not a tradeoff like RGBA16F above.
+		img->allocateImage(width, height, 1, GL_RG, GL_UNSIGNED_SHORT);
+		img->setInternalTextureFormat(GL_RG16UI);
+		img->setPixelFormat(GL_RG_INTEGER);
+	}
+
 	else if(data.format == slughorn::Atlas::TextureData::Format::RGBA16UI) {
+		// Legacy band texture format, read-compat only (a .slug/.slugb serialized before
+		// 2026-08-29 can still deserialize into this format).
 		img->allocateImage(width, height, 1, GL_RGBA, GL_UNSIGNED_SHORT);
 		img->setInternalTextureFormat(GL_RGBA16UI);
 		img->setPixelFormat(GL_RGBA_INTEGER);

@@ -827,6 +827,20 @@ ivec2 slug_CalcBandLoc(ivec2 glyphLoc, uint offset) {
 	return bandLoc;
 }
 
+// 2026-08-30: re-derive a curve's second texel location the same way slug_CalcBandLoc()
+// re-derives a band fetch's row, instead of flat-adding to curveLoc.x. Packing today always
+// aligns a curve's 2 texels to start at an even X so they never straddle a row, making this a
+// no-op -- but endpoint-shared curve packing (planned) removes that alignment, so a curve's
+// second texel CAN legitimately land at the start of the next row.
+ivec2 slug_CalcCurveLoc(ivec2 curveLoc, int offset) {
+	ivec2 loc = ivec2(curveLoc.x + offset, curveLoc.y);
+
+	loc.y += loc.x >> osgSlug_texWidth;
+	loc.x &= (1 << osgSlug_texWidth) - 1;
+
+	return loc;
+}
+
 float slug_CalcCoverage(float xcov, float ycov, float xwgt, float ywgt) {
 	float coverage = max(
 		abs(xcov * xwgt + ycov * ywgt) / max(xwgt + ywgt, 1.0 / 65536.0),
@@ -884,7 +898,17 @@ float slug_Render(
 		ivec2 curveLoc = ivec2(texelFetch(osgSlug_bandTexture, hbandLoc, 0).xy);
 
 		vec4 p12 = texelFetch(osgSlug_curveTexture, curveLoc, 0) - vec4(renderCoord, renderCoord);
-		vec2 p3 = texelFetch(osgSlug_curveTexture, ivec2(curveLoc.x + 1, curveLoc.y), 0).xy - renderCoord;
+
+		// 2026-08-31: same re-derive-per-fetch pattern as slug_CalcBandLoc above, now applied to
+		// a curve's own second texel -- needed once packTextures() (slughorn.cpp) started
+		// sharing texels between connected curves (Lengyel's Slug convention: a chain of N
+		// connected curves costs N+1 texels instead of 2N), which packs densely with no
+		// per-curve row alignment. Adds a handful of ALU ops per curve iteration; negligible
+		// next to the texture fetch and sqrt-based polynomial solve already in this loop.
+		// Shipped as the default (no opt-in flag) -- lossless, and verified bit-identical
+		// against the pre-sharing renderer at real CJK-atlas scale (see slughorn's
+		// slughorn-test-render.cpp and NEXT_SESSION.md history).
+		vec2 p3 = texelFetch(osgSlug_curveTexture, slug_CalcCurveLoc(curveLoc, 1), 0).xy - renderCoord;
 
 		if(max(max(p12.x, p12.z), p3.x) * pixelsPerEm.x < -0.5) break;
 
@@ -918,7 +942,9 @@ float slug_Render(
 		ivec2 curveLoc = ivec2(texelFetch(osgSlug_bandTexture, vbandLoc, 0).xy);
 
 		vec4 p12 = texelFetch(osgSlug_curveTexture, curveLoc, 0) - vec4(renderCoord, renderCoord);
-		vec2 p3 = texelFetch(osgSlug_curveTexture, ivec2(curveLoc.x + 1, curveLoc.y), 0).xy - renderCoord;
+
+		// See the matching endpoint-sharing tradeoff comment in the horizontal-band loop above.
+		vec2 p3 = texelFetch(osgSlug_curveTexture, slug_CalcCurveLoc(curveLoc, 1), 0).xy - renderCoord;
 
 		if(max(max(p12.y, p12.w), p3.y) * pixelsPerEm.y < -0.5) break;
 
