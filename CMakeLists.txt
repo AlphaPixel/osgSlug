@@ -44,7 +44,6 @@ set(SKIA_BUILD_DIR "" CACHE PATH "Path to Skia build directory containing libski
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(CAIRO REQUIRED IMPORTED_TARGET cairo)
 pkg_check_modules(FONTCONFIG REQUIRED IMPORTED_TARGET fontconfig)
-pkg_check_modules(IMGUI imgui)
 
 find_package(Freetype REQUIRED)
 find_package(OpenGL QUIET)
@@ -165,12 +164,6 @@ if(OSGSLUG_BUILD_EXAMPLES)
 			"${CMAKE_SOURCE_DIR}/examples"
 			# "${CMAKE_SOURCE_DIR}/ext/nanosvg/src"
 		)
-
-		if(IMGUI_FOUND)
-			target_compile_definitions(${name} PRIVATE OSGDEBUG_IMGUI)
-			target_include_directories(${name} PRIVATE ${IMGUI_INCLUDE_DIRS})
-			target_link_libraries(${name} PRIVATE ${IMGUI_LINK_LIBRARIES} OpenGL::GL)
-		endif()
 	endfunction()
 
 	add_subdirectory("examples/tmp")
