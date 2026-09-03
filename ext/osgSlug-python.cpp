@@ -6,11 +6,15 @@
 #include "osgSlug/Drawable/BoxDrawable.hpp"
 #include "osgSlug/Drawable/DecalDrawable.hpp"
 #include "osgSlug/Drawable/HalfCylinderDrawable.hpp"
+#include "osgSlug/Drawable/PathDrawable.hpp"
 #include "osgSlug/Drawable/SphereDrawable.hpp"
+#include "osgSlug/Font.hpp"
+#include "osgSlug/Text.hpp"
+#include "osgSlug/Util.hpp"
 
 #include "pyosg/pyosg.hpp"
 
-#include "pybind11x.hpp"
+#include "pybind11x-osg.hpp"
 
 #include <pybind11/stl/filesystem.h>
 #include <pybind11/functional.h>
@@ -458,6 +462,136 @@ PYBIND11_MODULE(osgSlug, m) {
 			"slices"_a=uint16_t(128)
 		)
 	;
+
+	py::enum_<osgSlug::PathMode>(m, "PathMode")
+		.value("Miter", osgSlug::PathMode::Miter)
+		.value("Sluggit", osgSlug::PathMode::Sluggit)
+		.value("Stamp", osgSlug::PathMode::Stamp)
+		.export_values()
+	;
+
+	py::class_<
+		osgSlug::PathDrawable,
+		osgSlug::Drawable,
+		osg::ref_ptr<osgSlug::PathDrawable>
+	>(m, "PathDrawable")
+		.def(py::init<osgSlug::PathMode>(), "mode"_a=osgSlug::PathMode::Sluggit)
+		.def("setMode", &osgSlug::PathDrawable::setMode, "mode"_a)
+		.def("setHalfWidth", &osgSlug::PathDrawable::setHalfWidth, "halfWidth"_a)
+		.def("setShapeKey", &osgSlug::PathDrawable::setShapeKey, "key"_a)
+		.def("setShapeKeys", &osgSlug::PathDrawable::setShapeKeys, "keys"_a)
+		.def("setColor", &osgSlug::PathDrawable::setColor, "color"_a)
+		.def("setRevealCount", &osgSlug::PathDrawable::setRevealCount, "n"_a)
+		.def("setPoints", &osgSlug::PathDrawable::setPoints, "points"_a)
+		.def("setPaths", &osgSlug::PathDrawable::setPaths, "subpaths"_a)
+	;
+
+	py::class_<osgSlug::Font, osg::ref_ptr<osgSlug::Font>>(m, "Font")
+		.def(py::init<osgSlug::Atlas*>(), "atlas"_a)
+		.def(py::init<const std::string&, osgSlug::Atlas*>(), "fontPath"_a, "atlas"_a)
+		.def(
+			"load",
+			&osgSlug::Font::load,
+			"config"_a=nullptr,
+			"Decompose printable ASCII (codepoints 32-126) via FreeType and register them in the "
+			"atlas. Does nothing if called more than once.\n"
+			"config: optional slughorn.freetype.LoadConfig; its output fields (metrics, "
+			"family_name, style_name) are populated in place on return."
+		)
+		.def("loadEmoji", &osgSlug::Font::loadEmoji, "fontPath"_a, "codepoints"_a)
+		.def_property_readonly("loaded", &osgSlug::Font::loaded)
+		.def_property_readonly(
+			"metrics",
+			&osgSlug::Font::metrics,
+			py::return_value_policy::reference_internal
+		)
+		.def_static("keyFor", &osgSlug::Font::keyFor, "codepoint"_a)
+		.def_static("fromPoints", &osgSlug::Font::fromPoints, "pointSize"_a, "dpi"_a=96_cv)
+		.def_static("toPoints", &osgSlug::Font::toPoints, "emSize"_a, "dpi"_a=96_cv)
+		.def(
+			"getColorGlyph",
+			&osgSlug::Font::getColorGlyph,
+			"codepoint"_a,
+			py::return_value_policy::reference_internal,
+			"Returns the CompositeShape for a COLR emoji codepoint loaded via loadEmoji(), or "
+			"None if that codepoint has no COLR data."
+		)
+	;
+
+	py::class_<
+		osgSlug::Text,
+		osg::AutoTransform,
+		osg::ref_ptr<osgSlug::Text>
+	>(m, "Text")
+		.def(py::init<>())
+		.def(py::init<osgSlug::Atlas*, slug_t>(), "atlas"_a, "fontSize"_a=32_cv)
+		.def(
+			"addText",
+			&osgSlug::Text::addText,
+			"text"_a,
+			"color"_a=slughorn::Color{1_cv, 1_cv, 1_cv, 1_cv}
+		)
+		.def("clear", &osgSlug::Text::clear)
+		.def("setAtlas", &osgSlug::Text::setAtlas, "atlas"_a)
+		.def_property(
+			"fontSize",
+			&osgSlug::Text::getFontSize,
+			&osgSlug::Text::setFontSize
+		)
+		.def_property(
+			"fontMetrics",
+			py::cpp_function(
+				&osgSlug::Text::getFontMetrics,
+				py::return_value_policy::reference_internal
+			),
+			&osgSlug::Text::setFontMetrics
+		)
+		.def_property(
+			"autoScaleToScreen",
+			&osgSlug::Text::getAutoScaleToScreen,
+			&osgSlug::Text::setAutoScaleToScreen
+		)
+		.def("compile", &osgSlug::Text::compile)
+		.def_property_readonly(
+			"boundingBox",
+			&osgSlug::Text::getBoundingBox,
+			py::return_value_policy::reference_internal
+		)
+	;
+
+	auto m_util = m.def_submodule("util", "osgSlug.util - coordinate-space helpers.");
+
+	m_util.def("svgToOSG", &osgSlug::util::svgToOSG,
+		"config"_a, "bottomAtOrigin"_a=false,
+		"Returns the matrix that maps SVG canvas coordinates (Y-down, width normalized to 1.0) "
+		"into OSG world space (Y-up).\n"
+		"config: a slughorn.nanosvg.LoadConfig already populated by load_file/load_string "
+		"(needs its height_em output field).\n"
+		"By default the SVG top-left sits at world origin and the image extends downward. When "
+		"bottomAtOrigin=True, the SVG bottom sits at world origin and the image extends upward "
+		"by config.height_em.\n"
+		"Apply to a MatrixTransform that wraps both the CompositeShape drawable and any sibling "
+		"PathDrawable nodes so they share the same rectified frame."
+	);
+
+	m_util.def("svgShapeTransform", &osgSlug::util::svgShapeTransform,
+		"compositeShape"_a, "key"_a,
+		"Returns the translation matrix that brings a GeometryOnly shape's sampled curves from "
+		"local bbox-origin space into SVG canvas space.\n"
+		"Apply as a MatrixTransform wrapping a PathDrawable (or any node whose points were "
+		"sampled from atlas.get_shape(key).curves). Must be a child of the svgToOSG() transform "
+		"so it operates in the same pre-flip frame.\n"
+		"Raises if key is not present in compositeShape."
+	);
+
+	m_util.def("yDownToOSG", &osgSlug::util::yDownToOSG,
+		"heightEm"_a=0_cv,
+		"Returns the matrix that maps any Y-down canvas (Skia, Cairo, etc.) into OSG world space "
+		"(Y-up). Analogous to svgToOSG(); apply as a MatrixTransform wrapping the drawable.\n"
+		"heightEm: total canvas height in em-space (= canvasHeight * scale).\n"
+		"Default (0): flip around y=0; content occupies negative-Y world space. If > 0, also "
+		"translate so the canvas bottom sits at world y=0; content at y=[0, heightEm]."
+	);
 
 	m.attr("Vec2") = py_osg.attr("osg").attr("Vec2f");
 	m.attr("Vec3") = py_osg.attr("osg").attr("Vec3f");
