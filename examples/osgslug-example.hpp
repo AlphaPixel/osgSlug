@@ -30,7 +30,7 @@ OSGSLUG_ENABLE_WARNINGS
 
 namespace example {
 
-#ifdef OSGDEBUG_IMGUI
+#ifdef OSGX_IMGUI
 // The OSG camera manipulator is dispatched in a separate loop AFTER all event
 // handlers, so Widget::handle() returning true cannot block it. This wrapper
 // deflects mouse events when ImGui has an active context and wants capture.
@@ -342,6 +342,43 @@ struct ManipulatorToggleHandler: public osgGA::GUIEventHandler {
 	}
 };
 
+// 'c' dumps the live Ortho2DManipulator state to OSG_NOTICE -- enough (center + halfExtentY) to
+// hardcode into a scratch repro example. Added for chasing the FreeType-only zoom artifact (see
+// osgSlug/ai/context-todo-textzoom.md): navigate interactively to a view that shows the
+// artifact, hit 'c', copy the printed values into osgslug-tmp.textzoom.cpp so the repro no
+// longer needs manual navigation. Re-fetches the manipulator at handle() time rather than
+// caching it at construction, since ManipulatorToggleHandler (F12) can swap it live for a
+// TrackballManipulator -- dynamic_cast to the Ortho2DManipulator base also covers
+// ImGuiAwareManipulator, which derives from it.
+struct CameraDumpHandler: public osgGA::GUIEventHandler {
+	bool handle(const osgGA::GUIEventAdapter& ea, osgGA::GUIActionAdapter& aa) override {
+		if(ea.getEventType() != osgGA::GUIEventAdapter::KEYDOWN) return false;
+		if(ea.getKey() != 'c') return false;
+
+		auto* view = dynamic_cast<osgViewer::View*>(&aa);
+		auto* m = view
+			? dynamic_cast<osgx::Ortho2DManipulator*>(view->getCameraManipulator())
+			: nullptr
+		;
+
+		if(!m) {
+			OSG_NOTICE << "CameraDumpHandler: no active Ortho2DManipulator (F12 toggled to Trackball?)" << std::endl;
+
+			return false;
+		}
+
+		OSG_NOTICE
+			<< "Camera dump:"
+			<< "\n  center=" << m->getCenter()
+			<< "\n  halfExtentY=" << m->getHalfExtentY()
+			<< "\n  matrix=\n" << m->getMatrix()
+			<< std::endl
+		;
+
+		return true;
+	}
+};
+
 struct AtlasVisitor: public osg::NodeVisitor {
 	std::vector<osgSlug::Atlas*> atlases;
 
@@ -527,7 +564,7 @@ inline auto run(
 		auto dsv = osgx::DescribeSceneVisitor();
 		sceneData->accept(dsv);
 
-#ifdef OSGDEBUG_IMGUI
+#ifdef OSGX_IMGUI
 		auto* gui = new osgx::imgui::Widget(viewer);
 
 		gui->addProfilerSection(viewer, sceneData.get());
@@ -559,7 +596,7 @@ inline auto run(
 
 	else {
 
-#ifdef OSGDEBUG_IMGUI
+#ifdef OSGX_IMGUI
 		auto* m = new ImGuiAwareManipulator();
 #else
 		auto* m = new osgx::Ortho2DManipulator();
@@ -585,6 +622,7 @@ inline auto run(
 	viewer.addEventHandler(new osgGA::StateSetManipulator(viewer.getCamera()->getOrCreateStateSet()));
 	viewer.addEventHandler(new DebugModeHandler(viewer.getCamera()->getOrCreateStateSet()));
 	viewer.addEventHandler(new ManipulatorToggleHandler(grid2D));
+	viewer.addEventHandler(new CameraDumpHandler());
 	viewer.setUpViewInWindow(50, 50, 800, 600);
 
 	// Grab all the atlases in the scene.
