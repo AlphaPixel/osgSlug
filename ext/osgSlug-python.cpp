@@ -231,6 +231,7 @@ PYBIND11_MODULE(osgSlug, m) {
 		.value("VertexHook", osgSlug::Atlas::VertexHook)
 		.value("FragmentHook", osgSlug::Atlas::FragmentHook)
 		.value("FragmentExtHook", osgSlug::Atlas::FragmentExtHook)
+		.value("MaskHook", osgSlug::Atlas::MaskHook)
 		.export_values()
 	;
 
@@ -302,6 +303,15 @@ PYBIND11_MODULE(osgSlug, m) {
 		osg::ref_ptr<osgSlug::Drawable>
 	>(m, "Drawable")
 		.def("compile", &osgSlug::Drawable::compile)
+		.def(
+			"setHooks",
+			[](osgSlug::Drawable& self, py::dict hooks) {
+				self.setHooks(parseHookList(hooks));
+			},
+			"hooks"_a,
+			"Shader hook overrides for this drawable's own program, as {Hook: glsl}. Set before "
+			"the drawable is compiled; PathDrawable alone recompiles on the spot."
+		)
 		.def_property(
 			"onAtlasAttached",
 			[](const osgSlug::Drawable&) -> py::object { return py::none(); },
@@ -481,6 +491,8 @@ PYBIND11_MODULE(osgSlug, m) {
 		.def("setShapeKey", &osgSlug::PathDrawable::setShapeKey, "key"_a)
 		.def("setShapeKeys", &osgSlug::PathDrawable::setShapeKeys, "keys"_a)
 		.def("setColor", &osgSlug::PathDrawable::setColor, "color"_a)
+		.def("setEffectId", &osgSlug::PathDrawable::setEffectId, "id"_a)
+		.def("setEffectParam", &osgSlug::PathDrawable::setEffectParam, "param"_a)
 		.def("setRevealCount", &osgSlug::PathDrawable::setRevealCount, "n"_a)
 		.def("setPoints", &osgSlug::PathDrawable::setPoints, "points"_a)
 		.def("setPaths", &osgSlug::PathDrawable::setPaths, "subpaths"_a)
