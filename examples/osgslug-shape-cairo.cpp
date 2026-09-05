@@ -200,7 +200,7 @@ int main(int argc, char** argv) {
 	auto sd = example::makeShapeDrawable();
 
 	sd->addLayer({PIECE_KEY, {0.2_cv, 0.8_cv, 0.4_cv, 1.0_cv}, {}, 1_cv, 1});
-	sd->setStateSet(atlas->createHookStateSet({{osgSlug::Atlas::FragmentHook, FRAG_SHADER}}));
+	sd->setHooks({{osgSlug::Atlas::FragmentHook, FRAG_SHADER}});
 
 	atlas->addChild(sd);
 

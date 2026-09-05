@@ -195,7 +195,7 @@ int main(int argc, char** argv) {
 	auto sd = example::makeShapeDrawable();
 
 	sd->addCompositeShape(hud);
-	sd->setStateSet(atlas->createHookStateSet({{osgSlug::Atlas::VertexHook, VERT_EFFECTS}}));
+	sd->setHooks({{osgSlug::Atlas::VertexHook, VERT_EFFECTS}});
 
 	// atlas->addChild triggers compile immediately (atlas is Packed); effectParam calls are safe after.
 	atlas->addChild(sd);

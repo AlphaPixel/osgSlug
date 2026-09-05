@@ -245,7 +245,7 @@ int main(int argc, char** argv) {
 
 	sd->addCompositeShape(ejectComp);
 	sd->addCompositeShape(*atlas->getCompositeShape("counter")); // layers 2N+2, 2N+3
-	sd->setStateSet(atlas->createHookStateSet({{osgSlug::Atlas::VertexHook, VERT_SHADER}}));
+	sd->setHooks({{osgSlug::Atlas::VertexHook, VERT_SHADER}});
 	sd->setUpdateCallback(new AmmoCallback(N, atlas, N + 2, 2 * N + 2));
 
 	atlas->addChild(sd);

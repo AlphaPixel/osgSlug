@@ -125,15 +125,14 @@ public:
 	// This lives on the base rather than being expressed as a caller-built StateSet because
 	// program SELECTION belongs to the drawable, not the caller: SubdividedDrawable picks between
 	// the standard and per-vertex-axis programs based on whether a position callback is set, and
-	// PathDrawable picks between four vertex mains based on its PathMode. A caller who attached
-	// Atlas::createHookStateSet()'s program to either one had it silently overwritten by
+	// PathDrawable picks between four vertex mains based on its PathMode. A caller who hand-built
+	// a Program-only StateSet and attached it to either one had it silently overwritten by
 	// compile(), which is exactly why createDecalProgram()/createSubdividedProgram()'s own
-	// HookList parameters sat unreachable from outside for so long. Say WHICH hooks you want and
-	// let the drawable link them into whichever program it actually needs.
+	// HookList parameters sat unreachable from outside for so long (and why Atlas::createHookStateSet(),
+	// the free function that encouraged that pattern, no longer exists). Say WHICH hooks you want
+	// and let the drawable link them into whichever program it actually needs.
 	//
-	// Set before compile(); changing it afterward requires a recompile. Assigning a program-only
-	// StateSet via Atlas::createHookStateSet() still works for ShapeDrawable, which has only one
-	// program to choose from.
+	// Set before compile(); changing it afterward requires a recompile.
 	// Virtual so a drawable whose compile() is safely re-runnable (PathDrawable) can recompile
 	// immediately instead of silently doing nothing when called after the fact.
 	virtual void setHooks(Atlas::HookList hooks) { _hooks = std::move(hooks); }

@@ -259,13 +259,6 @@ PYBIND11_MODULE(osgSlug, m) {
 			"hooks"_a=py::dict()
 		)
 		.def(
-			"createHookStateSet",
-			[](const osgSlug::Atlas& self, py::dict hooks) {
-				return self.createHookStateSet(parseHookList(hooks));
-			},
-			"hooks"_a=py::dict()
-		)
-		.def(
 			"createDecalProgram",
 			[](const osgSlug::Atlas& self, py::dict hooks) {
 				return self.createDecalProgram(parseHookList(hooks));

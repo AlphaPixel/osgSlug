@@ -228,7 +228,7 @@ int main(int argc, char** argv) {
 
 	// sd->addShape({PIECE_KEY, {250,0}, osg::Vec4(1.0f, 0.5f, 0.0f, 1.0f), 200.0f});
 	sd->addLayer({PIECE_KEY, {1.0_cv, 0.5_cv, 0.0_cv, 1.0_cv}, {}, 200.0_cv, 1});
-	sd->setStateSet(atlas->createHookStateSet({{osgSlug::Atlas::FragmentHook, FRAG_SHADER}}));
+	sd->setHooks({{osgSlug::Atlas::FragmentHook, FRAG_SHADER}});
 
 	atlas->addChild(sd);
 

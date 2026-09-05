@@ -346,11 +346,10 @@ int main(int argc, char** argv) {
 	tex->setFilter(osg::Texture::MIN_FILTER, osg::Texture::LINEAR);
 	tex->setFilter(osg::Texture::MAG_FILTER, osg::Texture::LINEAR);
 
-	// Hook StateSet + per-drawable effect texture (unit 4); atlas textures inherited from parent.
-	auto* ss = atlas->createHookStateSet({{osgSlug::Atlas::FragmentHook, FRAG_SHADER}});
+	// Hooked program + per-drawable effect texture (unit 4); atlas textures inherited from parent.
+	sd->setHooks({{osgSlug::Atlas::FragmentHook, FRAG_SHADER}});
 
-	ss->setTextureAttributeAndModes(4, tex, osg::StateAttribute::ON);
-	sd->setStateSet(ss);
+	sd->getOrCreateStateSet()->setTextureAttributeAndModes(4, tex, osg::StateAttribute::ON);
 
 	atlas->addChild(sd);
 

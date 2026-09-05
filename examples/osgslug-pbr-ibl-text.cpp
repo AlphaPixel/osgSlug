@@ -231,7 +231,9 @@ int main(int argc, char** argv) {
 
 	sd->addCompositeShape(textShape);
 
-	auto* ss = atlas->createHookStateSet({{osgSlug::Atlas::FragmentHook, makeChromeFrag()}});
+	sd->setHooks({{osgSlug::Atlas::FragmentHook, makeChromeFrag()}});
+
+	auto* ss = sd->getOrCreateStateSet();
 
 	// GL_TEXTURE_CUBE_MAP_SEAMLESS -- avoids visible seams at cube edges, especially at the
 	// blurrier (high-roughness) mip levels.
@@ -258,7 +260,6 @@ int main(int argc, char** argv) {
 	lights->setPoint(2, osg::Vec3(0.0f, 0.0f, 1.0f), osg::Vec3(1.00f, 0.45f, 0.70f), 0.0f);
 	lights->setCount(3);
 
-	sd->setStateSet(ss);
 	atlas->addChild(sd);
 
 	auto textXform = osgx::make_ref<osg::MatrixTransform>();

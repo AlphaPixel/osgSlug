@@ -151,8 +151,7 @@ int main(int argc, char** argv) {
 
 	sd->addCompositeShape(compositeShape);
 
-	// Must be set before atlas->addChild() triggers compile().
-	sd->setStateSet(atlas->createHookStateSet({{osgSlug::Atlas::FragmentHook, FRAGMENT_HOOK}}));
+	sd->setHooks({{osgSlug::Atlas::FragmentHook, FRAGMENT_HOOK}});
 	sd->getOrCreateStateSet()->setRenderBinDetails(1, "RenderBin");
 
 	// atlas->addChild triggers compile immediately (atlas is Packed); getLayerBuffer is valid after.

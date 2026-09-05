@@ -91,7 +91,7 @@ int main(int argc, char** argv) {
 	// uncommenting the line in the vertex shader above!
 	// for(size_t i = 0; i < 3; i++) sd->setLayerEffectParam(i, 2_cv);
 
-	sd->setStateSet(atlas->createHookStateSet({{osgSlug::Atlas::VertexHook, VERT_EFFECTS}}));
+	sd->setHooks({{osgSlug::Atlas::VertexHook, VERT_EFFECTS}});
 	atlas->addChild(sd);
 
 	return example::run(viewer, args, atlas);

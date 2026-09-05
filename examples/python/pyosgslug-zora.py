@@ -379,7 +379,7 @@ def create_scene():
 	dot_layer.effectId = 1
 	sd.addLayer(dot_layer)
 
-	sd.stateSet = atlas.createHookStateSet({osgSlug.VertexHook: VERT_EFFECTS})
+	sd.setHooks({osgSlug.VertexHook: VERT_EFFECTS})
 
 	def on_attached(atlas):
 		for i, ring in enumerate(RINGS):

@@ -117,7 +117,7 @@ int main(int argc, char** argv) {
 		-1.25f, -1.25f, -1.25f,
 		 1.25f, 1.25f, 1.25f
 	));
-	sd->setStateSet(atlas->createHookStateSet({{osgSlug::Atlas::VertexHook, VERT_SHADER}}));
+	sd->setHooks({{osgSlug::Atlas::VertexHook, VERT_SHADER}});
 
 	// atlas->addChild triggers compile immediately; setLayerEffectParam calls are safe after.
 	atlas->addChild(sd);

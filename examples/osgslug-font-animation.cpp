@@ -60,7 +60,7 @@ int main(int argc, char** argv) {
 		});
 	}
 
-	sd->setStateSet(atlas->createHookStateSet({{osgSlug::Atlas::VertexHook, VERT_SHADER}}));
+	sd->setHooks({{osgSlug::Atlas::VertexHook, VERT_SHADER}});
 	atlas->addChild(sd);
 
 	return example::run(viewer, args, atlas);

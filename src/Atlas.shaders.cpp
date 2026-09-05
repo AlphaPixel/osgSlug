@@ -341,7 +341,7 @@ struct osgSlug_MaskData {
 
 // No inline layout(binding=N): inline UBO binding syntax is illegal pre-4.20. Bound instead via
 // Program::addBindUniformBlock() - every Program that links SHADER_FRAG does this now (see
-// createDefaultStateSet()/createHookStateSet()/createDecalProgram()/PathDrawable.cpp), since
+// Atlas::createProgram()), since
 // osgSlug_FragmentMask() below reads this block unconditionally, not just when a mask-aware
 // hook opts in.
 layout(std140) uniform osgSlug_MaskBlock {
@@ -1626,7 +1626,7 @@ const std::string Atlas::SHADER_LIB_MASK = R"(
 
 // Private re-declaration of LayerBuffer (see SHADER_TYPES): needed here because this fragment
 // hook's shader object never gets SHADER_TYPES prepended (that only happens for the vertex
-// shader - see makeVertShader() in createHookStateSet()). GLSL requires each shader
+// shader - see makeVertShader() in Atlas::createProgram()). GLSL requires each shader
 // object/stage to redeclare the buffer blocks it uses; this is normal, not a hack. Only used
 // to recover transformData.xy (each layer's own canvas-space origin) via geom.layerIndex,
 // which osgSlug_Mask_CoverageFor's callers need and osgSlug_MaskData deliberately does not
@@ -2111,16 +2111,6 @@ osg::StateSet* Atlas::createDefaultStateSet(HookList hooks) const {
 		"osgSlug_debugMode",
 		dm
 	));
-
-	return ss;
-}
-
-osg::StateSet* Atlas::createHookStateSet(HookList hooks) const {
-	auto* ss = new osg::StateSet();
-
-	// The buffer actually bound to RENDER_MASK_UBO_BINDING (a real mask, or the null sentinel) is
-	// inherited from the Atlas parent's own StateSet - see createDefaultStateSet()'s comment.
-	ss->setAttributeAndModes(createDefaultProgram(hooks), osg::StateAttribute::ON);
 
 	return ss;
 }

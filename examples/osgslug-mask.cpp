@@ -220,9 +220,7 @@ int main(int argc, char** argv) {
 	// ShapeDrawable::drawImplementation()'s applyMask(). No StateSet override needed for the
 	// normal path at all: sd inherits the Atlas's own default StateSet (which already links the
 	// automatic masking hook), so masking works the instant CompositeShape.mask is set.
-	if(debugMSDF) sd->setStateSet(atlas->createHookStateSet({
-		{osgSlug::Atlas::FragmentHook, HOOK_DEBUG_MSDF}
-	}));
+	if(debugMSDF) sd->setHooks({{osgSlug::Atlas::FragmentHook, HOOK_DEBUG_MSDF}});
 
 	atlas->addChild(sd);
 

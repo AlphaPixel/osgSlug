@@ -344,7 +344,7 @@ int main(int argc, char** argv) {
 	sd->addCompositeShape(flavorBox);
 	sd->addCompositeShape(flavor);
 
-	sd->setStateSet(atlas->createHookStateSet({{osgSlug::Atlas::VertexHook, VERT_SHADER}}));
+	sd->setHooks({{osgSlug::Atlas::VertexHook, VERT_SHADER}});
 	sd->getOrCreateStateSet()->setRenderBinDetails(0, "RenderBin");
 
 	// atlas->addChild triggers compile immediately; setLayerEffectParam calls are safe after.

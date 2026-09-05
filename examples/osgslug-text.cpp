@@ -143,6 +143,9 @@ int main(int argc, char** argv) {
 	if(!args[1]) return example::fail(args, 1, "Missing required FONT_FILE argument");
 
 	auto atlas = osgx::make_ref<osgSlug::Atlas>();
+
+	if(!example::configureAtlas(args, *atlas)) return example::fail(args, 1);
+
 	auto font = osgx::make_ref<osgSlug::Font>(args[1], atlas);
 
 	slughorn::freetype::LoadConfig config;

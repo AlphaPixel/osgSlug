@@ -196,13 +196,6 @@ public:
 
 	osg::StateSet* createDefaultStateSet(HookList hooks={}) const;
 
-	// Returns a lightweight StateSet carrying only the shader program (with hooks applied).
-	// No textures, uniforms, or blend state - those are inherited from the Atlas Group's StateSet.
-	// Set this on a child drawable to override just the program (e.g. for vertex animation hooks).
-	// Call BEFORE compile() so compile()'s getOrCreateStateSet() merges into the hook StateSet
-	// rather than replacing it.
-	osg::StateSet* createHookStateSet(HookList hooks={}) const;
-
 	// Returns a Program that uses the tangent-plane decal vertex shader.
 	// Set this on an DecalDrawable's StateSet to override the parent Geode's program.
 	// (DecalDrawable::compile() calls this automatically.)

@@ -193,9 +193,11 @@ int main(int argc, char** argv) {
 	// ============================================================================================
 
 	auto sd = example::makeShapeDrawable();
-	auto* ss = atlas->createHookStateSet({{osgSlug::Atlas::VertexHook, VERT_SHADER}});
 
-	sd->setStateSet(ss);
+	sd->setHooks({{osgSlug::Atlas::VertexHook, VERT_SHADER}});
+
+	auto* ss = sd->getOrCreateStateSet();
+
 	sd->addCompositeShape(clock);
 
 	atlas->setUpdateCallback(new ClockCallback(ss));
