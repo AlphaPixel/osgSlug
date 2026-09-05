@@ -56,7 +56,7 @@ osg::Shader* makeVertShader(const std::string& src, const std::string& types) {
 		: types + resolved
 	;
 
-	return new osg::Shader(osg::Shader::VERTEX, full);
+	return osgx::cachedShader(osg::Shader::VERTEX, full);
 }
 
 }
@@ -2023,10 +2023,10 @@ osg::Program* Atlas::createProgram(const ProgramSpec& spec, const HookList& hook
 	// Miter mode) - it has no osgSlug_Fragment/FragmentExt/FragmentMask entry points to substitute
 	// and no osgSlug_MaskBlock to bind, so none of the fragment machinery below applies.
 	if(!spec.fragMain.empty()) {
-		program->addShader(new osg::Shader(osg::Shader::FRAGMENT, spec.fragMain));
-		program->addShader(new osg::Shader(osg::Shader::FRAGMENT, resolveShaderLibs(*fragEffects)));
-		program->addShader(new osg::Shader(osg::Shader::FRAGMENT, resolveShaderLibs(*fragExt)));
-		program->addShader(new osg::Shader(osg::Shader::FRAGMENT, resolveShaderLibs(*maskHook)));
+		program->addShader(osgx::cachedShader(osg::Shader::FRAGMENT, spec.fragMain));
+		program->addShader(osgx::cachedShader(osg::Shader::FRAGMENT, resolveShaderLibs(*fragEffects)));
+		program->addShader(osgx::cachedShader(osg::Shader::FRAGMENT, resolveShaderLibs(*fragExt)));
+		program->addShader(osgx::cachedShader(osg::Shader::FRAGMENT, resolveShaderLibs(*maskHook)));
 
 		// osgSlug_MaskBlock has no inline layout(binding=N) (illegal pre-GL4.20); bound instead via
 		// glUniformBlockBinding here, matching where RenderMask::apply() binds at draw time.
