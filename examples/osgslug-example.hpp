@@ -613,7 +613,7 @@ inline auto run(
 			<< "Manipulator: Ortho2DManipulator"
 			<< "\n  center=" << m->getCenter()
 			<< "\n  halfExtentY=" << m->getHalfExtentY()
-			<< "\n  matrix=\n" << m->getMatrix()
+			// << "\n  matrix=\n" << m->getMatrix()
 			<< std::endl
 		;
 	}
