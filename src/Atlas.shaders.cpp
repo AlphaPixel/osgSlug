@@ -23,6 +23,7 @@ void registerOsgSlugCoreShaderLibs() {
 		// FragmentHook) ever chooses to pull it in.
 		const osgx::ShaderLib libs[] = {
 			{"lib_vertex", {}, osgSlug::Atlas::SHADER_LIB_VERTEX},
+			{"lib_vertex_impl", {}, osgSlug::Atlas::SHADER_LIB_VERTEX_IMPL},
 			{"lib_fragment", {}, osgSlug::Atlas::SHADER_LIB_FRAGMENT},
 			{"lib_fragment_em", {}, osgSlug::Atlas::SHADER_LIB_FRAGMENT_EM}
 		};
@@ -155,6 +156,42 @@ out osgSlug_FxBlock {
 	flat vec4 bandXform;
 	flat vec4 shapeData;
 } fx;
+)";
+
+const std::string Atlas::SHADER_LIB_VERTEX_IMPL = R"(
+osgSlug_VertexResult osgSlug_VertexDefault(osgSlug_VertexData data) {
+	osgSlug_VertexResult r;
+	r.pos = data.pos;
+	r.emCoord = data.emCoord;
+	r.axisX = data.axisX;
+	r.axisY = data.axisY;
+	return r;
+}
+
+// NOTE: the pivot reconstruction (pos - emCoord + origin) is only correct where one em maps to
+// one world unit - a pre-existing, documented limitation (baked curves are the workaround for
+// glyphs). It is therefore wrong for PathDrawable's Stamp mode, whose em->world rate is
+// u_halfWidth * 2; a Stamp hook that wants to rotate about the instance center should read
+// points[gl_InstanceID].xy directly rather than call this helper.
+osgSlug_VertexResult osgSlug_Vertex_Rotate(osgSlug_VertexData data, float angle) {
+	float c = cos(angle), s = sin(angle);
+	mat2 R = mat2(c, s, -s, c);
+	vec2 pivot = data.pos.xy - data.emCoord.xy + data.origin;
+	osgSlug_VertexResult r = osgSlug_VertexDefault(data);
+	r.pos.xy = R * (data.pos.xy - pivot) + pivot;
+	r.axisX.xy = R * r.axisX.xy; // rotate the margin-push frame along with the quad
+	r.axisY.xy = R * r.axisY.xy;
+	return r;
+}
+
+osgSlug_VertexResult osgSlug_Vertex_Scale(osgSlug_VertexData data, float scale) {
+	vec2 pivot = data.pos.xy - data.emCoord.xy + data.origin;
+	osgSlug_VertexResult r = osgSlug_VertexDefault(data);
+	r.pos.xy = (data.pos.xy - pivot) * scale + pivot;
+	r.axisX.w *= scale; // uniform scale changes the em<->world rate, not the directions
+	r.axisY.w *= scale;
+	return r;
+}
 )";
 
 const std::string Atlas::SHADER_LIB_FRAGMENT = R"(
@@ -322,44 +359,13 @@ vec2 osgSlug_FragEmCoord(vec2 emCoord, inout vec2 emsPerPixel, int effectId, flo
 const std::string Atlas::SHADER_VERT = R"(
 #version 430 core
 
-#pragma osgSlug lib_vertex
+#pragma osgSlug lib_vertex,lib_vertex_impl
 
 // AA margin in PIXELS, pushed outward at the last moment before rasterization (see main()).
 // Deliberately an internal constant, not an authoring value: the margin exists only so the
 // rasterizer has fragments to shade slightly past the true edge - it is an implementation
 // detail of rasterization, never part of the user's coordinates.
 const float OSGSLUG_MARGIN_PX = 1.5;
-
-osgSlug_VertexResult osgSlug_VertexDefault(osgSlug_VertexData data) {
-	osgSlug_VertexResult r;
-	r.pos = data.pos;
-	r.emCoord = data.emCoord;
-	r.axisX = data.axisX;
-	r.axisY = data.axisY;
-	return r;
-}
-
-// NOTE: the pivot reconstruction (pos - emCoord + origin) is only correct at layer.scale = 1
-// (a pre-existing, documented limitation - baked curves are the workaround for glyphs).
-osgSlug_VertexResult osgSlug_Vertex_Rotate(osgSlug_VertexData data, float angle) {
-	float c = cos(angle), s = sin(angle);
-	mat2 R = mat2(c, s, -s, c);
-	vec2 pivot = data.pos.xy - data.emCoord.xy + data.origin;
-	osgSlug_VertexResult r = osgSlug_VertexDefault(data);
-	r.pos.xy = R * (data.pos.xy - pivot) + pivot;
-	r.axisX.xy = R * r.axisX.xy; // rotate the margin-push frame along with the quad
-	r.axisY.xy = R * r.axisY.xy;
-	return r;
-}
-
-osgSlug_VertexResult osgSlug_Vertex_Scale(osgSlug_VertexData data, float scale) {
-	vec2 pivot = data.pos.xy - data.emCoord.xy + data.origin;
-	osgSlug_VertexResult r = osgSlug_VertexDefault(data);
-	r.pos.xy = (data.pos.xy - pivot) * scale + pivot;
-	r.axisX.w *= scale; // uniform scale changes the em<->world rate, not the directions
-	r.axisY.w *= scale;
-	return r;
-}
 
 layout(location = 0) in vec4 a_position; // xyz = world pos (TRUE corner), w = layer index (1-based)
 layout(location = 1) in vec4 a_emCoord; // xy = em-coord (TRUE bounds), zw = UV [0,1]
@@ -472,38 +478,7 @@ void main() {
 const std::string Atlas::SHADER_VERT_DECAL = R"(
 #version 430 core
 
-#pragma osgSlug lib_vertex
-
-// Same helper implementations as SHADER_VERT (each program links exactly one main vertex
-// unit, so the duplication across the two strings is intentional and safe).
-osgSlug_VertexResult osgSlug_VertexDefault(osgSlug_VertexData data) {
-	osgSlug_VertexResult r;
-	r.pos = data.pos;
-	r.emCoord = data.emCoord;
-	r.axisX = data.axisX;
-	r.axisY = data.axisY;
-	return r;
-}
-
-osgSlug_VertexResult osgSlug_Vertex_Rotate(osgSlug_VertexData data, float angle) {
-	float c = cos(angle), s = sin(angle);
-	mat2 R = mat2(c, s, -s, c);
-	vec2 pivot = data.pos.xy - data.emCoord.xy + data.origin;
-	osgSlug_VertexResult r = osgSlug_VertexDefault(data);
-	r.pos.xy = R * (data.pos.xy - pivot) + pivot;
-	r.axisX.xy = R * r.axisX.xy;
-	r.axisY.xy = R * r.axisY.xy;
-	return r;
-}
-
-osgSlug_VertexResult osgSlug_Vertex_Scale(osgSlug_VertexData data, float scale) {
-	vec2 pivot = data.pos.xy - data.emCoord.xy + data.origin;
-	osgSlug_VertexResult r = osgSlug_VertexDefault(data);
-	r.pos.xy = (data.pos.xy - pivot) * scale + pivot;
-	r.axisX.w *= scale;
-	r.axisY.w *= scale;
-	return r;
-}
+#pragma osgSlug lib_vertex,lib_vertex_impl
 
 // Vertex layout (set by DecalDrawable::compile()):
 //
@@ -2023,11 +1998,11 @@ float osgSlug_FragmentMask(osgSlug_FragmentMaskData data) {
 // State-set builders
 // ================================================================================================
 
-osg::StateSet* Atlas::createDefaultStateSet(HookList hooks) const {
+osg::Program* Atlas::createProgram(const ProgramSpec& spec, const HookList& hooks) {
 	const std::string* vertEffects = &SHADER_NOOP_VERTEX_HOOK;
-	const std::string* fragEffects = &SHADER_NOOP_FRAGMENT_HOOK;
 	const std::string* fragExt = &SHADER_NOOP_FRAGMENT_EXT_HOOK;
-	const std::string* maskHook = &SHADER_MASK_FRAGMENT_HOOK;
+	const std::string* fragEffects = spec.fragHook.empty() ? &SHADER_NOOP_FRAGMENT_HOOK : &spec.fragHook;
+	const std::string* maskHook = spec.maskHook.empty() ? &SHADER_MASK_FRAGMENT_HOOK : &spec.maskHook;
 
 	for(const auto& [hook, src] : hooks) {
 		if(hook == VertexHook) vertEffects = &src;
@@ -2036,21 +2011,39 @@ osg::StateSet* Atlas::createDefaultStateSet(HookList hooks) const {
 		else if(hook == MaskHook) maskHook = &src;
 	}
 
-	auto* ss = new osg::StateSet();
 	auto* program = new osg::Program();
 
-	program->addShader(makeVertShader(SHADER_VERT, SHADER_TYPES));
-	program->addShader(makeVertShader(*vertEffects, SHADER_TYPES));
-	program->addShader(new osg::Shader(osg::Shader::FRAGMENT, SHADER_FRAG));
-	program->addShader(new osg::Shader(osg::Shader::FRAGMENT, resolveShaderLibs(*fragEffects)));
-	program->addShader(new osg::Shader(osg::Shader::FRAGMENT, resolveShaderLibs(*fragExt)));
-	program->addShader(new osg::Shader(osg::Shader::FRAGMENT, resolveShaderLibs(*maskHook)));
+	// The vertex hook unit gets the SAME `types` splice as the main unit: a hook is free to read
+	// whatever SSBO/struct vocabulary its host pipeline declares, and a hook that ignores it costs
+	// nothing but a few unused declarations.
+	program->addShader(makeVertShader(spec.vertMain, spec.types));
+	program->addShader(makeVertShader(*vertEffects, spec.types));
 
-	// osgSlug_MaskBlock has no inline layout(binding=N) (illegal pre-GL4.20); bound instead via
-	// glUniformBlockBinding here, matching where RenderMask::apply() binds at draw time.
-	program->addBindUniformBlock("osgSlug_MaskBlock", RENDER_MASK_UBO_BINDING);
+	// An empty fragMain means the caller links its own private fragment stage (PathDrawable's
+	// Miter mode) - it has no osgSlug_Fragment/FragmentExt/FragmentMask entry points to substitute
+	// and no osgSlug_MaskBlock to bind, so none of the fragment machinery below applies.
+	if(!spec.fragMain.empty()) {
+		program->addShader(new osg::Shader(osg::Shader::FRAGMENT, spec.fragMain));
+		program->addShader(new osg::Shader(osg::Shader::FRAGMENT, resolveShaderLibs(*fragEffects)));
+		program->addShader(new osg::Shader(osg::Shader::FRAGMENT, resolveShaderLibs(*fragExt)));
+		program->addShader(new osg::Shader(osg::Shader::FRAGMENT, resolveShaderLibs(*maskHook)));
 
-	ss->setAttributeAndModes(program, osg::StateAttribute::ON);
+		// osgSlug_MaskBlock has no inline layout(binding=N) (illegal pre-GL4.20); bound instead via
+		// glUniformBlockBinding here, matching where RenderMask::apply() binds at draw time.
+		program->addBindUniformBlock("osgSlug_MaskBlock", RENDER_MASK_UBO_BINDING);
+	}
+
+	return program;
+}
+
+osg::Program* Atlas::createDefaultProgram(const HookList& hooks) {
+	return createProgram({.vertMain = SHADER_VERT, .types = SHADER_TYPES, .fragMain = SHADER_FRAG}, hooks);
+}
+
+osg::StateSet* Atlas::createDefaultStateSet(HookList hooks) const {
+	auto* ss = new osg::StateSet();
+
+	ss->setAttributeAndModes(createDefaultProgram(hooks), osg::StateAttribute::ON);
 
 	// Ambient default: the null sentinel, so every fragment shader linking SHADER_FRAG can read
 	// osgSlug_mask unconditionally. Child drawables that bind a real RenderMask (ShapeDrawable's
@@ -2123,97 +2116,42 @@ osg::StateSet* Atlas::createDefaultStateSet(HookList hooks) const {
 }
 
 osg::StateSet* Atlas::createHookStateSet(HookList hooks) const {
-	const std::string* vertEffects = &SHADER_NOOP_VERTEX_HOOK;
-	const std::string* fragEffects = &SHADER_NOOP_FRAGMENT_HOOK;
-	const std::string* fragExt = &SHADER_NOOP_FRAGMENT_EXT_HOOK;
-	const std::string* maskHook = &SHADER_MASK_FRAGMENT_HOOK;
-
-	for(const auto& [hook, src] : hooks) {
-		if(hook == VertexHook) vertEffects = &src;
-		else if(hook == FragmentHook) fragEffects = &src;
-		else if(hook == FragmentExtHook) fragExt = &src;
-		else if(hook == MaskHook) maskHook = &src;
-	}
-
 	auto* ss = new osg::StateSet();
-	auto* program = new osg::Program();
 
-	program->addShader(makeVertShader(SHADER_VERT, SHADER_TYPES));
-	program->addShader(makeVertShader(*vertEffects, SHADER_TYPES));
-	program->addShader(new osg::Shader(osg::Shader::FRAGMENT, SHADER_FRAG));
-	program->addShader(new osg::Shader(osg::Shader::FRAGMENT, resolveShaderLibs(*fragEffects)));
-	program->addShader(new osg::Shader(osg::Shader::FRAGMENT, resolveShaderLibs(*fragExt)));
-	program->addShader(new osg::Shader(osg::Shader::FRAGMENT, resolveShaderLibs(*maskHook)));
-
-	// osgSlug_MaskBlock has no inline layout(binding=N) (illegal pre-GL4.20); bound instead via
-	// glUniformBlockBinding here, matching where RenderMask::apply() binds at draw time. The
-	// actual buffer bound to that index (real mask, or the null sentinel) is inherited from the
-	// Atlas parent's own StateSet (createDefaultStateSet()) - see that function's comment.
-	program->addBindUniformBlock("osgSlug_MaskBlock", RENDER_MASK_UBO_BINDING);
-
-	ss->setAttributeAndModes(program, osg::StateAttribute::ON);
+	// The buffer actually bound to RENDER_MASK_UBO_BINDING (a real mask, or the null sentinel) is
+	// inherited from the Atlas parent's own StateSet - see createDefaultStateSet()'s comment.
+	ss->setAttributeAndModes(createDefaultProgram(hooks), osg::StateAttribute::ON);
 
 	return ss;
 }
 
 osg::Program* Atlas::createDecalProgram(HookList hooks) const {
-	const std::string* vertEffects = &SHADER_NOOP_VERTEX_HOOK;
-	const std::string* fragEffects = &SHADER_NOOP_FRAGMENT_HOOK;
-	const std::string* fragExt = &SHADER_NOOP_FRAGMENT_EXT_HOOK;
-	const std::string* maskHook = &SHADER_MASK_FRAGMENT_HOOK_DECAL;
-
-	for(const auto& [hook, src] : hooks) {
-		if(hook == VertexHook) vertEffects = &src;
-		else if(hook == FragmentHook) fragEffects = &src;
-		else if(hook == FragmentExtHook) fragExt = &src;
-		else if(hook == MaskHook) maskHook = &src;
-	}
-
-	auto* program = new osg::Program();
-
 	// Inject only SHADER_ATLAS_TYPES (binding 0); the decal shader defines osgSlug_DecalLayerData
 	// and binding 1 itself, avoiding conflict with the standard osgSlug_LayerData / binding 1.
-	program->addShader(makeVertShader(SHADER_VERT_DECAL, SHADER_ATLAS_TYPES));
-	program->addShader(makeVertShader(*vertEffects, SHADER_ATLAS_TYPES));
-	program->addShader(new osg::Shader(osg::Shader::FRAGMENT, SHADER_FRAG));
-	program->addShader(new osg::Shader(osg::Shader::FRAGMENT, resolveShaderLibs(*fragEffects)));
-	program->addShader(new osg::Shader(osg::Shader::FRAGMENT, resolveShaderLibs(*fragExt)));
-	program->addShader(new osg::Shader(osg::Shader::FRAGMENT, resolveShaderLibs(*maskHook)));
-
-	program->addBindUniformBlock("osgSlug_MaskBlock", RENDER_MASK_UBO_BINDING);
-
-	return program;
+	return createProgram(
+		{
+			.vertMain = SHADER_VERT_DECAL,
+			.types = SHADER_ATLAS_TYPES,
+			.fragMain = SHADER_FRAG,
+			.maskHook = SHADER_MASK_FRAGMENT_HOOK_DECAL
+		},
+		hooks
+	);
 }
 
 osg::Program* Atlas::createSubdividedProgram(HookList hooks) const {
-	const std::string* vertEffects = &SHADER_NOOP_VERTEX_HOOK;
-	const std::string* fragEffects = &SHADER_NOOP_FRAGMENT_HOOK;
-	const std::string* fragExt = &SHADER_NOOP_FRAGMENT_EXT_HOOK;
-	const std::string* maskHook = &SHADER_MASK_FRAGMENT_HOOK;
-
-	for(const auto& [hook, src] : hooks) {
-		if(hook == VertexHook) vertEffects = &src;
-		else if(hook == FragmentHook) fragEffects = &src;
-		else if(hook == FragmentExtHook) fragExt = &src;
-		else if(hook == MaskHook) maskHook = &src;
-	}
-
-	auto* program = new osg::Program();
-
-	// Same SHADER_VERT/SHADER_TYPES as createDefaultStateSet() - just one #define ahead of it, so
+	// Same SHADER_VERT/SHADER_TYPES as createDefaultProgram() - just one #define ahead of it, so
 	// main() reads axisX/axisY from a_axisX/a_axisY (per-vertex) instead of ld.axisX/ld.axisY
 	// (per-layer). One source of truth for the shader body either way; see the
 	// OSGSLUG_AXIS_PER_VERTEX guards in SHADER_VERT.
-	program->addShader(makeVertShader(SHADER_VERT, "#define OSGSLUG_AXIS_PER_VERTEX\n" + SHADER_TYPES));
-	program->addShader(makeVertShader(*vertEffects, SHADER_TYPES));
-	program->addShader(new osg::Shader(osg::Shader::FRAGMENT, SHADER_FRAG));
-	program->addShader(new osg::Shader(osg::Shader::FRAGMENT, resolveShaderLibs(*fragEffects)));
-	program->addShader(new osg::Shader(osg::Shader::FRAGMENT, resolveShaderLibs(*fragExt)));
-	program->addShader(new osg::Shader(osg::Shader::FRAGMENT, resolveShaderLibs(*maskHook)));
-
-	program->addBindUniformBlock("osgSlug_MaskBlock", RENDER_MASK_UBO_BINDING);
-
-	return program;
+	return createProgram(
+		{
+			.vertMain = SHADER_VERT,
+			.types = "#define OSGSLUG_AXIS_PER_VERTEX\n" + SHADER_TYPES,
+			.fragMain = SHADER_FRAG
+		},
+		hooks
+	);
 }
 
 }

@@ -40,8 +40,15 @@ void SubdividedDrawable::compile() {
 	// per-layer SSBO. See project_subdivided_curved_axes_bug (memory) for the bug this fixes.
 	const bool curved = static_cast<bool>(_positionCallback);
 
+	// Both branches must forward _hooks: this call REPLACES whatever program the drawable would
+	// otherwise inherit or carry, so a hook not linked here is a hook silently lost.
 	if(curved) getOrCreateStateSet()->setAttributeAndModes(
-		atlas->createSubdividedProgram(),
+		atlas->createSubdividedProgram(_hooks),
+		osg::StateAttribute::ON
+	);
+
+	else if(!_hooks.empty()) getOrCreateStateSet()->setAttributeAndModes(
+		Atlas::createDefaultProgram(_hooks),
 		osg::StateAttribute::ON
 	);
 

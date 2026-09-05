@@ -219,6 +219,15 @@ void ShapeDrawable::compile() {
 
 	if(!atlas->isBuilt() || _layers.empty()) return;
 
+	// Only when hooks were actually requested: with none, this drawable is best left inheriting
+	// the Atlas parent's own program (createDefaultStateSet()) instead of carrying a redundant
+	// identical copy of it on every child. Assigning Atlas::createHookStateSet()'s StateSet by
+	// hand still works too -- setAttributeAndModes() below simply replaces its program.
+	if(!_hooks.empty()) getOrCreateStateSet()->setAttributeAndModes(
+		Atlas::createDefaultProgram(_hooks),
+		osg::StateAttribute::ON
+	);
+
 	auto vertices = osgx::make_ref<osgx::Vec4Array>();
 	auto emCoords = osgx::make_ref<osgx::Vec4Array>();
 

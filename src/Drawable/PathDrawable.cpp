@@ -46,16 +46,76 @@ struct PathDrawableViewportCallback: public osg::NodeCallback {
 // Shaders
 // ---------------------------------------------------------------------------
 
-// Shared miter geometry; append PATH_MITER_MAIN or PATH_SLUGGIT_MAIN to form a complete shader.
-static const std::string PATH_MITER_COMMON = R"GLSL(
+// Preamble shared by all four PathDrawable vertex mains: the points SSBO, the uniforms every
+// mode carries, and the plumbing that puts PathDrawable on the SAME osgSlug_Vertex() hook
+// contract as ShapeDrawable/SubdividedDrawable/DecalDrawable.
+//
+// That contract is the whole point of this string. PathDrawable was built standalone from day one
+// and had no vertex hook at all, so animation that comes almost free on ShapeDrawable (see
+// pyosgslug-zora.py's VERT_EFFECTS) was simply unreachable here, and every attempt to add a
+// specific motion ended up proposing another bespoke uniform pair. A hook unit written against
+// osgSlug_VertexData now links against any of these mains unchanged.
+//
+// Two notes for hook authors targeting PathDrawable specifically:
+//
+// - gl_InstanceID is readable directly inside the hook (it is an ordinary vertex shader unit in
+//   the same Program), and is the per-particle/per-segment identity. Nothing needs to plumb it
+//   through osgSlug_VertexData -- ShapeDrawable's non-instanced draws just read 0 there.
+// - osgSlug_Vertex_Rotate/_Scale reconstruct their pivot assuming one em maps to one world unit,
+//   which is not true for Stamp mode (its rate is u_halfWidth * 2). Rotate about
+//   points[gl_InstanceID].xy by hand instead. See SHADER_LIB_VERTEX_IMPL's note.
+static const std::string PATH_COMMON = R"GLSL(
 	#version 430 core
 
-	uniform int u_N;
+	#pragma osgSlug lib_vertex,lib_vertex_impl
+
 	uniform float u_halfWidth;
+	uniform vec4 u_color;
+	uniform int u_effectId; // PathDrawable::setEffectId() -- the hook's selector, as on a layer
+	uniform float u_effectParam; // PathDrawable::setEffectParam() -- the hook's float knob
+	uniform vec2 u_origin; // shape origin in em-space (Sluggit/Stamp); zero for Miter
+	uniform float osg_SimulationTime;
 
 	layout(std430, binding = 0) buffer PathData {
 		vec4 points[];
 	};
+
+	// Defined by the linked hook or noop unit -- see Atlas::createProgram().
+	osgSlug_VertexResult osgSlug_Vertex(osgSlug_VertexData data);
+
+	// Fills the per-corner hook input. Everything a PathDrawable corner genuinely varies
+	// (pos/emCoord/uv, its em<->world frame, and -- for the multi-shape Stamp table -- the shape
+	// origin) is an argument; the rest come from uniforms and are identical for every instance,
+	// since PathDrawable has no per-layer SSBO to read them from the way SHADER_VERT does.
+	osgSlug_VertexData pathVertexData(
+		vec3 pos,
+		vec2 emCoord,
+		vec2 uv,
+		vec2 origin,
+		vec4 axisX,
+		vec4 axisY
+	) {
+		osgSlug_VertexData d;
+
+		d.pos = pos;
+		d.emCoord = emCoord;
+		d.uv = uv;
+		d.effectId = u_effectId;
+		d.origin = origin;
+		d.effectParam = u_effectParam;
+		d.time = osg_SimulationTime;
+		d.bleed = 0.0; // PathDrawable bakes its margin on the CPU (PATH_EXPAND), no GPU push
+		d.axisX = axisX;
+		d.axisY = axisY;
+
+		return d;
+	}
+)GLSL";
+
+// Mitered per-segment quad geometry; used by Miter and Sluggit. Append PATH_MITER_MAIN or
+// PATH_SLUGGIT_MAIN to PATH_COMMON + this to form a complete shader.
+static const std::string PATH_MITER_GEOM = R"GLSL(
+	uniform int u_N;
 
 	const float MAX_MITER = 4.0;
 
@@ -125,7 +185,12 @@ static const std::string PATH_MITER_COMMON = R"GLSL(
 )GLSL";
 
 // Miter mode: analytical fwidth SDF coverage via v_uv.
-// Private pipeline (PATH_SDF_FRAG only) - not connected to Atlas::SHADER_FRAG.
+// Private pipeline (PATH_SDF_FRAG only) - not connected to Atlas::SHADER_FRAG. The vertex hook
+// still runs: it is a vertex-stage contract, independent of which fragment stage is linked.
+//
+// Miter has no atlas shape and therefore no real em space, so the hook sees emCoord == uv. The
+// frame it gets is the honest one anyway: axisX along the segment, axisY across its width, with
+// each w carrying that direction's true world-units-per-uv-unit rate.
 static const char* PATH_MITER_MAIN = R"GLSL(
 	out vec2 v_uv;
 
@@ -133,8 +198,21 @@ static const char* PATH_MITER_MAIN = R"GLSL(
 		vec2 base, offset, perp;
 		vec2 s = computeQuad(base, offset, perp);
 
+		vec2 uv = vec2(s.x, (s.y + 1.0) * 0.5);
+		vec2 dir = vec2(perp.y, -perp.x); // undo perpOf()
+		float segLen = distance(points[gl_InstanceID].xy, points[gl_InstanceID + 1].xy);
+
+		osgSlug_VertexResult r = osgSlug_Vertex(pathVertexData(
+			vec3(base + offset, 0.0),
+			uv,
+			uv,
+			u_origin,
+			vec4(dir, 0.0, segLen),
+			vec4(perp, 0.0, u_halfWidth * 2.0)
+		));
+
 		v_uv = s;
-		gl_Position = gl_ModelViewProjectionMatrix * vec4(base + offset, 0.0, 1.0);
+		gl_Position = gl_ModelViewProjectionMatrix * vec4(r.pos, 1.0);
 	}
 )GLSL";
 
@@ -157,27 +235,7 @@ static const std::string PATH_SLUGGIT_MAIN = R"GLSL(
 	uniform vec4 u_emCorners; // x=emX0, y=emY0, z=emX1, w=emY1
 	uniform vec4 u_bandXform; // x=bandScaleX, y=bandScaleY, z=bandOffsetX, w=bandOffsetY
 	uniform vec4 u_shapeData; // x=bandTexX, y=bandTexY, z=bandMaxX, w=bandMaxY
-	uniform vec4 u_color;
 	uniform vec2 osgSlug_viewport; // live viewport size (see PathDrawable::compile()'s cull callback)
-
-	out osgSlug_GeomBlock {
-		vec2 emCoord;
-		vec2 uv;
-		vec4 color;
-		flat float layerIndex;
-		vec4 gradientMeta;
-		vec4 gradientXform;
-	} geom;
-
-	out osgSlug_FxBlock {
-		flat int   effectId;
-		flat int   gradientId;
-		flat int   msdfLayer;
-		flat float msdfRange;
-		flat float effectParam;
-		flat vec4  bandXform;
-		flat vec4  shapeData;
-	} fx;
 
 	// Analytic em-units-per-screen-pixel along `perp`, evaluated at `pos`. Mirrors
 	// Atlas.shaders.cpp's osgSlug_WorldPerPixel()/osgSlug_viewport machinery (same math), scaled
@@ -209,23 +267,46 @@ static const std::string PATH_SLUGGIT_MAIN = R"GLSL(
 		// em-units per world-unit across the stroke's width -- uniform-derived only, no
 		// derivative involved.
 		float emPerWorld = (u_emCorners.w - u_emCorners.y) / max(2.0 * u_halfWidth, 1e-8);
+		float worldPerEm = 1.0 / max(emPerWorld, 1e-8);
+		vec2 dir = vec2(perp.y, -perp.x); // undo perpOf()
+		vec2 uv = vec2(s.x, (s.y + 1.0) * 0.5);
 
-		geom.emCoord = vec2(emMidX, emY);
-		geom.uv = vec2(s.x, (s.y + 1.0) * 0.5);
+		osgSlug_VertexResult r = osgSlug_Vertex(pathVertexData(
+			vec3(base + offset, 0.0),
+			vec2(emMidX, emY),
+			uv,
+			u_origin,
+			// em-X is pinned constant by design (see this shader's header comment), so it has no
+			// rate of its own; reuse the width-direction rate rather than invent a second one.
+			vec4(dir, 0.0, worldPerEm),
+			vec4(perp, 0.0, worldPerEm)
+		));
+
+		geom.emCoord = r.emCoord;
+		geom.uv = uv;
 		geom.color = u_color;
 		geom.layerIndex = 0.0;
 		geom.gradientMeta = vec4(0.0);
 		geom.gradientXform = vec4(0.0);
 		fx.bandXform = u_bandXform;
 		fx.shapeData = u_shapeData;
-		fx.effectId = 0;
+		fx.effectId = u_effectId;
 		fx.gradientId = 0;
 		fx.msdfLayer = -1;
 		fx.msdfRange = 0.0;
-		fx.effectParam = 0.0;
-		pathEmScale.emsPerPixel = pathSluggitEmsPerPixel(base + offset, perp, emPerWorld);
+		fx.effectParam = u_effectParam;
 
-		gl_Position = gl_ModelViewProjectionMatrix * vec4(base + offset, 0.0, 1.0);
+		// Evaluated at the POST-hook position and frame: a hook that displaces or reorients the
+		// stroke changes its screen-space footprint, and this rate is what the fragment stage
+		// antialiases with. Using the pre-hook values would silently mis-tune the AA under any
+		// hook that actually moves something.
+		pathEmScale.emsPerPixel = pathSluggitEmsPerPixel(
+			r.pos.xy,
+			r.axisY.xy,
+			1.0 / max(r.axisY.w, 1e-8)
+		);
+
+		gl_Position = gl_ModelViewProjectionMatrix * vec4(r.pos, 1.0);
 	}
 )GLSL";
 
@@ -235,25 +316,21 @@ static const std::string PATH_SLUGGIT_MAIN = R"GLSL(
 // header comment. Isotropic: emCoord.x is pinned constant by design (a different, earlier fix),
 // so it carries no real per-pixel rate of its own -- reusing the analytic width-direction value
 // keeps pixelsPerEm.x finite/stable for slug_Render without introducing a second, unrelated
-// derivative source. osgSlug_FragmentData is hand-declared here (not via #pragma osgSlug
-// lib_fragment -- that pragma is resolved at Atlas.shaders.cpp's C++ static-init time, not
-// available to this file) matching Atlas::SHADER_LIB_FRAGMENT's struct field-for-field, same
-// manual-duplication approach PATH_SLUGGIT_MAIN/PATH_STAMP_VERT already use for
-// osgSlug_GeomBlock/osgSlug_FxBlock above -- keep in sync if that struct changes.
+// derivative source.
+//
+// This is Sluggit's per-FLAVOR default for the FragmentHook slot (Atlas::ProgramSpec::fragHook),
+// not a user hook: a caller's own FragmentHook still substitutes it, and in doing so gives up the
+// analytic emsPerPixel. A Sluggit FragmentHook that cares about AA quality should define its own
+// osgSlug_FragEmCoord the same way this one does.
+//
+// osgSlug_FragmentData used to be hand-copied here, because the #pragma below is expanded by
+// Atlas.shaders.cpp's own resolver and this file couldn't reach it. Routing PathDrawable's
+// program construction through Atlas::createProgram() closed that gap, so the struct now has
+// exactly one definition again.
 static const char* PATH_SLUGGIT_FRAG_HOOK = R"GLSL(
 	#version 430 core
 
-	struct osgSlug_FragmentData {
-		float fill;
-		vec2 emCoord;
-		vec2 uv;
-		vec4 layerColor;
-		int effectId;
-		float time;
-		float msdfSd;
-		float effectParam;
-		vec2 emsPerPixel;
-	};
+	#pragma osgSlug lib_fragment
 
 	in osgSlug_PathEmScaleBlock {
 		flat float emsPerPixel;
@@ -274,36 +351,9 @@ static const char* PATH_SLUGGIT_FRAG_HOOK = R"GLSL(
 // Uses the full Slug SDF pipeline against a caller-defined shape (setShapeKey).
 // emCoords vary fully over both axes - unlike Sluggit, which pins emX to the midpoint.
 static const char* PATH_STAMP_VERT = R"GLSL(
-	#version 430 core
-
-	uniform float u_halfWidth;
 	uniform vec4 u_emCorners; // x=emX0, y=emY0, z=emX1, w=emY1
 	uniform vec4 u_bandXform;
 	uniform vec4 u_shapeData;
-	uniform vec4 u_color;
-
-	layout(std430, binding = 0) buffer PathData {
-		vec4 points[];
-	};
-
-	out osgSlug_GeomBlock {
-		vec2 emCoord;
-		vec2 uv;
-		vec4 color;
-		flat float layerIndex;
-		vec4 gradientMeta;
-		vec4 gradientXform;
-	} geom;
-
-	out osgSlug_FxBlock {
-		flat int   effectId;
-		flat int   gradientId;
-		flat int   msdfLayer;
-		flat float msdfRange;
-		flat float effectParam;
-		flat vec4  bandXform;
-		flat vec4  shapeData;
-	} fx;
 
 	const vec2 CORNERS[4] = vec2[4](
 		vec2(0.0, 0.0), vec2(1.0, 0.0), vec2(1.0, 1.0), vec2(0.0, 1.0)
@@ -318,7 +368,21 @@ static const char* PATH_STAMP_VERT = R"GLSL(
 		float sinA = sin(angle);
 		vec2 pos = center + vec2(local.x * cosA - local.y * sinA, local.x * sinA + local.y * cosA);
 
-		geom.emCoord = mix(u_emCorners.xy, u_emCorners.zw, q);
+		// The quad's em<->world frame, rotated with the stamp and carrying each axis's true rate:
+		// the quad spans u_halfWidth * 2 world units across the shape's whole em extent.
+		vec2 emSpan = max(abs(u_emCorners.zw - u_emCorners.xy), vec2(1e-8));
+		vec2 rate = vec2(u_halfWidth * 2.0) / emSpan;
+
+		osgSlug_VertexResult r = osgSlug_Vertex(pathVertexData(
+			vec3(pos, 0.0),
+			mix(u_emCorners.xy, u_emCorners.zw, q),
+			q,
+			u_origin,
+			vec4(cosA, sinA, 0.0, rate.x),
+			vec4(-sinA, cosA, 0.0, rate.y)
+		));
+
+		geom.emCoord = r.emCoord;
 		geom.uv = q;
 		geom.color = u_color;
 		geom.layerIndex = 0.0;
@@ -326,13 +390,13 @@ static const char* PATH_STAMP_VERT = R"GLSL(
 		geom.gradientXform = vec4(0.0);
 		fx.bandXform = u_bandXform;
 		fx.shapeData = u_shapeData;
-		fx.effectId = 0;
+		fx.effectId = u_effectId;
 		fx.gradientId = 0;
 		fx.msdfLayer = -1;
 		fx.msdfRange = 0.0;
-		fx.effectParam = 0.0;
+		fx.effectParam = u_effectParam;
 
-		gl_Position = gl_ModelViewProjectionMatrix * vec4(pos, 0.0, 1.0);
+		gl_Position = gl_ModelViewProjectionMatrix * vec4(r.pos, 1.0);
 	}
 )GLSL";
 
@@ -346,11 +410,8 @@ static const char* PATH_STAMP_VERT = R"GLSL(
 // user-configurable SSBO bindings". Binding numbers below must match
 // PATH_POINTS_SSBO_BINDING/PATH_SHAPE_TABLE_SSBO_BINDING (PathDrawable.hpp).
 static const char* PATH_STAMP_TABLE_VERT = R"GLSL(
-	#version 430 core
-
-	uniform float u_halfWidth;
-	uniform vec4 u_color;
-
+	// points[].w is the 0-based index into this table; PATH_COMMON declares the points SSBO
+	// itself (binding 0).
 	struct osgSlug_ShapeTableData {
 		vec4 bandXform;
 		vec4 shapeData;
@@ -358,32 +419,9 @@ static const char* PATH_STAMP_TABLE_VERT = R"GLSL(
 		vec4 emCorners; // x=emX0, y=emY0, z=emX1, w=emY1
 	};
 
-	layout(std430, binding = 0) buffer PathData {
-		vec4 points[]; // xy=center, z=rotation angle, w=shape index (into ShapeTable)
-	};
-
 	layout(std430, binding = 1) readonly buffer ShapeTable {
 		osgSlug_ShapeTableData shapes[];
 	};
-
-	out osgSlug_GeomBlock {
-		vec2 emCoord;
-		vec2 uv;
-		vec4 color;
-		flat float layerIndex;
-		vec4 gradientMeta;
-		vec4 gradientXform;
-	} geom;
-
-	out osgSlug_FxBlock {
-		flat int   effectId;
-		flat int   gradientId;
-		flat int   msdfLayer;
-		flat float msdfRange;
-		flat float effectParam;
-		flat vec4  bandXform;
-		flat vec4  shapeData;
-	} fx;
 
 	const vec2 CORNERS[4] = vec2[4](
 		vec2(0.0, 0.0), vec2(1.0, 0.0), vec2(1.0, 1.0), vec2(0.0, 1.0)
@@ -413,7 +451,18 @@ static const char* PATH_STAMP_TABLE_VERT = R"GLSL(
 		float sinA = sin(angle);
 		vec2 pos = center + vec2(local.x * cosA - local.y * sinA, local.x * sinA + local.y * cosA);
 
-		geom.emCoord = emPos;
+		// One shared em->world rate for every shape in the table, by the same reasoning as the
+		// scale above: u_halfWidth * 2 world units per em, rotated with the stamp.
+		osgSlug_VertexResult r = osgSlug_Vertex(pathVertexData(
+			vec3(pos, 0.0),
+			emPos,
+			q,
+			sd.originData.xy,
+			vec4(cosA, sinA, 0.0, u_halfWidth * 2.0),
+			vec4(-sinA, cosA, 0.0, u_halfWidth * 2.0)
+		));
+
+		geom.emCoord = r.emCoord;
 		geom.uv = q;
 		geom.color = u_color;
 		geom.layerIndex = 0.0;
@@ -421,17 +470,19 @@ static const char* PATH_STAMP_TABLE_VERT = R"GLSL(
 		geom.gradientXform = vec4(0.0);
 		fx.bandXform = sd.bandXform;
 		fx.shapeData = sd.shapeData;
-		fx.effectId = 0;
+		fx.effectId = u_effectId;
 		fx.gradientId = 0;
 		fx.msdfLayer = -1;
 		fx.msdfRange = 0.0;
-		fx.effectParam = 0.0;
+		fx.effectParam = u_effectParam;
 
-		gl_Position = gl_ModelViewProjectionMatrix * vec4(pos, 0.0, 1.0);
+		gl_Position = gl_ModelViewProjectionMatrix * vec4(r.pos, 1.0);
 	}
 )GLSL";
 
-// Analytical SDF fragment shader - used by Overlap and Miter modes.
+// Analytical SDF fragment shader - Miter mode's private fragment stage. Not connected to
+// Atlas::SHADER_FRAG, so Miter links no fragment hook units (Atlas::ProgramSpec::fragMain empty);
+// its vertex hook still runs.
 static const char* PATH_SDF_FRAG = R"GLSL(
 	#version 430 core
 
@@ -460,6 +511,30 @@ void PathDrawable::setMode(PathMode mode) {
 	_compiled = false;
 
 	if(getAtlas()) compile();
+}
+
+void PathDrawable::setHooks(Atlas::HookList hooks) {
+	Drawable::setHooks(std::move(hooks));
+
+	_compiled = false;
+
+	if(getAtlas()) compile();
+}
+
+// Live uniform updates rather than a recompile: these feed a hook that is already linked, and
+// changing an animation's speed or selector mid-flight shouldn't rebuild a Program.
+void PathDrawable::setEffectId(int id) {
+	_effectId = id;
+
+	if(auto* u = getStateSet() ? getStateSet()->getUniform("u_effectId") : nullptr; u) u->set(id);
+}
+
+void PathDrawable::setEffectParam(slug_t param) {
+	_effectParam = param;
+
+	if(auto* u = getStateSet() ? getStateSet()->getUniform("u_effectParam") : nullptr; u) u->set(
+		static_cast<float>(param)
+	);
 }
 
 void PathDrawable::setShapeKeys(std::vector<slughorn::Key> keys) {
@@ -545,12 +620,29 @@ void PathDrawable::compile() {
 	setInitialBound(computeBoundingBox());
 	setUseVertexBufferObjects(true);
 
-	auto* ss = new osg::StateSet();
-	auto* prog = new osg::Program();
+	// Built into the drawable's OWN StateSet rather than a fresh one, so anything a caller
+	// attached (a custom uniform, a render bin) survives compile(). Shader hooks are the one
+	// thing that must NOT come in that way -- compile() picks the program, so hooks arrive via
+	// setHooks() and are linked below. Recompiles (setMode/setShapeKeys) drop the previous mode's
+	// program and shape table explicitly; every other key this function writes is simply
+	// overwritten in place.
+	auto* ss = getOrCreateStateSet();
+
+	ss->removeAttribute(osg::StateAttribute::PROGRAM);
+
+	if(_shapeTableBinding) {
+		ss->removeAttribute(_shapeTableBinding);
+
+		_shapeTableBinding = nullptr;
+	}
+
+	osg::Program* prog = nullptr;
 
 	// Stamp is the only mode setShapeKeys() applies to; Sluggit always uses the single-shape
 	// (setShapeKey()) path below.
 	const bool multiShape = _mode == PathMode::Stamp && !_shapeKeys.empty();
+
+	setCullCallback(nullptr);
 
 	if(_mode == PathMode::Stamp || _mode == PathMode::Sluggit) {
 		if(!atlas->getCurveTexture()) {
@@ -559,13 +651,27 @@ void PathDrawable::compile() {
 		}
 
 		if(_mode == PathMode::Stamp) {
-			prog->addShader(new osg::Shader(osg::Shader::VERTEX,
-				multiShape ? PATH_STAMP_TABLE_VERT : PATH_STAMP_VERT
-			));
+			prog = Atlas::createProgram(
+				{
+					.vertMain = PATH_COMMON + (multiShape ? PATH_STAMP_TABLE_VERT : PATH_STAMP_VERT),
+					.fragMain = Atlas::SHADER_FRAG
+				},
+				_hooks
+			);
 		}
 
 		else {
-			prog->addShader(new osg::Shader(osg::Shader::VERTEX, PATH_MITER_COMMON + PATH_SLUGGIT_MAIN));
+			// PATH_SLUGGIT_FRAG_HOOK is this mode's DEFAULT for the FragmentHook slot, not a user
+			// hook -- a caller's own FragmentHook still wins. See the string's own comment.
+			prog = Atlas::createProgram(
+				{
+					.vertMain = PATH_COMMON + PATH_MITER_GEOM + PATH_SLUGGIT_MAIN,
+					.fragMain = Atlas::SHADER_FRAG,
+					.fragHook = PATH_SLUGGIT_FRAG_HOOK
+				},
+				_hooks
+			);
+
 			ss->addUniform(new osg::Uniform("u_N", static_cast<int>(N)));
 
 			// Live viewport size for pathSluggitEmsPerPixel()'s analytic scale (see
@@ -576,19 +682,12 @@ void PathDrawable::compile() {
 			setCullCallback(new PathDrawableViewportCallback());
 		}
 
-		prog->addShader(new osg::Shader(osg::Shader::FRAGMENT, Atlas::SHADER_FRAG));
-		prog->addShader(new osg::Shader(osg::Shader::FRAGMENT,
-			_mode == PathMode::Sluggit ? PATH_SLUGGIT_FRAG_HOOK : Atlas::SHADER_NOOP_FRAGMENT_HOOK
-		));
-		prog->addShader(new osg::Shader(osg::Shader::FRAGMENT, Atlas::SHADER_NOOP_FRAGMENT_EXT_HOOK));
-		prog->addShader(new osg::Shader(osg::Shader::FRAGMENT, Atlas::SHADER_MASK_FRAGMENT_HOOK));
-
-		// This StateSet is entirely standalone (PathDrawable uses setAtlas(), not
-		// atlas->addChild() -- see Drawable::getAtlas()'s comment), so unlike ShapeDrawable it
-		// does NOT inherit the null-mask UBO binding from an Atlas ancestor's StateSet. Must
-		// bind it explicitly or osgSlug_FragmentMask() above reads through an unbound
-		// osgSlug_MaskBlock (undefined behavior) the moment this shader links against SHADER_FRAG.
-		prog->addBindUniformBlock("osgSlug_MaskBlock", RENDER_MASK_UBO_BINDING);
+		// createProgram() already bound osgSlug_MaskBlock to RENDER_MASK_UBO_BINDING, but this
+		// StateSet can be entirely standalone (PathDrawable also supports setAtlas() rather than
+		// atlas->addChild() -- see Drawable::getAtlas()'s comment), so unlike ShapeDrawable it may
+		// NOT inherit the null-mask UBO binding from an Atlas ancestor's StateSet. Bind it
+		// explicitly or osgSlug_FragmentMask() reads through an unbound osgSlug_MaskBlock, which
+		// is undefined behavior the moment this shader links against SHADER_FRAG.
 		ss->setAttributeAndModes(atlas->getNullMask()->getBinding(), osg::StateAttribute::ON);
 
 		ss->setTextureAttributeAndModes(0, atlas->getCurveTexture(), osg::StateAttribute::ON);
@@ -663,6 +762,12 @@ void PathDrawable::compile() {
 			const slug_t emX1 = (shape->bearingX + shape->width) - PATH_EXPAND;
 			const slug_t emY1 = shape->bearingY + PATH_EXPAND;
 
+			// The hook contract's data.origin. Uploaded per-shape in the multiShape branch above
+			// (osgSlug_ShapeTableData.originData), which is why that branch doesn't set this.
+			ss->addUniform(new osg::Uniform("u_origin", osg::Vec2(
+				static_cast<float>(shape->originX),
+				static_cast<float>(shape->originY)
+			)));
 			ss->addUniform(new osg::Uniform("u_emCorners", Vec4(emX0, emY0, emX1, emY1)));
 			ss->addUniform(new osg::Uniform("u_bandXform", Vec4(
 				shape->bandScaleX, shape->bandScaleY,
@@ -676,12 +781,20 @@ void PathDrawable::compile() {
 	}
 
 	else { // Miter - analytical fwidth SDF, no atlas
-		prog->addShader(new osg::Shader(osg::Shader::VERTEX, PATH_MITER_COMMON + PATH_MITER_MAIN));
+		// An empty fragMain means createProgram() links NO osgSlug fragment stack, leaving the
+		// private one below as this Program's only fragment unit. The vertex hook still applies.
+		prog = Atlas::createProgram({.vertMain = PATH_COMMON + PATH_MITER_GEOM + PATH_MITER_MAIN}, _hooks);
+
 		prog->addShader(new osg::Shader(osg::Shader::FRAGMENT, PATH_SDF_FRAG));
+
 		ss->addUniform(new osg::Uniform("u_N", static_cast<int>(N)));
+		ss->addUniform(new osg::Uniform("u_color", _color));
+		ss->addUniform(new osg::Uniform("u_origin", osg::Vec2(0.0f, 0.0f))); // Miter has no shape
 	}
 
 	ss->addUniform(new osg::Uniform("u_halfWidth", _halfWidth));
+	ss->addUniform(new osg::Uniform("u_effectId", _effectId));
+	ss->addUniform(new osg::Uniform("u_effectParam", _effectParam));
 	ss->setAttributeAndModes(prog, osg::StateAttribute::ON);
 	ss->setAttributeAndModes(_ssboBinding, osg::StateAttribute::ON);
 	ss->setAttributeAndModes(new osg::BlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA));
@@ -690,8 +803,6 @@ void PathDrawable::compile() {
 	ss->setAttributeAndModes(new osg::Depth(osg::Depth::LESS, 0.0, 1.0, false));
 
 	_compiled = true;
-
-	setStateSet(ss);
 }
 
 void PathDrawable::drawImplementation(osg::RenderInfo& renderInfo) const {

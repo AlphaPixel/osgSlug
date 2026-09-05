@@ -166,6 +166,13 @@ void BoxDrawable::compile() {
 
 	auto* ss = getOrCreateStateSet();
 
+	// Only when hooks were actually requested -- otherwise inherit the Atlas parent's own program
+	// rather than duplicating it per child. Same rule as ShapeDrawable::compile().
+	if(!_hooks.empty()) ss->setAttributeAndModes(
+		Atlas::createDefaultProgram(_hooks),
+		osg::StateAttribute::ON
+	);
+
 	ss->setAttributeAndModes(
 		new osg::ShaderStorageBufferBinding(1, _layers[0].buffer, 0, totalSize),
 		osg::StateAttribute::ON

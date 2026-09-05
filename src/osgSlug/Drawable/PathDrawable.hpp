@@ -48,6 +48,19 @@ public:
 
 	void setColor(const Vec4& c) { _color = c; } // Sluggit mode only
 
+	// The osgSlug_VertexData.effectId / .effectParam a linked vertex hook reads -- the same two
+	// fields ShapeDrawable feeds per-layer via setLayerEffectId()/setLayerEffectParam(), so a hook
+	// written against one drawable reads them identically here. PathDrawable has no per-layer
+	// SSBO, so these are one value shared by every instance; per-instance variety comes from
+	// gl_InstanceID, which a hook can read directly.
+	//
+	// Dynamic: the uniform is updated live once compiled, no recompile needed.
+	void setEffectId(int id);
+	void setEffectParam(slug_t param);
+
+	// Recompiles, since compile() is what links the hook units. See Drawable::setHooks().
+	void setHooks(Atlas::HookList hooks) override;
+
 	// Dynamic: updates the DrawArrays instance count immediately (no recompile needed).
 	void setRevealCount(size_t n);
 
@@ -74,6 +87,8 @@ private:
 	PathMode _mode = PathMode::Sluggit;
 	slug_t _halfWidth = 0.45_cv;
 	size_t _revealCount = 0;
+	int _effectId = 0;
+	slug_t _effectParam = 0.0_cv;
 	Vec4 _color = {1.0f, 1.0f, 1.0f, 1.0f};
 	slughorn::Key _shapeKey;
 	std::vector<slughorn::Key> _shapeKeys; // Stamp mode multi-shape path; see setShapeKeys()

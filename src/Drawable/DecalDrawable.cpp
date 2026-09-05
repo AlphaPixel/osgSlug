@@ -256,8 +256,10 @@ void DecalDrawable::compile() {
 
 	if(!atlas || !atlas->isBuilt() || _decalEntries.empty()) return;
 
+	// _hooks must be forwarded: this call REPLACES whatever program the drawable would otherwise
+	// carry, so a hook not linked here is a hook silently lost.
 	getOrCreateStateSet()->setAttributeAndModes(
-		atlas->createDecalProgram(),
+		atlas->createDecalProgram(_hooks),
 		osg::StateAttribute::ON
 	);
 

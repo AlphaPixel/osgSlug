@@ -117,6 +117,13 @@ public:
 	static const std::string SHADER_ATLAS_TYPES; // AtlasShapeData + binding 0 only
 	static const std::string SHADER_TYPES; // SHADER_ATLAS_TYPES + LayerData + binding 1
 	static const std::string SHADER_LIB_VERTEX;
+	// Bodies for the osgSlug_Vertex_* helpers whose prototypes SHADER_LIB_VERTEX declares. A
+	// SEPARATE, opt-in pragma (#pragma osgSlug lib_vertex_impl) for the same reason
+	// SHADER_LIB_FRAGMENT_EM is separate from SHADER_LIB_FRAGMENT: these are real function
+	// bodies, and GLSL allows exactly one of a Program's linked shader objects to define a given
+	// function. Pull it in from the unit that defines main() and NEVER from a hook unit -- every
+	// hook links alongside a main, so doing both is a duplicate-definition link error.
+	static const std::string SHADER_LIB_VERTEX_IMPL;
 	// Struct/interface content ONLY (osgSlug_FragmentData, geom/fx blocks, etc.) -- MUST stay
 	// body-free. SHADER_FRAG, SHADER_MASK_FRAGMENT_HOOK, and whichever FragmentHook is active
 	// all pull this in and get linked into the same Program; GLSL only allows one of several
@@ -144,6 +151,48 @@ public:
 	enum Hook { VertexHook, FragmentHook, FragmentExtHook, MaskHook };
 
 	using HookList = std::vector<std::pair<Hook, std::string>>;
+
+	// Everything the osgSlug Program flavors actually differ by. Same shape as osgx::VertexLayout:
+	// a small struct of defaulted fields a caller overrides only where its pipeline really
+	// diverges, instead of a Program-building function per flavor that hand-copies the hook
+	// dispatch (which is how this started, and how it drifted).
+	struct ProgramSpec {
+		// The single shader unit defining main() for the vertex stage.
+		std::string vertMain = {};
+
+		// GLSL spliced in immediately after #version, into BOTH vertMain and the vertex hook unit.
+		// SHADER_TYPES for pipelines reading the per-layer SSBO, SHADER_ATLAS_TYPES for shape-only
+		// ones, a #define prefix on either, or empty for a pipeline that declares its own buffers
+		// (PathDrawable).
+		std::string types = {};
+
+		// The unit defining main() for the fragment stage, normally SHADER_FRAG. Empty links NO
+		// fragment stage at all: the caller adds its own private one to the returned Program, and
+		// the three fragment hook slots plus the osgSlug_MaskBlock binding are skipped, since a
+		// private fragment shader has no osgSlug_Fragment/FragmentExt/FragmentMask entry points to
+		// substitute.
+		std::string fragMain = {};
+
+		// Defaults for the FragmentHook and MaskHook slots when `hooks` doesn't override them.
+		// Empty means SHADER_NOOP_FRAGMENT_HOOK / SHADER_MASK_FRAGMENT_HOOK. Decals pass
+		// SHADER_MASK_FRAGMENT_HOOK_DECAL; PathDrawable's Sluggit mode passes a fragHook that
+		// replaces fwidth()-derived emsPerPixel with an analytic one. These are per-FLAVOR
+		// defaults, not user hooks: an entry in `hooks` still wins over either.
+		std::string fragHook = {};
+		std::string maskHook = {};
+	};
+
+	// The one place any osgSlug Program is assembled. Attaches exactly one shader unit per slot:
+	// spec's vertex main, a vertex hook unit, and (unless spec.fragMain is empty) the fragment
+	// main plus the fragment/ext/mask hook units. An entry in `hooks` SUBSTITUTES that slot's
+	// default rather than being attached alongside it -- GLSL permits one body per function.
+	//
+	// Static because no flavor reads Atlas instance state; PathDrawable's Miter mode needs a
+	// Program without an Atlas at all.
+	static osg::Program* createProgram(const ProgramSpec& spec, const HookList& hooks={});
+
+	// The standard SHADER_VERT + SHADER_FRAG pipeline every ShapeDrawable/SubdividedDrawable uses.
+	static osg::Program* createDefaultProgram(const HookList& hooks={});
 
 	osg::StateSet* createDefaultStateSet(HookList hooks={}) const;
 
