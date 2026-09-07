@@ -53,7 +53,7 @@ struct ImGuiAwareManipulator: public osgx::Ortho2DManipulator {
 #endif
 
 struct DebugModeHandler: public osgGA::GUIEventHandler {
-	static constexpr int MAX_MODE = 6;
+	static constexpr int MAX_MODE = 7;
 
 	static constexpr const char* MODE_NAMES[] = {
 		"normal",
@@ -62,7 +62,8 @@ struct DebugModeHandler: public osgGA::GUIEventHandler {
 		"quad border",
 		"heatmap",
 		"heatmap + grid",
-		"half-white"
+		"half-white",
+		"emcoord precision"
 	};
 
 	osg::ref_ptr<osg::StateSet> _ss;
@@ -120,6 +121,7 @@ struct DebugModeHandler: public osgGA::GUIEventHandler {
 			case osgGA::GUIEventAdapter::KEY_F4: target = 4; break;
 			case osgGA::GUIEventAdapter::KEY_F5: target = 5; break;
 			case osgGA::GUIEventAdapter::KEY_F6: target = 6; break;
+			case osgGA::GUIEventAdapter::KEY_F7: target = 7; break;
 			default: return false;
 		}
 

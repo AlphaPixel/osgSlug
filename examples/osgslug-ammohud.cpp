@@ -126,20 +126,20 @@ int main(int argc, char** argv) {
 	const auto tStep = (slughorn::PI_CV - 2_cv * (margin + seam)) / cv(N - 1);
 
 	// bullet: 1/4 end piece | gap | 1/2 body | gap | 1/4 triangle tip (outer)
-	const auto gap      = bH / 12_cv;
-	const auto pieceH   = (bH - 2_cv * gap) / 4_cv;
-	const auto yBot     = rMid - bH / 2_cv;
+	const auto gap = bH / 12_cv;
+	const auto pieceH = (bH - 2_cv * gap) / 4_cv;
+	const auto yBot = rMid - bH / 2_cv;
 	const auto yCaseTop = yBot + pieceH;
 	const auto yBodyBot = yCaseTop + gap;
 	const auto yBodyTop = yBodyBot + pieceH * 2_cv;
-	const auto yTipBot  = yBodyTop + gap;
-	const auto yTip     = yTipBot + pieceH;
+	const auto yTipBot = yBodyTop + gap;
+	const auto yTip = yTipBot + pieceH;
 
 	slughorn::canvas::Path bullet;
 
-	bullet.rect(-bW / 2_cv, yBot, bW, pieceH);        // end piece
+	bullet.rect(-bW / 2_cv, yBot, bW, pieceH); // end piece
 	bullet.rect(-bW / 2_cv, yBodyBot, bW, pieceH * 2_cv); // body
-	bullet.moveTo(0_cv, yTip);                          // tip (triangle, outer)
+	bullet.moveTo(0_cv, yTip); // tip (triangle, outer)
 	bullet.lineTo(-bW / 2_cv, yTipBot);
 	bullet.lineTo(bW / 2_cv, yTipBot);
 	bullet.closePath();
