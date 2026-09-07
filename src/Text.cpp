@@ -47,11 +47,36 @@ void Text::setFontSize(slug_t pixelsPerEm) {
 	_fontSize = pixelsPerEm;
 }
 
-void Text::setAutoScaleToScreen(bool value) {
-	_autoScaleToScreen = value;
+void Text::setHooks(Atlas::HookList hooks) {
+	_drawable->setHooks(std::move(hooks));
+}
 
+void Text::setAutoScaleToScreen(bool value) {
 	osg::AutoTransform::setAutoScaleToScreen(value);
-	setAutoRotateMode(osg::AutoTransform::ROTATE_TO_SCREEN);
+}
+
+void Text::setEffectId(uint32_t effectId) {
+	_effectId = effectId;
+
+	if(!_drawable->getLayerBuffer(0)) return;
+
+	for(size_t i = 0; i < _drawable->getNumLayers(); i++) {
+		_drawable->setLayerEffectId(i, effectId);
+	}
+
+	_drawable->dirtyLayers();
+}
+
+void Text::setEffectParam(slug_t effectParam) {
+	_effectParam = effectParam;
+
+	if(!_drawable->getLayerBuffer(0)) return;
+
+	for(size_t i = 0; i < _drawable->getNumLayers(); i++) {
+		_drawable->setLayerEffectParam(i, effectParam);
+	}
+
+	_drawable->dirtyLayers();
 }
 
 const osg::BoundingBox& Text::getBoundingBox() const {
@@ -111,12 +136,17 @@ void Text::compile() {
 				continue;
 			}
 
-			_drawable->addLayer(slughorn::Layer{
+			slughorn::Layer layer{
 				key,
 				run.color,
 				slughorn::Transform{.x = cursorX / _fontSize, .y = cursorY / _fontSize},
 				cv(_fontSize)
-			});
+			};
+
+			layer.effectId = _effectId;
+			layer.effectParam = _effectParam;
+
+			_drawable->addLayer(layer);
 
 			cursorX += shape->advance * _fontSize;
 

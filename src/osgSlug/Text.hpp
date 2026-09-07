@@ -12,6 +12,8 @@ OSGSLUG_DISABLE_WARNINGS
 OSGSLUG_ENABLE_WARNINGS
 
 #include <string>
+#include <cstdint>
+#include <utility>
 #include <vector>
 
 namespace osgSlug {
@@ -51,13 +53,24 @@ public:
 	void setAtlas(Atlas* atlas);
 	void setFontSize(slug_t pixelsPerEm);
 
+	// Shader hook overrides for the internal ShapeDrawable. Set before compile(), matching
+	// Drawable::setHooks(); this keeps Text's glyph geometry private without limiting its effects.
+	void setHooks(Atlas::HookList hooks);
+
 	slug_t getFontSize() const { return _fontSize; }
 
 	void setFontMetrics(const slughorn::FontMetrics& m) { _metrics = m; }
 	const slughorn::FontMetrics& getFontMetrics() const { return _metrics; }
 
 	void setAutoScaleToScreen(bool value);
-	bool getAutoScaleToScreen() const { return _autoScaleToScreen; }
+	bool getAutoScaleToScreen() const { return osg::AutoTransform::getAutoScaleToScreen(); }
+
+	// Per-glyph shader effect data. Set before compile() to stage it for every glyph, or after
+	// compile() to update every glyph layer in place.
+	void setEffectId(uint32_t effectId);
+	uint32_t getEffectId() const { return _effectId; }
+	void setEffectParam(slug_t effectParam);
+	slug_t getEffectParam() const { return _effectParam; }
 
 	// Build geometry from accumulated runs. Call after addText().
 	void compile();
@@ -76,7 +89,8 @@ private:
 	std::vector<Run> _runs;
 
 	slug_t _fontSize = 32_cv;
-	bool _autoScaleToScreen = false;
+	uint32_t _effectId = 0;
+	slug_t _effectParam = 0_cv;
 
 	slughorn::FontMetrics _metrics;
 

@@ -538,6 +538,14 @@ PYBIND11_MODULE(osgSlug, m) {
 		)
 		.def("clear", &osgSlug::Text::clear)
 		.def("setAtlas", &osgSlug::Text::setAtlas, "atlas"_a)
+		.def(
+			"setHooks",
+			[](osgSlug::Text& self, py::dict hooks) {
+				self.setHooks(parseHookList(hooks));
+			},
+			"hooks"_a,
+			"Shader hook overrides for this text's internal drawable. Set before compile()."
+		)
 		.def_property(
 			"fontSize",
 			&osgSlug::Text::getFontSize,
@@ -555,6 +563,18 @@ PYBIND11_MODULE(osgSlug, m) {
 			"autoScaleToScreen",
 			&osgSlug::Text::getAutoScaleToScreen,
 			&osgSlug::Text::setAutoScaleToScreen
+		)
+		.def_property(
+			"effectId",
+			&osgSlug::Text::getEffectId,
+			&osgSlug::Text::setEffectId,
+			"Shader effect selector applied to every glyph layer."
+		)
+		.def_property(
+			"effectParam",
+			&osgSlug::Text::getEffectParam,
+			&osgSlug::Text::setEffectParam,
+			"Shader effect parameter applied to every glyph layer."
 		)
 		.def("compile", &osgSlug::Text::compile)
 		.def_property_readonly(

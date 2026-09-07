@@ -278,6 +278,10 @@ vec4 osgSlug_Effect_Wave(float fill, vec2 uv, vec4 layerColor, float time);
 vec4 osgSlug_Effect_Glow(float fill, vec2 uv, vec4 layerColor, float time, float circleR);
 vec4 osgSlug_Effect_GlowMSDF(float msdfSd, int msdfLayer, float msdfRange, vec4 layerColor, float effectParam, out int blendMode);
 
+// A scalar alpha envelope: 1 before fadeBegin, smoothly falls to 0 by fadeEnd, then remains 0.
+// fadeEnd must be greater than fadeBegin.
+float osgSlug_Fragment_FadeOut(float time, float fadeBegin, float fadeEnd);
+
 // MSDF field helpers (implementations live in the main fragment shader only).
 //
 // osgSlug_MSDFSd: median-of-three MSDF reconstruction at an ARBITRARY em-space coordinate --
@@ -638,6 +642,10 @@ vec4 osgSlug_Effect_Glow(float fill, vec2 uv, vec4 layerColor, float time, float
 	float fade = exp(-dist * dist / (GLOW_SIGMA * GLOW_SIGMA));
 
 	return vec4(layerColor.rgb * spotlight * glow, fill * layerColor.a * fade);
+}
+
+float osgSlug_Fragment_FadeOut(float time, float fadeBegin, float fadeEnd) {
+	return 1.0 - smoothstep(fadeBegin, fadeEnd, time);
 }
 
 vec4 osgSlug_Effect_GlowMSDF(float msdfSd, int msdfLayer, float msdfRange, vec4 layerColor, float effectParam, out int blendMode) {
@@ -1161,6 +1169,17 @@ void main() {
 	// fwidth on the raw varying, no discontinuities. osgSlug_FragEmCoord may scale it for
 	// effects like tiling (where fract would make fwidth unreliable at tile boundaries).
 	vec2 emsPerPixel = fwidth(geom.emCoord);
+
+	// Debug: visualize the raw em-coordinate varying itself (fract(geom.emCoord) as red/green),
+	// independent of slug_Render's curve-coverage math, fill, or mask state - a smooth analytic
+	// sweep should render as a clean repeating gradient; visible banding/stair-stepping reveals
+	// float32 precision loss introduced upstream of this point (e.g. the AA-margin push in the
+	// vertex shader's main(): geom.emCoord = r.emCoord + margin.
+	if(osgSlug_debugMode == 7) {
+		color = vec4(fract(geom.emCoord), 0.0, 1.0);
+
+		return;
+	}
 
 	// Early-out BEFORE slug_Render's curve-band loop: a mask that only reveals e.g. 10% of a
 	// shape would otherwise still pay the full band-loop cost on the other 90% of fragments,
