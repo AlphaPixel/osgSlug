@@ -15,11 +15,11 @@ namespace {
 void registerOsgSlugCoreShaderLibs() {
 	static const bool registered = [] {
 		// "lib_fragment" is struct/interface content only (osgSlug_FragmentData, geom/fx blocks,
-		// etc.) -- it MUST stay body-free, since SHADER_FRAG, SHADER_MASK_FRAGMENT_HOOK, and
+		// etc.) - it MUST stay body-free, since SHADER_FRAG, SHADER_MASK_FRAGMENT_HOOK, and
 		// whichever FragmentHook is active all pull it in and get linked into the same Program;
 		// GLSL only allows ONE of several linked shader objects to provide a given function's
 		// body. "lib_fragment_em" (a real default osgSlug_FragEmCoord body) is therefore a
-		// SEPARATE, opt-in pragma -- safe only because exactly one shader object (the active
+		// SEPARATE, opt-in pragma - safe only because exactly one shader object (the active
 		// FragmentHook) ever chooses to pull it in.
 		const osgx::ShaderLib libs[] = {
 			{"lib_vertex", {}, osgSlug::Atlas::SHADER_LIB_VERTEX},
@@ -228,7 +228,7 @@ in osgSlug_FxBlock {
 // ai/context-todo-mask.md, "osgSlug_FragmentMask() early hook."
 struct osgSlug_FragmentMaskData {
 	vec2 emCoord; // em-space coordinate (geom.emCoord, raw/untiled)
-	vec2 uv; // normalized [0,1] UV (geom.uv) -- the decal mask hook reads this instead, since a
+	vec2 uv; // normalized [0,1] UV (geom.uv) - the decal mask hook reads this instead, since a
 	// decal quad has no meaningful "canvas em-space"/layer origin of its own to evaluate against.
 	vec2 emsPerPixel; // fwidth(geom.emCoord), precomputed in main() before any discard
 	float time; // osg_SimulationTime
@@ -353,7 +353,7 @@ layout(std140) uniform osgSlug_MaskBlock {
 };
 )";
 
-// Opt-in via #pragma osgSlug lib_fragment_em -- see Atlas.hpp's SHADER_LIB_FRAGMENT_EM comment.
+// Opt-in via #pragma osgSlug lib_fragment_em - see Atlas.hpp's SHADER_LIB_FRAGMENT_EM comment.
 const std::string Atlas::SHADER_LIB_FRAGMENT_EM = R"(
 vec2 osgSlug_FragEmCoord(vec2 emCoord, inout vec2 emsPerPixel, int effectId, float time) {
 	return emCoord;
@@ -813,7 +813,7 @@ ivec2 slug_CalcBandLoc(ivec2 glyphLoc, uint offset) {
 // 2026-08-30: re-derive a curve's second texel location the same way slug_CalcBandLoc()
 // re-derives a band fetch's row, instead of flat-adding to curveLoc.x. Packing today always
 // aligns a curve's 2 texels to start at an even X so they never straddle a row, making this a
-// no-op -- but endpoint-shared curve packing (planned) removes that alignment, so a curve's
+// no-op - but endpoint-shared curve packing (planned) removes that alignment, so a curve's
 // second texel CAN legitimately land at the start of the next row.
 ivec2 slug_CalcCurveLoc(ivec2 curveLoc, int offset) {
 	ivec2 loc = ivec2(curveLoc.x + offset, curveLoc.y);
@@ -883,12 +883,12 @@ float slug_Render(
 		vec4 p12 = texelFetch(osgSlug_curveTexture, curveLoc, 0) - vec4(renderCoord, renderCoord);
 
 		// 2026-08-31: same re-derive-per-fetch pattern as slug_CalcBandLoc above, now applied to
-		// a curve's own second texel -- needed once packTextures() (slughorn.cpp) started
+		// a curve's own second texel - needed once packTextures() (slughorn.cpp) started
 		// sharing texels between connected curves (Lengyel's Slug convention: a chain of N
 		// connected curves costs N+1 texels instead of 2N), which packs densely with no
 		// per-curve row alignment. Adds a handful of ALU ops per curve iteration; negligible
 		// next to the texture fetch and sqrt-based polynomial solve already in this loop.
-		// Shipped as the default (no opt-in flag) -- lossless, and verified bit-identical
+		// Shipped as the default (no opt-in flag) - lossless, and verified bit-identical
 		// against the pre-sharing renderer at real CJK-atlas scale (see slughorn's
 		// slughorn-test-render.cpp and NEXT_SESSION.md history).
 		vec2 p3 = texelFetch(osgSlug_curveTexture, slug_CalcCurveLoc(curveLoc, 1), 0).xy - renderCoord;

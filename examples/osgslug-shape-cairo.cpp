@@ -20,7 +20,7 @@ using slughorn::PI_2_CV;
 // =============================================================================
 // buildJigsawPiecePath (Cairo version)
 //
-// Identical geometry to the Skia version -- four edges, each with an inward
+// Identical geometry to the Skia version - four edges, each with an inward
 // notch. Cairo uses cairo_curve_to for cubics (control points are absolute,
 // same convention as Skia's cubicTo).
 //
@@ -44,7 +44,7 @@ void buildJigsawPiecePath(cairo_t* cr) {
 	cairo_new_path(cr);
 	cairo_move_to(cr, L, B);
 
-	// Bottom edge -- inward notch
+	// Bottom edge - inward notch
 	cairo_line_to(cr, MX - NECK, B);
 	cairo_curve_to(cr,
 		MX - NECK, B - PULL,
@@ -58,7 +58,7 @@ void buildJigsawPiecePath(cairo_t* cr) {
 	);
 	cairo_line_to(cr, R, B);
 
-	// Right edge -- inward notch
+	// Right edge - inward notch
 	cairo_line_to(cr, R, MY - NECK);
 	cairo_curve_to(cr,
 		R - PULL, MY - NECK,
@@ -72,7 +72,7 @@ void buildJigsawPiecePath(cairo_t* cr) {
 	);
 	cairo_line_to(cr, R, T);
 
-	// Top edge -- inward notch
+	// Top edge - inward notch
 	cairo_line_to(cr, MX + NECK, T);
 	cairo_curve_to(cr,
 		MX + NECK, T - PULL,
@@ -86,7 +86,7 @@ void buildJigsawPiecePath(cairo_t* cr) {
 	);
 	cairo_line_to(cr, L, T);
 
-	// Left edge -- inward notch
+	// Left edge - inward notch
 	cairo_line_to(cr, L, MY + NECK);
 	cairo_curve_to(cr,
 		L - PULL, MY + NECK,
@@ -160,7 +160,7 @@ int main(int argc, char** argv) {
 	constexpr uint32_t PIECE_KEY = 1;
 	constexpr slug_t SCALE = 1.0_cv / 100.0_cv;
 
-	// Cairo requires a surface even if we only want path data -- an image
+	// Cairo requires a surface even if we only want path data - an image
 	// surface at 1x1 is the lightest possible option for this purpose.
 	cairo_surface_t* surface = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, 1, 1);
 	cairo_t* cr = cairo_create(surface);

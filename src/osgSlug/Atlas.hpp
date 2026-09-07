@@ -102,13 +102,13 @@ public:
 	// exists.
 	static const std::string SHADER_NOOP_FRAGMENT_EXT_HOOK;
 	// Default for osgSlug_FragmentMask's early (pre-slug_Render) hook. Unlike the two NOOP hooks
-	// above, this default is NOT a no-op -- it IS the real mask coverage evaluation, always
+	// above, this default is NOT a no-op - it IS the real mask coverage evaluation, always
 	// linked as its own shader unit so masking works automatically (no user hook required) and
 	// main() can discard before slug_Render for fragments outside the mask. See
 	// ai/context-todo-mask.md, "osgSlug_FragmentMask() early hook."
 	static const std::string SHADER_MASK_FRAGMENT_HOOK;
 	// createDecalProgram()'s default MaskHook. Evaluates against data.uv (the decal quad's own
-	// [0,1] tangent-plane position) instead of data.emCoord + osgSlug_Mask_LayerOrigin() -- a
+	// [0,1] tangent-plane position) instead of data.emCoord + osgSlug_Mask_LayerOrigin() - a
 	// decal has no per-layer canvas origin to look up, and osgSlug_Mask_LayerOrigin() reads
 	// through a LayerBuffer redeclaration that assumes the standard 5-vec4 osgSlug_LayerData
 	// layout, which does not match DecalDrawable's own 7-vec4 osgSlug_DecalLayerData at the same
@@ -121,23 +121,23 @@ public:
 	// SEPARATE, opt-in pragma (#pragma osgSlug lib_vertex_impl) for the same reason
 	// SHADER_LIB_FRAGMENT_EM is separate from SHADER_LIB_FRAGMENT: these are real function
 	// bodies, and GLSL allows exactly one of a Program's linked shader objects to define a given
-	// function. Pull it in from the unit that defines main() and NEVER from a hook unit -- every
+	// function. Pull it in from the unit that defines main() and NEVER from a hook unit - every
 	// hook links alongside a main, so doing both is a duplicate-definition link error.
 	static const std::string SHADER_LIB_VERTEX_IMPL;
-	// Struct/interface content ONLY (osgSlug_FragmentData, geom/fx blocks, etc.) -- MUST stay
+	// Struct/interface content ONLY (osgSlug_FragmentData, geom/fx blocks, etc.) - MUST stay
 	// body-free. SHADER_FRAG, SHADER_MASK_FRAGMENT_HOOK, and whichever FragmentHook is active
 	// all pull this in and get linked into the same Program; GLSL only allows one of several
 	// linked shader objects to define a given function, so a real function body here would
 	// duplicate-define across units. (A 2026-08-10 attempt to bundle a default
-	// osgSlug_FragEmCoord in here broke exactly this way -- reverted.)
+	// osgSlug_FragEmCoord in here broke exactly this way - reverted.)
 	static const std::string SHADER_LIB_FRAGMENT;
 	// Opt-in default (identity passthrough) osgSlug_FragEmCoord via #pragma osgSlug
 	// lib_fragment_em. A custom osgSlug_Fragment hook must always define BOTH
-	// osgSlug_FragEmCoord and osgSlug_Fragment (linking fails otherwise -- the hook unit
+	// osgSlug_FragEmCoord and osgSlug_Fragment (linking fails otherwise - the hook unit
 	// replaces the whole no-op unit, not just one function of it); most hooks don't care about
 	// tiling/em-coord remapping and were forgetting this one every time. Safe as a separate
 	// opt-in (unlike folding it into SHADER_LIB_FRAGMENT above) because exactly one shader
-	// object -- the active FragmentHook -- ever pulls it in. Skip this pragma and write your own
+	// object - the active FragmentHook - ever pulls it in. Skip this pragma and write your own
 	// osgSlug_FragEmCoord if you DO need custom em-coord behavior (e.g. tiling).
 	static const std::string SHADER_LIB_FRAGMENT_EM;
 	static const std::string SHADER_LIB_SCANLINE; // evaluate_bezier + intersect_monotonic + scanline_sweep
@@ -185,7 +185,7 @@ public:
 	// The one place any osgSlug Program is assembled. Attaches exactly one shader unit per slot:
 	// spec's vertex main, a vertex hook unit, and (unless spec.fragMain is empty) the fragment
 	// main plus the fragment/ext/mask hook units. An entry in `hooks` SUBSTITUTES that slot's
-	// default rather than being attached alongside it -- GLSL permits one body per function.
+	// default rather than being attached alongside it - GLSL permits one body per function.
 	//
 	// Static because no flavor reads Atlas instance state; PathDrawable's Miter mode needs a
 	// Program without an Atlas at all.

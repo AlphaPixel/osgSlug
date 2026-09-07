@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 #vimrun! ./pyosgslug-particles.py
 
-# ASCII "glyph particles" demo -- the gl_InstanceID particle-fountain example requested on
+# ASCII "glyph particles" demo - the gl_InstanceID particle-fountain example requested on
 # Slack. Loads the printable ASCII range of a font into an Atlas, then uses
 # osgSlug.PathDrawable(PathMode.Stamp) with setShapeKeys() to stamp a DIFFERENT random glyph at
 # each of N instanced quads in a single draw call (one small "shape table" SSBO of em-space
@@ -12,7 +12,7 @@
 #
 # Phase 1, deliberately simple: physics (position/velocity/respawn) run on the CPU in
 # ParticleField.__call__() below, an ordinary osg update callback attached directly to the
-# PathDrawable -- exactly like SpinCallback in pyosgslug-simple.py. Every tick it rebuilds the
+# PathDrawable - exactly like SpinCallback in pyosgslug-simple.py. Every tick it rebuilds the
 # points list and calls setPoints() again; PathDrawable's own live-update path (see its .hpp
 # comment) re-uploads only the changed SSBO bytes, no recompile. GPU-side physics (baking
 # spawn-time + velocity into the SSBO and letting the vertex shader compute position from
@@ -39,14 +39,14 @@ FONT_PATH = "font/UbuntuMono-R.ttf"
 PARTICLE_COUNT = 300
 FIELD_RADIUS = 380.0 # particles respawn once they drift this far from the origin
 SPEED_RANGE = (60.0, 220.0) # world units/sec
-GLYPH_HALF_WIDTH = 22.0 # PathDrawable.setHalfWidth() -- shared quad size for every particle
-GLYPH_COLOR = osg.Vec4(1.0, 0.65, 0.15, 1.0) # amber -- Stamp mode has one color for all instances
+GLYPH_HALF_WIDTH = 22.0 # PathDrawable.setHalfWidth() - shared quad size for every particle
+GLYPH_COLOR = osg.Vec4(1.0, 0.65, 0.15, 1.0) # amber - Stamp mode has one color for all instances
 
 # World units of +Z lift per world unit of distance already flown. The camera looks down -Z (see
 # make_trackball), so this tilts the flat fountain into a cone opening toward the viewer.
 DEPTH_DRIFT = 0.55
 
-# Vertex hook -- the SAME osgSlug_Vertex() contract pyosgslug-zora.py's VERT_EFFECTS uses against
+# Vertex hook - the SAME osgSlug_Vertex() contract pyosgslug-zora.py's VERT_EFFECTS uses against
 # a ShapeDrawable. Nothing about it is PathDrawable-specific except what it chooses to read.
 #
 # Two things worth noticing:
@@ -55,7 +55,7 @@ DEPTH_DRIFT = 0.55
 #   ShapeDrawable's per-layer setLayerEffectParam(). PathDrawable has no per-layer SSBO, so it is
 #   one value shared by every instance.
 # - gl_InstanceID is readable directly here, because a hook is an ordinary vertex shader unit
-#   linked into the same Program. That is where per-particle variety comes from -- no extra
+#   linked into the same Program. That is where per-particle variety comes from - no extra
 #   buffer, no extra uniform. Here it only phase-shifts the lift so the glyphs don't rise as one
 #   rigid sheet.
 #
@@ -92,7 +92,7 @@ class Particle:
 
 	# from_center=False scatters the particle anywhere inside the field (used once, at startup,
 	# so frame 0 already looks alive instead of a single point building up from the origin).
-	# from_center=True is the steady-state respawn -- a fresh particle always starts at the
+	# from_center=True is the steady-state respawn - a fresh particle always starts at the
 	# origin and flies outward, like an ember from a fountain.
 	def spawn(self, from_center=True):
 		angle = random.uniform(0.0, 2.0 * math.pi)
@@ -112,8 +112,8 @@ class Particle:
 		if self.x * self.x + self.y * self.y > FIELD_RADIUS * FIELD_RADIUS:
 			self.spawn()
 
-	# points[i].w -- the shape-table index PATH_STAMP_TABLE_VERT looks each instance's glyph up
-	# with. points[i].z -- rotation angle; facing the direction of travel makes the "shooting
+	# points[i].w - the shape-table index PATH_STAMP_TABLE_VERT looks each instance's glyph up
+	# with. points[i].z - rotation angle; facing the direction of travel makes the "shooting
 	# outward" motion visible even on a still frame.
 	def point(self):
 		return osg.Vec4(self.x, self.y, math.atan2(self.vy, self.vx), float(self.glyph))
@@ -151,11 +151,11 @@ def build_scene(font_path=FONT_PATH):
 
 	atlas = osgSlug.Atlas.fromAtlas(a)
 
-	# Printable ASCII minus space (32) -- an all-blank glyph is just a wasted instance. Built as
+	# Printable ASCII minus space (32) - an all-blank glyph is just a wasted instance. Built as
 	# explicit slughorn.Key objects rather than raw ints: Key does have an implicit uint32_t
 	# constructor (see pyosgslug-simple.py's ord("F") usage against a single Key-typed arg), but
 	# this is the first place a *list* of them crosses into C++ (PathDrawable::setShapeKeys()
-	# takes std::vector<slughorn::Key>) -- being explicit here sidesteps needing to confirm that
+	# takes std::vector<slughorn::Key>) - being explicit here sidesteps needing to confirm that
 	# conversion also applies element-wise inside pybind11's std::vector caster.
 	#
 	# Filtered by has_key() rather than assumed, now that the font is a command-line argument: a
@@ -173,25 +173,25 @@ def build_scene(font_path=FONT_PATH):
 	pd.setHalfWidth(GLYPH_HALF_WIDTH)
 
 	# Staged like every other setting, before the Atlas parent triggers compile(): compile() is
-	# what links the hook unit into the Program. Calling setHooks() later works too -- PathDrawable
-	# recompiles on the spot -- but there is no reason to pay for that here.
+	# what links the hook unit into the Program. Calling setHooks() later works too - PathDrawable
+	# recompiles on the spot - but there is no reason to pay for that here.
 	pd.setHooks({osgSlug.VertexHook: DEPTH_DRIFT_HOOK})
 	pd.setEffectParam(DEPTH_DRIFT)
 
 	field = ParticleField(len(shape_keys))
 
 	# Stage initial points BEFORE the drawable has an Atlas parent (compile() requires >= 2
-	# points already present) -- see setPoints()'s doc comment in PathDrawable.hpp.
+	# points already present) - see setPoints()'s doc comment in PathDrawable.hpp.
 	pd.setPoints([p.point() for p in field.particles])
 	pd.updateCallback = field
 
 	# Triggers compile() (Atlas.addChild()'s auto-compile override) now that points/shapeKeys/
 	# color/halfWidth are all staged. The update callback's first tick re-calls setPoints() on
 	# the now-compiled drawable, which is what actually reveals the instances (setRevealCount()
-	# defaults to 0 -- see PathDrawable.hpp's setPoints() comment).
+	# defaults to 0 - see PathDrawable.hpp's setPoints() comment).
 	atlas.children.append(pd)
 
-	# compile() derived a bound from the point data alone, which is a flat XY slab -- it cannot
+	# compile() derived a bound from the point data alone, which is a flat XY slab - it cannot
 	# know the hook lifts geometry along +Z. Widen it by hand, or OSG frames and near/far-clips
 	# the scene against a box the particles now leave. Any vertex hook that displaces geometry
 	# owes its drawable this.
@@ -205,7 +205,7 @@ def build_scene(font_path=FONT_PATH):
 if __name__ == "__main__":
 	from pyosgslug_example import make_trackball
 
-	# Positional font argument, same shape as pyosgslug-enterprise.py's model argument -- a single
+	# Positional font argument, same shape as pyosgslug-enterprise.py's model argument - a single
 	# optional path doesn't need argparse. A monospace face suits the fountain best, but any TTF
 	# with printable ASCII works; the glyph filter in build_scene() handles partial coverage.
 	viewer = osgViewer.Viewer()

@@ -42,7 +42,7 @@ def create_scene_emoji():
 	sd.addCompositeShape(ef[slughorn.emoji.name_to_codepoint("mage")])
 
 	# No Geode wrapper needed (osgSlug's Drawable IS an osg.Node in this OSG fork), and no manual
-	# sd.compile() either -- atlas is already Packed at this point, so Atlas.addChild's override
+	# sd.compile() either - atlas is already Packed at this point, so Atlas.addChild's override
 	# compiles any osgSlug.Drawable child automatically.
 	atlas.children.append(sd)
 
@@ -70,7 +70,7 @@ def create_scene_canvas():
 	sd.addCompositeShape(cs)
 
 	# No Geode wrapper needed (osgSlug's Drawable IS an osg.Node in this OSG fork), and no manual
-	# sd.compile() either -- atlas is already Packed at this point, so Atlas.addChild's override
+	# sd.compile() either - atlas is already Packed at this point, so Atlas.addChild's override
 	# compiles any osgSlug.Drawable child automatically.
 	atlas.children.append(sd)
 

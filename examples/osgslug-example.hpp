@@ -133,12 +133,12 @@ struct DebugModeHandler: public osgGA::GUIEventHandler {
 
 // Alt+Scroll adjusts osgSlug_gamma live, in fixed 0.025 steps. Opt-in per example (add
 // `viewer.addEventHandler(new GammaHandler(ss))` where `ss` is the StateSet carrying the
-// osgSlug program) -- NOT wired into example::run() globally. Gamma correction requires
+// osgSlug program) - NOT wired into example::run() globally. Gamma correction requires
 // osgSlug_textMode (see Atlas.shaders.cpp), so the constructor always sets both uniforms
 // together: textMode alone with no explicit gamma value would leave osgSlug_gamma at GLSL's
 // zero-initialized uniform default, and pow(fill, 0.0) == 1.0 for any positive coverage --
 // every antialiased edge everywhere would snap to full opacity. Does NOT touch
-// osgSlug_stemDarken, a separate, independent knob (safe to leave unset -- defaults false/off).
+// osgSlug_stemDarken, a separate, independent knob (safe to leave unset - defaults false/off).
 struct GammaHandler: public osgGA::GUIEventHandler {
 	static constexpr float STEP = 0.025f;
 	static constexpr float MIN_GAMMA = 0.025f;
@@ -344,13 +344,13 @@ struct ManipulatorToggleHandler: public osgGA::GUIEventHandler {
 	}
 };
 
-// 'c' dumps the live Ortho2DManipulator state to OSG_NOTICE -- enough (center + halfExtentY) to
+// 'c' dumps the live Ortho2DManipulator state to OSG_NOTICE - enough (center + halfExtentY) to
 // hardcode into a scratch repro example. Added for chasing the FreeType-only zoom artifact (see
 // osgSlug/ai/context-todo-textzoom.md): navigate interactively to a view that shows the
 // artifact, hit 'c', copy the printed values into osgslug-tmp.textzoom.cpp so the repro no
 // longer needs manual navigation. Re-fetches the manipulator at handle() time rather than
 // caching it at construction, since ManipulatorToggleHandler (F12) can swap it live for a
-// TrackballManipulator -- dynamic_cast to the Ortho2DManipulator base also covers
+// TrackballManipulator - dynamic_cast to the Ortho2DManipulator base also covers
 // ImGuiAwareManipulator, which derives from it.
 struct CameraDumpHandler: public osgGA::GUIEventHandler {
 	bool handle(const osgGA::GUIEventAdapter& ea, osgGA::GUIActionAdapter& aa) override {
@@ -442,8 +442,8 @@ bool validateArgument(
 }
 
 // Applies shared example-level Atlas configuration parsed from the command line. Call after
-// constructing the Atlas -- however a given example needs to (default texWidth, a custom one,
-// etc.) -- but before build(). Meant to grow over time as more example-wide Atlas options show
+// constructing the Atlas - however a given example needs to (default texWidth, a custom one,
+// etc.) - but before build(). Meant to grow over time as more example-wide Atlas options show
 // up; currently just --curve-precision. Deliberately takes an already-constructed Atlas rather
 // than being a factory itself: construction genuinely varies per example (e.g.
 // osgslug-nanosvg.cpp and osgslug-tmp.tilestream.cpp both pass a custom texWidth), so a
@@ -520,7 +520,7 @@ inline bool setupArguments(
 	args.getApplicationUsage()->addCommandLineOption(
 		"--curve-precision <16|32>",
 		"Curve texture float precision (DEFAULT 32). 16 halves curve-texture memory but is a "
-		"real precision tradeoff -- can visibly degrade shape edges under heavy zoom. Only "
+		"real precision tradeoff - can visibly degrade shape edges under heavy zoom. Only "
 		"takes effect if the example calls example::configureAtlas() on its Atlas."
 	);
 

@@ -1,13 +1,13 @@
 //vimrun! ./osgslug-pbr-ibl-text --trackball --ktx2 /home/cubicool/dev/OpenSceneGraph.py/examples/pyosg-lighting/data/papermill.ktx2
 
 // Same chrome/IBL technique as osgslug-pbr-ibl.cpp (the circle badge), applied to real text
-// glyphs instead of a single primitive -- see ai/context-todo-lighting.md's "Ultimate Goal".
+// glyphs instead of a single primitive - see ai/context-todo-lighting.md's "Ultimate Goal".
 // Shares the promoted osgx::pbr GLSL (DIRECT_SPECULAR/IBL_SPECULAR/TONEMAP_PBR_NEUTRAL) and
 // osgx::OrbitLightRig with the badge example; only the shape-specific bits (glyph loading,
 // per-layer material/MSDF registration, light-rig centering on the text's bounding box) differ.
 //
 // The bevel/normal reconstruction (osgSlug_MSDFBevelNormal, Atlas.shaders.cpp) is untested so
-// far on thin glyph strokes and sharp corners -- the badge example only ever exercised it on a
+// far on thin glyph strokes and sharp corners - the badge example only ever exercised it on a
 // single filled circle. Expect this to be the first place new bevel/MSDF-range tuning surfaces.
 
 #include "osgslug-example.hpp"
@@ -31,7 +31,7 @@ static float packMaterial(float roughness, float metallic) {
 
 // MSDF range for the bevel: em-space half-bandwidth the tile encodes around the edge. Glyphs
 // are much smaller/thinner than the badge circle, so this starts conservative (a real rim, not
-// a full-dome sweep) -- widen it per-glyph if the flat-looking interior needs more curve.
+// a full-dome sweep) - widen it per-glyph if the flat-looking interior needs more curve.
 static constexpr float MSDF_RANGE = 0.12f;
 
 static std::string makeChromeFrag() {
@@ -40,7 +40,7 @@ static std::string makeChromeFrag() {
 #pragma osgSlug lib_fragment
 
 // 430, not 330: `#pragma osgx::pbr *` pulls in LIGHT_UNIFORMS, which declares the osgx_lights
-// SSBO (`buffer osgx_LightBuffer`) -- SSBOs require GLSL 430+, matching osgSlug's own
+// SSBO (`buffer osgx_LightBuffer`) - SSBOs require GLSL 430+, matching osgSlug's own
 // SHADER_VERT/SHADER_FRAG (Atlas.shaders.cpp).
 const float PI = 3.14159265359;
 #pragma osgx::pbr *
@@ -48,8 +48,8 @@ const float PI = 3.14159265359;
 )GLSL";
 
 	src += R"GLSL(
-uniform samplerCube envMap; // unit 5 -- GGX-prefiltered cubemap (osgx::loadPrefilterCubemap)
-uniform sampler2D brdfLUT; // unit 6 -- split-sum LUT (osgx::makeBRDFLUTCamera)
+uniform samplerCube envMap; // unit 5 - GGX-prefiltered cubemap (osgx::loadPrefilterCubemap)
+uniform sampler2D brdfLUT; // unit 6 - split-sum LUT (osgx::makeBRDFLUTCamera)
 uniform mat4 osg_ViewMatrixInverse;
 uniform vec3 textNormalWorld;
 uniform float envMaxMip;
@@ -78,9 +78,9 @@ vec4 osgSlug_Fragment(osgSlug_FragmentData data) {
 	const float BEVEL_WIDTH = 0.5; // msdfSd units: 0.5 = edge .. 1.0 = deep interior
 	const float BEVEL_STRENGTH = 0.7;
 
-	// osgSlug_MSDFBevelNormal (Atlas.shaders.cpp) -- same helper the badge example uses, now
+	// osgSlug_MSDFBevelNormal (Atlas.shaders.cpp) - same helper the badge example uses, now
 	// shared instead of duplicated. Uses the em-space MSDF gradient (osgSlug_MSDFGradient),
-	// never dFdx/dFdy(msdfSd) -- see BUG.md.
+	// never dFdx/dFdy(msdfSd) - see BUG.md.
 	vec3 N = osgSlug_MSDFBevelNormal(
 		data.emCoord, data.msdfSd, Nz, camRight, camUp, BEVEL_WIDTH, BEVEL_STRENGTH
 	);
@@ -96,7 +96,7 @@ vec4 osgSlug_Fragment(osgSlug_FragmentData data) {
 	float lightRoughness = max(baseRoughness, SPOT_ROUGHNESS_FLOOR);
 
 	// Per-pixel world position: text lies in the z=0 plane with em == world (identity
-	// MatrixTransform, un-tilted) -- same simplification as the badge example.
+	// MatrixTransform, un-tilted) - same simplification as the badge example.
 	vec3 P = vec3(data.emCoord, 0.0);
 
 	vec3 direct = vec3(0.0);
@@ -140,7 +140,7 @@ int main(int argc, char** argv) {
 		{"--metallic <float>", "Text metallic, 0..1 (default: 1.0)"},
 		{"--light-intensity <float>", "Global scale for the spot-light rig (default: 0.2; 0 = IBL only)"},
 		{"--light-orbit-radius-scale <float>", "Scale for the spot-light orbit radii (default: 0.6)"},
-		{"--light-orbit-height-scale <float>", "Scale for how far above the text plane the lights hover; smaller brings them close to the surface for a wide, grazing sweep -- this is the main knob for making the orbit read as motion (default: 0.15; 1.0 = original badge-sized height)"},
+		{"--light-orbit-height-scale <float>", "Scale for how far above the text plane the lights hover; smaller brings them close to the surface for a wide, grazing sweep - this is the main knob for making the orbit read as motion (default: 0.15; 1.0 = original badge-sized height)"},
 		{"--light-orbit-speed-scale <float>", "Scale for the spot-light orbit angular speed (default: 1.5)"},
 	})) return 0;
 
@@ -197,12 +197,12 @@ int main(int argc, char** argv) {
 	slughorn::canvas::Path baseline;
 
 	// 1.0 em per glyph is a generous upper bound on advance (UbuntuMono's real advance is
-	// tighter) -- textOnPath silently drops glyphs that would extend past the path end, so
+	// tighter) - textOnPath silently drops glyphs that would extend past the path end, so
 	// erring long is the safe direction.
 	baseline.moveTo(0.0_cv, 0.5_cv);
 	baseline.lineTo(float(text.size()) * fontSize * 1.0_cv, 0.5_cv);
 
-	// setMSDF() requests each glyph's MSDF tile as textOnPath() commits it -- requestMSDF() is
+	// setMSDF() requests each glyph's MSDF tile as textOnPath() commits it - requestMSDF() is
 	// idempotent, so repeated glyphs (shared shape key) cost nothing extra; no need to
 	// deduplicate keys or batch-register after the fact like the old registerMSDF() did.
 	canvas.setMSDF(true, MSDF_RANGE);
@@ -212,7 +212,7 @@ int main(int argc, char** argv) {
 		text,
 		fontSize,
 		0_cv,
-		{0.9_cv, 0.9_cv, 0.92_cv, 1.0_cv}, // neutral silver -- F0 for metallic=1, true chrome
+		{0.9_cv, 0.9_cv, 0.92_cv, 1.0_cv}, // neutral silver - F0 for metallic=1, true chrome
 		font->metrics()
 	);
 
@@ -235,7 +235,7 @@ int main(int argc, char** argv) {
 
 	auto* ss = sd->getOrCreateStateSet();
 
-	// GL_TEXTURE_CUBE_MAP_SEAMLESS -- avoids visible seams at cube edges, especially at the
+	// GL_TEXTURE_CUBE_MAP_SEAMLESS - avoids visible seams at cube edges, especially at the
 	// blurrier (high-roughness) mip levels.
 	ss->setMode(0x884F, osg::StateAttribute::ON);
 
@@ -271,7 +271,7 @@ int main(int argc, char** argv) {
 	rig->lights = lights;
 
 	// Center the light rig on the text's own bounding box rather than the badge's fixed
-	// (0.5, 0.5) -- string length/font size vary per --text/--font-size.
+	// (0.5, 0.5) - string length/font size vary per --text/--font-size.
 	if(auto bbox = textShape.boundingBox(*atlas)) {
 		rig->center = osg::Vec3(
 			float((bbox->x0 + bbox->x1) * 0.5_cv),
@@ -281,7 +281,7 @@ int main(int argc, char** argv) {
 	}
 
 	// Default orbits (osgx.hpp) are sized/paced for the badge example. What actually makes an
-	// orbiting light read as visible motion is the *ratio* of radius to height -- a light held
+	// orbiting light read as visible motion is the *ratio* of radius to height - a light held
 	// far above the surface barely changes direction as it circles (a narrow cone, near-static
 	// highlight); pulling it down close to the plane widens that cone toward grazing angles, so
 	// the same orbit sweeps the specular highlight much further and brighter (1/dist^2) as it
@@ -295,12 +295,12 @@ int main(int argc, char** argv) {
 	rig->intensity = lightIntensity;
 	textXform->setUpdateCallback(rig);
 
-	// Depth-tested wireframe markers at each orbiting light's live position -- rebuilt every
+	// Depth-tested wireframe markers at each orbiting light's live position - rebuilt every
 	// frame straight from `lights`, so they track OrbitLightRig's animation for free. No
 	// directional lights here (all three are setPoint()), so gizmos->getOverlay() draws nothing, but
 	// costs nothing to add either. Sibling of `sd` under `atlas`, not a child of it, so the
 	// markers don't inherit the chrome StateSet. minMarkerRadius scales off fontSize, unlike the
-	// badge example's default -- text glyphs sit at --font-size scale (0.2 default), not the
+	// badge example's default - text glyphs sit at --font-size scale (0.2 default), not the
 	// badge's ~0.5 radius, so the default 0.05 minMarkerRadius would read disproportionately
 	// large/small depending on --font-size.
 	auto gizmos = osgx::make_ref<osgx::LightGizmos>(*lights, atlas, fontSize * 0.25f);

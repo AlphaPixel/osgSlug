@@ -78,7 +78,7 @@ static void applyBlendMode(osg::State& state, slughorn::BlendMode mode) {
 }
 
 // mask is never null in practice (callers pass either a real RenderGroup mask or the Atlas's
-// own null sentinel) -- every draw call must leave something valid bound at
+// own null sentinel) - every draw call must leave something valid bound at
 // RENDER_MASK_UBO_BINDING now that osgSlug_FragmentMask() reads it unconditionally, not just
 // when a mask-aware hook opts in. The guard only covers the (should-never-happen) case of a
 // drawable with no Atlas parent.
@@ -87,7 +87,7 @@ static void applyMask(osg::State& state, const RenderMask* mask) {
 }
 
 // Zero-filled 7-Vec4 slice: reserved for layers that produce no geometry (invisible, or shape
-// lookup failed) so their SSBO slot still exists at the right position -- lidx (== _layers index
+// lookup failed) so their SSBO slot still exists at the right position - lidx (== _layers index
 // + 1) always addresses a valid buffer, with no separate "skip counter" that can drift out of
 // sync with the buffer's actual layout.
 static void pushEmptySlot(osgx::Vec4Array& buf) {
@@ -177,7 +177,7 @@ void ShapeDrawable::drawImplementation(osg::RenderInfo& renderInfo) const {
 	drawVertexArraysImplementation(renderInfo);
 
 	// One draw call per group with the appropriate blend state and mask binding. Every group
-	// binds SOMETHING at RENDER_MASK_UBO_BINDING -- the group's own mask, or the null sentinel --
+	// binds SOMETHING at RENDER_MASK_UBO_BINDING - the group's own mask, or the null sentinel --
 	// there is no more "leave it unbound" state.
 	for(const auto& g : _groups) {
 		applyBlendMode(state, g.blendMode);
@@ -187,7 +187,7 @@ void ShapeDrawable::drawImplementation(osg::RenderInfo& renderInfo) const {
 	}
 
 	// Restore defaults so we don't leak into subsequent drawables: SrcOver blend state, and the
-	// null mask (replaces the old unbindMask() -- binding the sentinel instead of unbinding is
+	// null mask (replaces the old unbindMask() - binding the sentinel instead of unbinding is
 	// what makes reading osgSlug_mask.type unconditionally in main() well-defined).
 	applyBlendMode(state, slughorn::BlendMode::SrcOver);
 	applyMask(state, nullMask);
@@ -210,7 +210,7 @@ void ShapeDrawable::compile() {
 
 	if(!atlas) {
 		OSG_WARN
-			<< "ShapeDrawable::compile(): no Atlas parent -- "
+			<< "ShapeDrawable::compile(): no Atlas parent - "
 			<< "add to an Atlas node first (e.g. atlas->addChild(drawable))" << std::endl
 		;
 
@@ -356,7 +356,7 @@ void ShapeDrawable::compile() {
 void ShapeDrawable::setLayerColor(size_t index, const slughorn::Color& color) {
 	if(index >= _layers.size() || !_layers[index].buffer) {
 		if(!_compiled)
-			OSG_WARN << "ShapeDrawable::setLayerColor(): called before compile() -- call ignored" << std::endl;
+			OSG_WARN << "ShapeDrawable::setLayerColor(): called before compile() - call ignored" << std::endl;
 		return;
 	}
 
@@ -369,7 +369,7 @@ void ShapeDrawable::setLayerColor(size_t index, const slughorn::Color& color) {
 void ShapeDrawable::setLayerEffectId(size_t index, uint32_t effectId) {
 	if(index >= _layers.size() || !_layers[index].buffer) {
 		if(!_compiled)
-			OSG_WARN << "ShapeDrawable::setLayerEffectId(): called before compile() -- call ignored" << std::endl;
+			OSG_WARN << "ShapeDrawable::setLayerEffectId(): called before compile() - call ignored" << std::endl;
 		return;
 	}
 
@@ -382,7 +382,7 @@ void ShapeDrawable::setLayerEffectId(size_t index, uint32_t effectId) {
 void ShapeDrawable::setLayerEffectParam(size_t index, slug_t param) {
 	if(index >= _layers.size() || !_layers[index].buffer) {
 		if(!_compiled)
-			OSG_WARN << "ShapeDrawable::setLayerEffectParam(): called before compile() -- call ignored" << std::endl;
+			OSG_WARN << "ShapeDrawable::setLayerEffectParam(): called before compile() - call ignored" << std::endl;
 		return;
 	}
 

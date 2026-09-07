@@ -190,7 +190,7 @@ void SubdividedDrawable::compile() {
 				q.x1 - q.x0
 			});
 			// osgSlug_LayerData grew a 5th slot (transformData) for masking, which this class
-			// doesn't support -- pack the correct value anyway (cheap, already in scope) purely to
+			// doesn't support - pack the correct value anyway (cheap, already in scope) purely to
 			// keep this buffer's per-layer stride matching the shared struct's size.
 			layerBuf->push_back({layer.transform.x, layer.transform.y, layer.bleed, 0_cv});
 			// [5]/[6] quad frame for SHADER_VERT's live margin push (see ShapeDrawable::compile()).

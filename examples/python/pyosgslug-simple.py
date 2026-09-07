@@ -6,7 +6,7 @@
 # copied there by CMake).
 #
 # build_scene(w, h) is the same runner contract OpenSceneGraph.py's own sandbox examples use
-# (see pyosg-voxelize2d.py) -- a pure scene-assembly entrypoint, no viewer/window side effects,
+# (see pyosg-voxelize2d.py) - a pure scene-assembly entrypoint, no viewer/window side effects,
 # so this file is ready to be picked up by an osgSlug.examples runner later without a rewrite.
 
 from OpenSceneGraph import *
@@ -19,13 +19,13 @@ import time
 
 FONT_PATH = "font/UbuntuMono-R.ttf"
 
-# No osg.NodeCallback subclass needed -- any callable (plain class with __call__(node, nv), or
+# No osg.NodeCallback subclass needed - any callable (plain class with __call__(node, nv), or
 # even a lambda) works as an updateCallback, same as pyosg-voxelize2d.py's own SpinCallback.
 # Rotates the MatrixTransform about its bounding-sphere center, then slides the whole thing off
-# to the side (+726 on X) so it doesn't sit on top of the text -- mirrors SpinCallback in
+# to the side (+726 on X) so it doesn't sit on top of the text - mirrors SpinCallback in
 # osgslug-simple.cpp, but keyed off wall-clock time like every other OSG.py example instead of
 # frameStamp.simulationTime (no example in this codebase reaches for the latter from inside a
-# callback -- time.time() is the established idiom here).
+# callback - time.time() is the established idiom here).
 class SpinCallback:
 	def __init__(self):
 		self.center = None
@@ -57,9 +57,9 @@ def build_scene(w, h):
 	# and pack this one first, then hand it to osgSlug.Atlas.fromAtlas() below.
 	a = slughorn.Atlas()
 
-	# Manually inject raw quadratic curves as codepoint 'F' -- the exact experiment that started
+	# Manually inject raw quadratic curves as codepoint 'F' - the exact experiment that started
 	# slughorn/osgSlug. A triangle with one curved side, split into a 2x5 (arbitrary) band
-	# arrangement. ord("F") matters here, NOT the string "F" -- a str key creates a *named* key,
+	# arrangement. ord("F") matters here, NOT the string "F" - a str key creates a *named* key,
 	# which wouldn't collide with (and override) the font's own 'F' glyph below.
 	tri = slughorn.ShapeInfo()
 
@@ -81,7 +81,7 @@ def build_scene(w, h):
 
 	a.build()
 
-	# fromAtlas() copies `a` into a new osgSlug.Atlas and packs it -- build() must already have
+	# fromAtlas() copies `a` into a new osgSlug.Atlas and packs it - build() must already have
 	# been called, packTextures() has not.
 	atlas = osgSlug.Atlas.fromAtlas(a)
 
@@ -106,11 +106,11 @@ def build_scene(w, h):
 	mt.children.append(sd)
 	mt.updateCallback = SpinCallback()
 
-	# Append `mt`, not `sd` directly -- no Geode wrapper needed either way (osgSlug's Drawable IS
+	# Append `mt`, not `sd` directly - no Geode wrapper needed either way (osgSlug's Drawable IS
 	# an osg.Node in this OSG fork), and no manual sd.compile() needed: `atlas` is already Packed
 	# at this point, so Atlas.addChild's override walks the newly-added subtree and compiles any
 	# osgSlug.Drawable it finds automatically, nested MatrixTransform and all. Calling
-	# sd.compile() before this line would just print "no Atlas parent" and no-op -- see
+	# sd.compile() before this line would just print "no Atlas parent" and no-op - see
 	# pyosgslug-template.py for that exact mistake.
 	atlas.children.append(mt)
 

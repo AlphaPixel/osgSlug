@@ -12,7 +12,7 @@ OSGSLUG_ENABLE_WARNINGS
 namespace osgSlug {
 
 // Returns a slughorn::Scene calibrated to the camera's current viewport and ortho2D
-// projection. emWidth is the em-space width of the content being measured -- usually 1.0 for
+// projection. emWidth is the em-space width of the content being measured - usually 1.0 for
 // normalized canvas/SVG content, or a Layer::scale-style factor if the camera's world units
 // aren't already 1:1 with em-space.
 //

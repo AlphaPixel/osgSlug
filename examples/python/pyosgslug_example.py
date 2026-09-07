@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-# Shared helpers for the pyosgslug-*.py examples -- mirrors
+# Shared helpers for the pyosgslug-*.py examples - mirrors
 # ~/dev/OpenSceneGraph.py/examples/pyosg_example.py's pattern: a plain importable module (no
 # class hierarchy), grown incrementally as more examples need shared bits, not a speculative
 # framework built up front.
@@ -8,11 +8,11 @@
 # Deliberately does NOT import OpenSceneGraph at module top, matching pyosg_example.py's own
 # reasoning: this keeps the module side-effect-free to import at any point relative to `from
 # OpenSceneGraph import *` (window_size()'s env-var defaults are the one place that actually
-# matters -- see below). make_trackball() imports osg/osgGA locally instead.
+# matters - see below). make_trackball() imports osg/osgGA locally instead.
 
 import os
 
-# setdefault(), not update() -- an example that already set its own OSG_WINDOW/OSG_THREADING/
+# setdefault(), not update() - an example that already set its own OSG_WINDOW/OSG_THREADING/
 # etc. before importing this keeps what it set; this only fills in whatever it didn't.
 os.environ.setdefault("OSG_WINDOW", "50 50 800 600")
 os.environ.setdefault("OSG_THREADING", "SingleThreaded")
@@ -34,7 +34,7 @@ def window_size(default=(800, 600)):
 
 # Y-up, XY-plane version of makeTrackball() in osgslug-example.hpp. Plain
 # osgGA.TrackballManipulator() assumes Z-up content and frames anything authored in slughorn's
-# native XY plane edge-on by default -- this positions the eye along +Z looking down at the
+# native XY plane edge-on by default - this positions the eye along +Z looking down at the
 # content face-on instead, with +Y as up.
 def make_trackball(scene):
 	from OpenSceneGraph import osg, osgGA

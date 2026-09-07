@@ -127,7 +127,7 @@ public:
 		// Lambda: emit one stretched quad (a single grid line) as its own SSBO layer slot.
 		//
 		// (x0,y0)-(x1,y1) is the world-space rectangle for the line. Every line shares the same
-		// unit-square shape (shapeIdx), so only its color differs -- see ShapeDrawable::compile()
+		// unit-square shape (shapeIdx), so only its color differs - see ShapeDrawable::compile()
 		// for the per-layer buffer layout this mirrors.
 		auto emitLine = [&](
 			slug_t x0, slug_t y0,
@@ -258,7 +258,7 @@ public:
 	}
 
 private:
-	// One SSBO slice per grid line -- must outlive compile() since only the first entry is
+	// One SSBO slice per grid line - must outlive compile() since only the first entry is
 	// retained by the ShaderStorageBufferBinding.
 	std::vector<osg::ref_ptr<osgx::Vec4Array>> _layerBuffers;
 

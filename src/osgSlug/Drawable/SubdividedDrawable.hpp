@@ -14,7 +14,7 @@ namespace osgSlug {
 //
 // The subdivider handles em-coord mapping, index stitching, and vertex attribute binding. The slug
 // pipeline sees exactly the same data as ShapeDrawable, just with more triangles and non-flat
-// positions. compile() is the only override -- setLayerColor/EffectId/EffectParam/
+// positions. compile() is the only override - setLayerColor/EffectId/EffectParam/
 // GradientTransform, updateLayer, dirtyLayers, and getLayerBuffer are all inherited from
 // ShapeDrawable unchanged, since they operate on the same _layers[i].buffer regardless of mesh
 // shape.

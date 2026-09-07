@@ -7,7 +7,7 @@
 //   using osgx::pbr (BRDF math) and osgx::ibl (cubemap load + BRDF LUT bake) from
 //   ~/dev/osgdebug/osgx.hpp.
 // - Direct: a small rig of animated point lights ("spot lights" thrown into the scene, see
-//   osgx::OrbitLightRig) whose highlights slide across the dome per-frame -- the motion is the
+//   osgx::OrbitLightRig) whose highlights slide across the dome per-frame - the motion is the
 //   confirmation that N, V, and the specular math are wired correctly, not just a static
 //   flat-shaded color.
 //
@@ -35,10 +35,10 @@ static float packMaterial(float roughness, float metallic) {
 
 // MSDF range for the dome: em-space half-bandwidth the tile encodes around the edge. Not used
 // for a physically-real distance anywhere (osgSlug_Fragment doesn't get msdfRange, only
-// msdfSd) -- the bevel width in the hook is defined directly in msdfSd space instead. Set to
+// msdfSd) - the bevel width in the hook is defined directly in msdfSd space instead. Set to
 // just under the badge's own radius (0.5, see canvas.circle() below) so msdfSd sweeps its
-// whole edge(0.5)->interior(1.0) range across the ENTIRE shape -- reaching 1.0 only right at
-// the center -- rather than saturating a few pixels in from the edge.
+// whole edge(0.5)->interior(1.0) range across the ENTIRE shape - reaching 1.0 only right at
+// the center - rather than saturating a few pixels in from the edge.
 static constexpr float MSDF_RANGE = 0.45f;
 
 static std::string makeChromeFrag() {
@@ -47,12 +47,12 @@ static std::string makeChromeFrag() {
 #pragma osgSlug lib_fragment
 
 // 430, not 330: `#pragma osgx::pbr *` pulls in LIGHT_UNIFORMS, which declares the osgx_lights
-// SSBO (`buffer osgx_LightBuffer`) -- SSBOs require GLSL 430+, matching osgSlug's own
+// SSBO (`buffer osgx_LightBuffer`) - SSBOs require GLSL 430+, matching osgSlug's own
 // SHADER_VERT/SHADER_FRAG (Atlas.shaders.cpp).
 const float PI = 3.14159265359;
 #pragma osgx::pbr *
-uniform samplerCube envMap; // unit 5 -- GGX-prefiltered cubemap (osgx::loadPrefilterCubemap)
-uniform sampler2D brdfLUT; // unit 6 -- split-sum LUT (osgx::makeBRDFLUTCamera)
+uniform samplerCube envMap; // unit 5 - GGX-prefiltered cubemap (osgx::loadPrefilterCubemap)
+uniform sampler2D brdfLUT; // unit 6 - split-sum LUT (osgx::makeBRDFLUTCamera)
 uniform mat4 osg_ViewMatrixInverse;
 uniform vec3 badgeNormalWorld;
 uniform float envMaxMip;
@@ -82,16 +82,16 @@ vec4 osgSlug_Fragment(osgSlug_FragmentData data) {
 
 	// Dome normal from the MSDF distance field: flat (Nz) only at the very deepest interior
 	// point, curving continuously all the way out to the edge as msdfSd approaches 0.5
-	// (msdfSd < 0.0 = no MSDF tile -- stays flat). BEVEL_WIDTH = 0.5 spans msdfSd's entire
+	// (msdfSd < 0.0 = no MSDF tile - stays flat). BEVEL_WIDTH = 0.5 spans msdfSd's entire
 	// edge(0.5)->interior(1.0) range, so this reads as a curved dome across the WHOLE shape,
-	// not just a rim -- MSDF_RANGE (see main()) is set to roughly the badge's own radius so
+	// not just a rim - MSDF_RANGE (see main()) is set to roughly the badge's own radius so
 	// msdfSd actually reaches 1.0 only near dead center instead of saturating a few pixels in.
 	//
-	// The tilt direction maps the em-space gradient through camRight/camUp -- a deliberate
+	// The tilt direction maps the em-space gradient through camRight/camUp - a deliberate
 	// simplification that assumes a mostly camera-facing, un-tilted badge (em x/y == world
 	// x/y == camRight/camUp here).
 	const float BEVEL_WIDTH = 0.5; // msdfSd units: 0.5 = edge .. 1.0 = deep interior
-	// Controls how far N tilts at the rim -- directly controls how close NdotV gets to 0
+	// Controls how far N tilts at the rim - directly controls how close NdotV gets to 0
 	// there, which drives how bright/edgy the rim's reflections get.
 	const float BEVEL_STRENGTH = 0.7;
 
@@ -101,7 +101,7 @@ vec4 osgSlug_Fragment(osgSlug_FragmentData data) {
 
 	// V: the camera's constant world-space back axis (osg_ViewMatrixInverse[2], same
 	// convention as camRight/camUp above). Correct and pan-invariant for this
-	// near-orthographic 2D-pan setup -- a per-object eye-minus-center approximation drifted
+	// near-orthographic 2D-pan setup - a per-object eye-minus-center approximation drifted
 	// visibly under Ortho2DManipulator's pan (see BUG.md point 4).
 	vec3 V = normalize(osg_ViewMatrixInverse[2].xyz);
 	float NdotV = max(dot(N, V), 0.0);
@@ -115,7 +115,7 @@ vec4 osgSlug_Fragment(osgSlug_FragmentData data) {
 	// ---- Direct specular: the spot-light rig, full GGX per light, via osgx::DIRECT_SPECULAR ---- //
 
 	// Floor the direct-light roughness: at a true mirror value (0.08) the GGX lobe is
-	// sub-pixel -- a singular sparkle that aliases exactly like the bug we just fixed.
+	// sub-pixel - a singular sparkle that aliases exactly like the bug we just fixed.
 	// Treating each spot as a small area light (finite highlight size) is both nicer-looking
 	// and stable. The IBL path keeps the raw baseRoughness; its prefiltered mips already
 	// integrate the lobe.
@@ -123,7 +123,7 @@ vec4 osgSlug_Fragment(osgSlug_FragmentData data) {
 	float lightRoughness = max(baseRoughness, SPOT_ROUGHNESS_FLOOR);
 
 	// Per-pixel world position: the badge lies in the z=0 plane with em == world (identity
-	// MatrixTransform, un-tilted) -- same simplification as the camRight/camUp mapping above.
+	// MatrixTransform, un-tilted) - same simplification as the camRight/camUp mapping above.
 	vec3 P = vec3(data.emCoord, 0.0);
 
 	vec3 direct = vec3(0.0);
@@ -132,18 +132,18 @@ vec4 osgSlug_Fragment(osgSlug_FragmentData data) {
 		vec3 L;
 		vec3 radiance = osgx_PointLightRadiance(osgx_lights[i].posIntensity, osgx_lights[i].color, P, L);
 
-		// No diffuse term -- metallic=1 has kD = 0 by definition, and this example is chrome.
+		// No diffuse term - metallic=1 has kD = 0 by definition, and this example is chrome.
 		direct += osgx_DirectSpecular(N, V, L, NdotV, lightRoughness, F0) * radiance;
 	}
 
-	// No SH diffuse yet (osgx::ibl task 3, still pending) -- a small flat floor keeps the
+	// No SH diffuse yet (osgx::ibl task 3, still pending) - a small flat floor keeps the
 	// badge from reading as pure black where the environment contributes nothing.
 	vec3 color = spec * iblIntensity + direct + data.layerColor.rgb * 0.02;
 
 	// A near-mirror surface reflecting a bright HDR environment routinely exceeds 1.0 in RGB;
 	// writing that straight to an LDR framebuffer hard-clips to solid white with no gradient,
 	// which reads as a jagged/blown-out edge even though data.fill's alpha coverage is smooth.
-	// Same tonemap as 09-ibl.py's tonemapPBRNeutral() (Khronos PBR Neutral -- hue-preserving,
+	// Same tonemap as 09-ibl.py's tonemapPBRNeutral() (Khronos PBR Neutral - hue-preserving,
 	// no ACES orange shift), plus the same manual gamma since we're not on an sRGB framebuffer.
 	color = osgx_TonemapPBRNeutral(color);
 	color = pow(color, vec3(1.0 / 2.2));
@@ -162,7 +162,7 @@ vec4 osgSlug_Fragment(osgSlug_FragmentData data) {
 // main
 // ================================================================================================
 
-// Per-frame light rig: a handful of point lights orbiting in front of the badge -- now
+// Per-frame light rig: a handful of point lights orbiting in front of the badge - now
 // osgx::OrbitLightRig (osgx.hpp), generalized out of this example so
 // osgslug-pbr-ibl-text.cpp can reuse it. See ai/context-todo-lighting.md.
 
@@ -218,11 +218,11 @@ int main(int argc, char** argv) {
 	slughorn::canvas::Canvas canvas(*atlas);
 
 	// setMSDF() (before the commit it should apply to) requests this badge's MSDF tile the
-	// moment fill() registers its shape -- requestMSDF() is safe pre-build, so build() alone
+	// moment fill() registers its shape - requestMSDF() is safe pre-build, so build() alone
 	// renders it; no separate post-build registerMSDF()-style call needed below.
 	canvas.setMSDF(true, MSDF_RANGE);
 	canvas.circle(0.5_cv, 0.5_cv, 0.48_cv);
-	canvas.fill({1.0_cv, 0.86_cv, 0.57_cv, 1.0_cv}); // warm gold tint -- F0 for metallic=1
+	canvas.fill({1.0_cv, 0.86_cv, 0.57_cv, 1.0_cv}); // warm gold tint - F0 for metallic=1
 
 	auto badge = canvas.finalize();
 
@@ -234,7 +234,7 @@ int main(int argc, char** argv) {
 
 	// Default MSDF tile size (128) assumes a narrow rim-width range. MSDF_RANGE now spans
 	// nearly the whole badge (for the full-dome look), so the same 128 texels have to cover a
-	// much wider em-space span -- roughly 2-3 screen pixels per texel at a typical view, which
+	// much wider em-space span - roughly 2-3 screen pixels per texel at a typical view, which
 	// is why the edge showed visible texel-grid artifacts even with no zoom applied. Must be
 	// set before build().
 	atlas->setMSDFTileSize(128);
@@ -249,7 +249,7 @@ int main(int argc, char** argv) {
 
 	auto* ss = sd->getOrCreateStateSet();
 
-	// GL_TEXTURE_CUBE_MAP_SEAMLESS -- avoids visible seams at cube edges, especially at the
+	// GL_TEXTURE_CUBE_MAP_SEAMLESS - avoids visible seams at cube edges, especially at the
 	// blurrier (high-roughness) mip levels.
 	ss->setMode(0x884F, osg::StateAttribute::ON);
 
@@ -283,11 +283,11 @@ int main(int argc, char** argv) {
 	auto rig = osgx::make_ref<osgx::OrbitLightRig>();
 
 	rig->lights = lights;
-	rig->center = osg::Vec3(0.5f, 0.5f, 0.0f); // canvas.circle(0.5, 0.5, ...) -- badge center
+	rig->center = osg::Vec3(0.5f, 0.5f, 0.0f); // canvas.circle(0.5, 0.5, ...) - badge center
 	rig->intensity = lightIntensity;
 	badgeXform->setUpdateCallback(rig);
 
-	// Depth-tested wireframe markers at each orbiting light's live position -- rebuilt every
+	// Depth-tested wireframe markers at each orbiting light's live position - rebuilt every
 	// frame straight from `lights`, so they track OrbitLightRig's animation for free. No
 	// directional lights here (all three are setPoint()), so gizmos->getOverlay() draws nothing, but
 	// costs nothing to add either. Sibling of `sd` under `atlas`, not a child of it, so the

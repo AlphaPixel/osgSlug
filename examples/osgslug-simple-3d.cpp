@@ -55,7 +55,7 @@ int main(int argc, char** argv) {
 	auto gridLayer = canvas.stroke(0.01_cv, {1_cv, 0.5_cv, 0_cv, 1_cv});
 	auto key = gridLayer.key;
 
-	// Three disconnected rects sharing one left-to-right gradient -- proves that a single
+	// Three disconnected rects sharing one left-to-right gradient - proves that a single
 	// shape can have multiple disconnected sub-paths and the gradient clips correctly to each.
 	// Used by the "subdivide" shape option below.
 	auto grad = canvas.createLinearGradient(

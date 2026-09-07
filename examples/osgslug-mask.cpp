@@ -7,7 +7,7 @@
 // --debug-msdf show raw MSDF tile RGB (msdf type only)
 //
 // Scene: a two-layer composite (orange rect + yellow rect), masked as a whole by a shape at
-// center. Both layers share one CompositeShape.mask, so both get masked together -- this is
+// center. Both layers share one CompositeShape.mask, so both get masked together - this is
 // the regression test for the bug that motivated the RenderMask/RenderGroup rework: masking
 // used to piggyback on a single layer's effectId, so a second layer in the same composite
 // rendered flat/unmasked. Now osgSlug_mask is populated automatically per masked RenderGroup
@@ -15,7 +15,7 @@
 // nothing in this file uploads osgSlug_mask.* by hand anymore.
 //
 // Masking is now fully automatic and needs NO custom FragmentHook at all (contrast with the
-// old HOOK_MASK_BODY this file used to define) -- osgSlug_FragmentMask(), an always-linked
+// old HOOK_MASK_BODY this file used to define) - osgSlug_FragmentMask(), an always-linked
 // early hook, evaluates and discards BEFORE slug_Render runs, so a mask that only reveals a
 // fraction of a shape skips Slug's curve-band loop entirely for the rest. See
 // ai/context-todo-mask.md, "osgSlug_FragmentMask() early hook."
@@ -27,7 +27,7 @@
 // Coordinate recovery (only needed by --debug-msdf's custom hook below; the automatic path
 // does this internally): data.emCoord is shape-local, (0,0) = this layer's own canvas bbox
 // min. canvasCoord = data.emCoord + layerOrigin, where layerOrigin is this fragment's own
-// layer's transform.xy, read per-layer from the LayerBuffer SSBO -- each layer has its own
+// layer's transform.xy, read per-layer from the LayerBuffer SSBO - each layer has its own
 // origin, not one shared per mask (see RenderMask.hpp). Mask params are in canvas space.
 
 #include "osgslug-example.hpp"
@@ -43,10 +43,10 @@ static constexpr float MSDF_RANGE = 0.025f;
 // reconstruction) in place of the normal fill color, for fragments the mask (and Slug's own
 // coverage) already let through. osgSlug_Mask_DebugMSDF is the opt-in helper the automatic
 // osgSlug_FragmentMask pipeline itself never calls (its early hook only returns a coverage
-// float -- no room for a raw-tile preview); see that helper's comment in SHADER_LIB_MASK for
+// float - no room for a raw-tile preview); see that helper's comment in SHADER_LIB_MASK for
 // why. Unlike the OLD --debug-msdf (which showed the tile across the whole shape, mask or no
 // mask, since masking used to gate osgSlug_Fragment's output rather than discard beforehand),
-// this now only shows tile pixels the mask has already revealed -- arguably the more useful
+// this now only shows tile pixels the mask has already revealed - arguably the more useful
 // view, since it overlays the tile exactly where it's actually affecting the render.
 // ================================================================================================
 
@@ -54,14 +54,14 @@ static constexpr float MSDF_RANGE = 0.025f;
 // already linked in via the always-present MaskHook shader object (SHADER_MASK_FRAGMENT_HOOK),
 // and GLSL rejects the same function being defined twice across shader objects linked into one
 // Program. Pulling in lib_mask a second time here to reach these two helpers is exactly the
-// trap that broke this file's first draft -- forward-declare-and-call instead, the same way
+// trap that broke this file's first draft - forward-declare-and-call instead, the same way
 // SHADER_FRAG itself reaches osgSlug_Fragment/osgSlug_FragmentExt/osgSlug_FragmentMask.
 //
 // This hook occupies the FragmentHook slot, which REPLACES the entire default shader object --
 // so it must define BOTH functions that slot's default (SHADER_NOOP_FRAGMENT_HOOK) normally
 // provides, not just osgSlug_Fragment. osgSlug_FragEmCoord is the one easy to forget (main()
 // calls it unconditionally, before osgSlug_Fragment even runs) since most hooks never need to
-// touch it -- passthrough here, identical to the noop default.
+// touch it - passthrough here, identical to the noop default.
 static const std::string HOOK_DEBUG_MSDF = R"(
 #version 430 core
 #pragma osgSlug lib_fragment
@@ -142,7 +142,7 @@ int main(int argc, char** argv) {
 	slughorn::canvas::Canvas canvas(*atlas);
 
 /*
-	// Two layers in one composite -- both must get masked together (see file header comment).
+	// Two layers in one composite - both must get masked together (see file header comment).
 	// beginPath() between the two is required: fill() doesn't clear the internal path, so
 	// without it the second rect's curves accumulate onto the first's (one merged shape
 	// instead of two), which is what made both squares render as a single color.
@@ -154,7 +154,7 @@ int main(int argc, char** argv) {
 */
 
 	// Four separate CompositeShapes, one per quad, each with its own single rect layer and
-	// its own distinct Mask -- see the file header comment for why this is a genuinely new
+	// its own distinct Mask - see the file header comment for why this is a genuinely new
 	// code path versus arc/capsule, and why these are the four newest procedural
 	// Mask::Types rather than the original six (those stay in osgslug-mask.cpp).
 	// beginPath() before each rect() (after the first) is required: fill() doesn't clear
@@ -164,7 +164,7 @@ int main(int argc, char** argv) {
 	canvas.beginPath().rect(0.0_cv, 0.5_cv, 0.5_cv, 0.5_cv).fill({0.1_cv, 0.8_cv, 0.9_cv, 1.0_cv}); // top-left, cyan
 	canvas.beginPath().rect(0.5_cv, 0.5_cv, 0.5_cv, 0.5_cv).fill({1.0_cv, 1.0_cv, 0.1_cv, 1.0_cv}); // top-right, yellow
 
-	// Mask: canvas.mask() authoring sugar (slughorn/canvas.hpp) -- both forms stage the mask
+	// Mask: canvas.mask() authoring sugar (slughorn/canvas.hpp) - both forms stage the mask
 	// onto the CompositeShape finalize() is about to produce, so it lands on rectComp directly
 	// with no separate composite/key-extraction dance. MSDF form commits the accumulated path
 	// (the circle drawn just below) as a baked mask shape, deriving cx/cy/r from its own
@@ -204,7 +204,7 @@ int main(int argc, char** argv) {
 
 	auto rectComp = canvas.finalize();
 
-	// canvas.mask()'s MSDF branch already called atlas->requestMSDF() itself above -- requestMSDF()
+	// canvas.mask()'s MSDF branch already called atlas->requestMSDF() itself above - requestMSDF()
 	// (unlike the old registerMSDF()) is safe to call pre-build, so build() alone renders the
 	// queued tile; no post-build registration step needed here at all.
 	atlas->setMSDFTileSize(128);
@@ -216,7 +216,7 @@ int main(int argc, char** argv) {
 	sd->addCompositeShape(rectComp);
 
 	// osgSlug_mask itself (type/invert/params/params2/msdfLayer) is populated automatically per
-	// masked RenderGroup -- see ShapeDrawable::compile() and
+	// masked RenderGroup - see ShapeDrawable::compile() and
 	// ShapeDrawable::drawImplementation()'s applyMask(). No StateSet override needed for the
 	// normal path at all: sd inherits the Atlas's own default StateSet (which already links the
 	// automatic masking hook), so masking works the instant CompositeShape.mask is set.

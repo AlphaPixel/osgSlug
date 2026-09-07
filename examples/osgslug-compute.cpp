@@ -10,7 +10,7 @@ OSGSLUG_DISABLE_WARNINGS
 
 OSGSLUG_ENABLE_WARNINGS
 
-// CC0: Clearly a bug -- A "Happy Accident" Shader
+// CC0: Clearly a bug - A "Happy Accident" Shader
 // Original (golfed ShaderToy): https://twigl.app?ol=true&ss=-OUOudmBPJ57CIb7rAxS
 // Attribution: @byt3_m3chanic, @FabriceNeyret2, @iq, @shane, @XorDev + many more
 //
@@ -170,7 +170,7 @@ int main(int argc, char** argv) {
 
 	computeProgram->addShader(new osg::Shader(osg::Shader::COMPUTE, COMPUTE_SHADER));
 
-	// One workgroup of one thread -- animates the pentagon (layer 1).
+	// One workgroup of one thread - animates the pentagon (layer 1).
 	auto dispatch = osgx::make_ref<osg::DispatchCompute>(1, 1, 1);
 	auto* dss = dispatch->getOrCreateStateSet();
 

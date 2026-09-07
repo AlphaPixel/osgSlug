@@ -15,7 +15,7 @@ void BoxDrawable::compile() {
 
 	if(!atlas) {
 		OSG_WARN
-			<< "BoxDrawable::compile(): no Atlas parent -- "
+			<< "BoxDrawable::compile(): no Atlas parent - "
 			<< "add to an Atlas node first (e.g. atlas->addChild(drawable))" << std::endl
 		;
 
@@ -55,7 +55,7 @@ void BoxDrawable::compile() {
 		{{-s,-s,-s}, { s,-s,-s}, { s,-s, s}, {-s,-s, s}}  // -Y bottom
 	};
 
-	// Small outward push per within-face layer index -- avoids z-fighting between layers
+	// Small outward push per within-face layer index - avoids z-fighting between layers
 	// stacked on the exact same plane (e.g. a background plate under a pip/numeral overlay).
 	const slug_t NORMAL_PUSH_STEP = 0.0005_cv * _size;
 
@@ -166,7 +166,7 @@ void BoxDrawable::compile() {
 
 	auto* ss = getOrCreateStateSet();
 
-	// Only when hooks were actually requested -- otherwise inherit the Atlas parent's own program
+	// Only when hooks were actually requested - otherwise inherit the Atlas parent's own program
 	// rather than duplicating it per child. Same rule as ShapeDrawable::compile().
 	if(!_hooks.empty()) ss->setAttributeAndModes(
 		Atlas::createDefaultProgram(_hooks),
@@ -179,9 +179,9 @@ void BoxDrawable::compile() {
 	);
 
 	// Atlas::createDefaultStateSet() turns depth testing OFF ambiently (right for slughorn's
-	// usual 2D/HUD layering, where draw order -- not the z-buffer -- decides composite order).
+	// usual 2D/HUD layering, where draw order - not the z-buffer - decides composite order).
 	// A BoxDrawable is real opaque 3D solid geometry with 6 mutually-occluding faces, so it needs
-	// both the test AND the write back on -- unlike PathDrawable/ScanlineDrawable's depth-test-
+	// both the test AND the write back on - unlike PathDrawable/ScanlineDrawable's depth-test-
 	// only override, which stay translucent overlays that must not occlude each other.
 	ss->setAttributeAndModes(new osg::Depth(osg::Depth::LESS, 0.0, 1.0, true), osg::StateAttribute::ON);
 

@@ -33,7 +33,7 @@ SkPath buildJigsawPiecePath() {
 
 	b.moveTo(L, B);
 
-	// --- Bottom edge -- concave notch (inward, toward T) ---
+	// --- Bottom edge - concave notch (inward, toward T) ---
 	b.lineTo(MX - NECK, B);
 	b.cubicTo(
 		MX - NECK, B - PULL, // shoulder in
@@ -47,7 +47,7 @@ SkPath buildJigsawPiecePath() {
 	);
 	b.lineTo(R, B);
 
-	// Right edge -- notch (inward, so R - TAB instead of R + TAB)
+	// Right edge - notch (inward, so R - TAB instead of R + TAB)
 	b.lineTo(R, MY - NECK);
 	b.cubicTo(
 		R - PULL, MY - NECK,
@@ -61,7 +61,7 @@ SkPath buildJigsawPiecePath() {
 	);
 	b.lineTo(R, T);
 
-	// Top edge -- notch (inward, so T - TAB instead of T + TAB)
+	// Top edge - notch (inward, so T - TAB instead of T + TAB)
 	b.lineTo(MX + NECK, T);
 	b.cubicTo(
 		MX + NECK, T - PULL,
@@ -75,7 +75,7 @@ SkPath buildJigsawPiecePath() {
 	);
 	b.lineTo(L, T);
 
-	// --- Left edge -- concave notch (inward, toward R) ---
+	// --- Left edge - concave notch (inward, toward R) ---
 	b.lineTo(L, MY + NECK);
 	b.cubicTo(
 		L - PULL, MY + NECK, // shoulder in (negative X)

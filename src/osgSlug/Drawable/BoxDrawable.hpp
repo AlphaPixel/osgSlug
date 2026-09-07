@@ -7,7 +7,7 @@
 
 namespace osgSlug {
 
-// A unit cube where each of the 6 faces renders its own slughorn::CompositeShape -- i.e. each
+// A unit cube where each of the 6 faces renders its own slughorn::CompositeShape - i.e. each
 // face can stack multiple layers (e.g. a background plate plus an overlay glyph/pip pattern),
 // not just a single shape. All layers within one face share that face's quad/plane; compile()
 // nudges each layer slightly outward along the face normal in emission order to avoid z-fighting
@@ -29,17 +29,17 @@ private:
 	// Per-face content replaces ShapeDrawable's single-layer-per-addLayer() model entirely.
 	// Disabled (rather than silently accepted and ignored by compile()) since a stray
 	// addLayer()/addCompositeShape() call would otherwise populate the inherited _layers with
-	// data compile() never reads -- see the Font/error-handling convention of failing loud at
+	// data compile() never reads - see the Font/error-handling convention of failing loud at
 	// the point of misuse rather than producing a silently-blank face later.
 	void addLayer(const slughorn::Layer&) override {
 		throw std::logic_error(
-			"BoxDrawable::addLayer(): use setFace() instead -- each face is a CompositeShape, not a single Layer"
+			"BoxDrawable::addLayer(): use setFace() instead - each face is a CompositeShape, not a single Layer"
 		);
 	}
 
 	void addCompositeShape(const slughorn::CompositeShape&) override {
 		throw std::logic_error(
-			"BoxDrawable::addCompositeShape(): use setFace() instead -- pass one CompositeShape per face index"
+			"BoxDrawable::addCompositeShape(): use setFace() instead - pass one CompositeShape per face index"
 		);
 	}
 

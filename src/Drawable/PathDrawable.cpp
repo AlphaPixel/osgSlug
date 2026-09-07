@@ -18,9 +18,9 @@ namespace osgSlug {
 
 namespace {
 
-// Per-cull update of PATH_SLUGGIT_MAIN's osgSlug_viewport uniform -- same pattern as
+// Per-cull update of PATH_SLUGGIT_MAIN's osgSlug_viewport uniform - same pattern as
 // Atlas.cpp's ViewportUniformCallback, duplicated here since PathDrawable's StateSet is
-// standalone (setAtlas(), not atlas->addChild() -- see Drawable::getAtlas()'s comment) and
+// standalone (setAtlas(), not atlas->addChild() - see Drawable::getAtlas()'s comment) and
 // doesn't inherit an Atlas ancestor's copy of the uniform.
 struct PathDrawableViewportCallback: public osg::NodeCallback {
 	void operator()(osg::Node* node, osg::NodeVisitor* nv) override {
@@ -60,7 +60,7 @@ struct PathDrawableViewportCallback: public osg::NodeCallback {
 //
 // - gl_InstanceID is readable directly inside the hook (it is an ordinary vertex shader unit in
 //   the same Program), and is the per-particle/per-segment identity. Nothing needs to plumb it
-//   through osgSlug_VertexData -- ShapeDrawable's non-instanced draws just read 0 there.
+//   through osgSlug_VertexData - ShapeDrawable's non-instanced draws just read 0 there.
 // - osgSlug_Vertex_Rotate/_Scale reconstruct their pivot assuming one em maps to one world unit,
 //   which is not true for Stamp mode (its rate is u_halfWidth * 2). Rotate about
 //   points[gl_InstanceID].xy by hand instead. See SHADER_LIB_VERTEX_IMPL's note.
@@ -71,8 +71,8 @@ static const std::string PATH_COMMON = R"GLSL(
 
 	uniform float u_halfWidth;
 	uniform vec4 u_color;
-	uniform int u_effectId; // PathDrawable::setEffectId() -- the hook's selector, as on a layer
-	uniform float u_effectParam; // PathDrawable::setEffectParam() -- the hook's float knob
+	uniform int u_effectId; // PathDrawable::setEffectId() - the hook's selector, as on a layer
+	uniform float u_effectParam; // PathDrawable::setEffectParam() - the hook's float knob
 	uniform vec2 u_origin; // shape origin in em-space (Sluggit/Stamp); zero for Miter
 	uniform float osg_SimulationTime;
 
@@ -80,11 +80,11 @@ static const std::string PATH_COMMON = R"GLSL(
 		vec4 points[];
 	};
 
-	// Defined by the linked hook or noop unit -- see Atlas::createProgram().
+	// Defined by the linked hook or noop unit - see Atlas::createProgram().
 	osgSlug_VertexResult osgSlug_Vertex(osgSlug_VertexData data);
 
 	// Fills the per-corner hook input. Everything a PathDrawable corner genuinely varies
-	// (pos/emCoord/uv, its em<->world frame, and -- for the multi-shape Stamp table -- the shape
+	// (pos/emCoord/uv, its em<->world frame, and - for the multi-shape Stamp table - the shape
 	// origin) is an argument; the rest come from uniforms and are identical for every instance,
 	// since PathDrawable has no per-layer SSBO to read them from the way SHADER_VERT does.
 	osgSlug_VertexData pathVertexData(
@@ -130,7 +130,7 @@ static const std::string PATH_MITER_GEOM = R"GLSL(
 	// Returns sign vector s (s.x in [0,1]: segment start/end; s.y in {-1,+1}: sides).
 	//
 	// points[].w carries a subpath id (see PathDrawable::setPaths()). A single PathDrawable
-	// can hold many independent, disconnected paths concatenated into one buffer -- w lets
+	// can hold many independent, disconnected paths concatenated into one buffer - w lets
 	// this function tell a real neighbor from an unrelated path's data without a separate
 	// index buffer. setPoints()-authored single paths give every point the SAME w (whatever
 	// value the caller supplied, e.g. 1.0), so every comparison below trivially matches and
@@ -151,13 +151,13 @@ static const std::string PATH_MITER_GEOM = R"GLSL(
 
 		vec2 s = signs[gl_VertexID % 4];
 
-		// This instance straddles two different subpaths -- it isn't a real segment, it's the
+		// This instance straddles two different subpaths - it isn't a real segment, it's the
 		// gap between one path's last point and the next path's first. Degenerate to a
 		// zero-area quad instead of drawing a spurious connecting segment.
 		if(pt0.w != pt1.w) {
 			base = p0;
 			offset = vec2(0.0);
-			perp = vec2(1.0, 0.0); // arbitrary -- quad is zero-area, never visible
+			perp = vec2(1.0, 0.0); // arbitrary - quad is zero-area, never visible
 
 			return s;
 		}
@@ -225,10 +225,10 @@ static const char* PATH_MITER_MAIN = R"GLSL(
 // Separately, emCoord.y's fwidth() (computed unconditionally by Atlas.shaders.cpp main()) is
 // the AA stair-stepping bug: road-segment quads are small and often screen-rotated, so the
 // GPU's 2x2-pixel derivative block frequently straddles a triangle/instance boundary where the
-// interpolation basis differs on each side -- a well-known fwidth() unreliability on
+// interpolation basis differs on each side - a well-known fwidth() unreliability on
 // thin/rotated primitives. pathSluggitEmsPerPixel() below computes the width-direction rate
 // analytically instead (stroke half-width vs. the MVP's screen-space projection scale), and
-// PATH_SLUGGIT_FRAG_HOOK's osgSlug_FragEmCoord() overrides emsPerPixel with it -- bypassing the
+// PATH_SLUGGIT_FRAG_HOOK's osgSlug_FragEmCoord() overrides emsPerPixel with it - bypassing the
 // unreliable derivative without touching the shared default fragment path every other
 // Slug-rendered shape (text, general shapes, decals) depends on.
 static const std::string PATH_SLUGGIT_MAIN = R"GLSL(
@@ -239,7 +239,7 @@ static const std::string PATH_SLUGGIT_MAIN = R"GLSL(
 
 	// Analytic em-units-per-screen-pixel along `perp`, evaluated at `pos`. Mirrors
 	// Atlas.shaders.cpp's osgSlug_WorldPerPixel()/osgSlug_viewport machinery (same math), scaled
-	// by the shape's own em<->world rate -- PathDrawable's Sluggit shaders don't link that shader
+	// by the shape's own em<->world rate - PathDrawable's Sluggit shaders don't link that shader
 	// unit (no a_position/layers SSBO), so the small amount of math is reproduced here rather
 	// than pulled in via a much larger, incompatible shared vertex main().
 	float pathSluggitEmsPerPixel(vec2 pos, vec2 perp, float emPerWorld) {
@@ -264,7 +264,7 @@ static const std::string PATH_SLUGGIT_MAIN = R"GLSL(
 		float emMidX = (u_emCorners.x + u_emCorners.z) * 0.5;
 		float emY = (s.y < 0.0) ? u_emCorners.y : u_emCorners.w;
 
-		// em-units per world-unit across the stroke's width -- uniform-derived only, no
+		// em-units per world-unit across the stroke's width - uniform-derived only, no
 		// derivative involved.
 		float emPerWorld = (u_emCorners.w - u_emCorners.y) / max(2.0 * u_halfWidth, 1e-8);
 		float worldPerEm = 1.0 / max(emPerWorld, 1e-8);
@@ -312,9 +312,9 @@ static const std::string PATH_SLUGGIT_MAIN = R"GLSL(
 
 // Sluggit-only fragment hook: overrides osgSlug_FragEmCoord's emsPerPixel with the analytic
 // value PATH_SLUGGIT_MAIN computed (pathEmScale), instead of the unreliable
-// fwidth(geom.emCoord) Atlas.shaders.cpp main() computes by default -- see PATH_SLUGGIT_MAIN's
+// fwidth(geom.emCoord) Atlas.shaders.cpp main() computes by default - see PATH_SLUGGIT_MAIN's
 // header comment. Isotropic: emCoord.x is pinned constant by design (a different, earlier fix),
-// so it carries no real per-pixel rate of its own -- reusing the analytic width-direction value
+// so it carries no real per-pixel rate of its own - reusing the analytic width-direction value
 // keeps pixelsPerEm.x finite/stable for slug_Render without introducing a second, unrelated
 // derivative source.
 //
@@ -401,12 +401,12 @@ static const char* PATH_STAMP_VERT = R"GLSL(
 )GLSL";
 
 // Stamp mode, multi-shape variant: like PATH_STAMP_VERT, but each instance looks its shape up in
-// a ShapeTable SSBO instead of one fixed uniform triple -- see PathDrawable::setShapeKeys().
+// a ShapeTable SSBO instead of one fixed uniform triple - see PathDrawable::setShapeKeys().
 // points[gl_InstanceID].w (unused by single-shape Stamp) is the 0-based index into that table.
 // A separate shader from PATH_STAMP_VERT rather than a branch inside it: AtlasShapeData (the
 // Atlas's own shared per-shape SSBO) has no em-bounds field, so per-instance shape variety needs
 // its own table with a wider record (bandXform/shapeData/originData/emCorners) that AtlasShapeData
-// doesn't have room for -- see ai/context-todo-pathdrawable.md, "Future: Extract StampDrawable +
+// doesn't have room for - see ai/context-todo-pathdrawable.md, "Future: Extract StampDrawable +
 // user-configurable SSBO bindings". Binding numbers below must match
 // PATH_POINTS_SSBO_BINDING/PATH_SHAPE_TABLE_SSBO_BINDING (PathDrawable.hpp).
 static const char* PATH_STAMP_TABLE_VERT = R"GLSL(
@@ -436,10 +436,10 @@ static const char* PATH_STAMP_TABLE_VERT = R"GLSL(
 		vec2 q = CORNERS[gl_VertexID % 4];
 
 		// One shared em->world scale for every shape in the table (u_halfWidth is "world units
-		// per half an em"), applied to each corner's TRUE em coordinate -- not normalized by
+		// per half an em"), applied to each corner's TRUE em coordinate - not normalized by
 		// this glyph's own bounding box. Normalizing per-glyph (an earlier version of this code
 		// did: emSize / max(longest(emSize), eps)) preserves aspect ratio but destroys relative
-		// SIZE across glyphs -- a period's tiny bbox would get scaled up to fill the exact same
+		// SIZE across glyphs - a period's tiny bbox would get scaled up to fill the exact same
 		// box as a capital M's. Em-space bounds are already normalized to one shared font em
 		// square (see slughorn::Atlas::Shape's comment), so a single scale factor is correct
 		// here the same way it would be for ordinary baseline-aligned text.
@@ -622,7 +622,7 @@ void PathDrawable::compile() {
 
 	// Built into the drawable's OWN StateSet rather than a fresh one, so anything a caller
 	// attached (a custom uniform, a render bin) survives compile(). Shader hooks are the one
-	// thing that must NOT come in that way -- compile() picks the program, so hooks arrive via
+	// thing that must NOT come in that way - compile() picks the program, so hooks arrive via
 	// setHooks() and are linked below. Recompiles (setMode/setShapeKeys) drop the previous mode's
 	// program and shape table explicitly; every other key this function writes is simply
 	// overwritten in place.
@@ -662,7 +662,7 @@ void PathDrawable::compile() {
 
 		else {
 			// PATH_SLUGGIT_FRAG_HOOK is this mode's DEFAULT for the FragmentHook slot, not a user
-			// hook -- a caller's own FragmentHook still wins. See the string's own comment.
+			// hook - a caller's own FragmentHook still wins. See the string's own comment.
 			prog = Atlas::createProgram(
 				{
 					.vertMain = PATH_COMMON + PATH_MITER_GEOM + PATH_SLUGGIT_MAIN,
@@ -675,7 +675,7 @@ void PathDrawable::compile() {
 			ss->addUniform(new osg::Uniform("u_N", static_cast<int>(N)));
 
 			// Live viewport size for pathSluggitEmsPerPixel()'s analytic scale (see
-			// PATH_SLUGGIT_MAIN) -- kept in sync per-cull the same way Atlas::ViewportUniformCallback
+			// PATH_SLUGGIT_MAIN) - kept in sync per-cull the same way Atlas::ViewportUniformCallback
 			// does for the shared osgSlug_viewport uniform (Atlas.cpp), since PathDrawable's
 			// StateSet is standalone and doesn't inherit an Atlas ancestor's copy.
 			ss->addUniform(new osg::Uniform("osgSlug_viewport", osg::Vec2(1280.0f, 720.0f)));
@@ -684,7 +684,7 @@ void PathDrawable::compile() {
 
 		// createProgram() already bound osgSlug_MaskBlock to RENDER_MASK_UBO_BINDING, but this
 		// StateSet can be entirely standalone (PathDrawable also supports setAtlas() rather than
-		// atlas->addChild() -- see Drawable::getAtlas()'s comment), so unlike ShapeDrawable it may
+		// atlas->addChild() - see Drawable::getAtlas()'s comment), so unlike ShapeDrawable it may
 		// NOT inherit the null-mask UBO binding from an Atlas ancestor's StateSet. Bind it
 		// explicitly or osgSlug_FragmentMask() reads through an unbound osgSlug_MaskBlock, which
 		// is undefined behavior the moment this shader links against SHADER_FRAG.
@@ -709,7 +709,7 @@ void PathDrawable::compile() {
 		ss->addUniform(new osg::Uniform("u_color", _color));
 
 		if(multiShape) {
-			// One osgSlug_ShapeTableData record (4 vec4s -- see PATH_STAMP_TABLE_VERT) per key,
+			// One osgSlug_ShapeTableData record (4 vec4s - see PATH_STAMP_TABLE_VERT) per key,
 			// looked up once here rather than per-instance on the GPU: atlas->getShape() is a
 			// CPU-side map lookup, not something worth re-doing every vertex shader invocation.
 			std::vector<Vec4> table;

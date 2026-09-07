@@ -39,7 +39,7 @@ public:
 
 		// Shared across every layer copied from the same CompositeShape by addCompositeShape();
 		// null if that composite had no mask. Pointer identity (not value) is what marks two
-		// layers as "masked together" -- see ai/context-todo-mask.md, "Step 2 design".
+		// layers as "masked together" - see ai/context-todo-mask.md, "Step 2 design".
 		osg::ref_ptr<RenderMask> mask;
 	};
 
@@ -50,13 +50,13 @@ public:
 	virtual void addLayer(const slughorn::Layer& layer);
 	virtual void addCompositeShape(const slughorn::CompositeShape& composite);
 
-	// Snapshot of the authored Layer data (by value -- _layers itself holds the richer
+	// Snapshot of the authored Layer data (by value - _layers itself holds the richer
 	// RenderShape, not exposed here).
 	std::vector<slughorn::Layer> getLayers() const;
 
 	size_t getNumLayers() const { return _layers.size(); }
 
-	// Single-layer counterpart to getLayers(). Throws std::out_of_range -- unlike
+	// Single-layer counterpart to getLayers(). Throws std::out_of_range - unlike
 	// getLayerBuffer()/getLayerMask() (which return nullptr), a reference can't signal "missing".
 	const slughorn::Layer& getLayer(size_t index) const {
 		if(index >= _layers.size()) throw std::out_of_range(

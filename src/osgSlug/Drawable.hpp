@@ -13,7 +13,7 @@ OSGSLUG_ENABLE_WARNINGS
 namespace osgSlug {
 
 // UBO binding index used for osgSlug_mask. Independent namespace from the SSBO bindings used
-// elsewhere (atlas shape data = 0, layer data = 1 -- see ShapeDrawable.cpp) since GL keeps
+// elsewhere (atlas shape data = 0, layer data = 1 - see ShapeDrawable.cpp) since GL keeps
 // GL_UNIFORM_BUFFER and GL_SHADER_STORAGE_BUFFER binding points separate.
 constexpr unsigned RENDER_MASK_UBO_BINDING = 0;
 
@@ -26,27 +26,27 @@ constexpr unsigned RENDER_MASK_UBO_BINDING = 0;
 // NOT an osg::StateAttribute: RenderGroup already bypasses StateSet for per-group state
 // (see applyBlendMode() in ShapeDrawable.cpp) because state must change multiple times
 // within a single drawImplementation() call, which StateSet application can't express.
-// apply() below follows the same pattern -- it calls UniformBufferBinding::apply() directly,
+// apply() below follows the same pattern - it calls UniformBufferBinding::apply() directly,
 // imperatively, reusing OSG's buffer-compile/upload machinery without ever attaching
 // anything to a StateSet.
 class RenderMask: public osg::Referenced {
 public:
-	// Construction is deliberately Atlas-independent -- callers need real identity (this
+	// Construction is deliberately Atlas-independent - callers need real identity (this
 	// object, not just its eventual data) before an Atlas is guaranteed resolvable (e.g.
 	// ShapeDrawable::addCompositeShape() may run before this drawable is parented under one).
 	// bindingPoint is the UBO binding index this mask will be bound to in apply(). msdfLayer
-	// (the one field that genuinely needs an Atlas -- see repack()) is packed as "none" (-1)
+	// (the one field that genuinely needs an Atlas - see repack()) is packed as "none" (-1)
 	// until repack() is called.
 	//
 	// No contentOrigin parameter: canvas-space origin is a per-LAYER property (each layer has
-	// its own transform.xy), not a per-mask one -- a single shared value here only happens to
+	// its own transform.xy), not a per-mask one - a single shared value here only happens to
 	// be correct for single-layer masked composites. The shader reads each fragment's own
 	// layer origin directly from the LayerBuffer SSBO (osgSlug_LayerData.transformData) via
 	// geom.layerIndex instead. See osgSlug_Mask_Evaluate() in SHADER_LIB_MASK.
 	RenderMask(const slughorn::Mask& mask, unsigned bindingPoint);
 
 	// Always-valid "no mask" sentinel: packs type=-1, which every dispatcher (shader-side
-	// osgSlug_Mask_CoverageFor and friends) treats as "fully unmasked" -- see
+	// osgSlug_Mask_CoverageFor and friends) treats as "fully unmasked" - see
 	// ai/context-todo-mask.md, "null UBO" plan. Bind this (Atlas::getNullMask() owns one)
 	// wherever a RenderGroup has no real mask, instead of leaving RENDER_MASK_UBO_BINDING
 	// unbound: reading an unbound uniform block is undefined behavior, and once
@@ -62,7 +62,7 @@ public:
 	osg::UniformBufferBinding* getBinding() const { return _binding.get(); }
 
 	// MSDF-only: show the raw baked tile RGB instead of evaluating coverage. Not part of
-	// slughorn::Mask (a rendering/debug concern, not authoring data) -- repack() to upload.
+	// slughorn::Mask (a rendering/debug concern, not authoring data) - repack() to upload.
 	void setDebug(bool debug) { _debug = debug; }
 
 	// Re-derives the packed GPU data from the current mask()/contentOrigin and marks it for
@@ -77,10 +77,10 @@ public:
 	void apply(osg::State& state) const;
 
 private:
-	// CPU mirror of osgSlug_MaskData's std140 layout (48 bytes, zero padding -- see the
+	// CPU mirror of osgSlug_MaskData's std140 layout (48 bytes, zero padding - see the
 	// field-order note in ai/context-todo-mask.md, "params/params2 split"). Real int/bool
 	// bit patterns are required here, NOT numeric-cast-to-float (unlike osgSlug_LayerData's
-	// all-float convention) -- osgSlug_MaskData declares actual GLSL int/bool members.
+	// all-float convention) - osgSlug_MaskData declares actual GLSL int/bool members.
 	struct alignas(16) PackedData {
 		slug_t params[4] = {};
 		slug_t params2[2] = {};
