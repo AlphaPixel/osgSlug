@@ -258,11 +258,7 @@ slughorn::CompositeShape buildPixelLogo(osgSlug::Atlas* atlas) {
 static const std::string FRAG_SHADER = R"(
 #version 330 core
 
-#pragma osgSlug lib_fragment
-
-vec2 osgSlug_FragEmCoord(vec2 emCoord, inout vec2 emsPerPixel, int effectId, float time) {
-	return emCoord;
-}
+#pragma osgSlug fragment
 
 vec4 osgSlug_Fragment(osgSlug_FragmentData data) {
 	if(data.effectId == 1) {
@@ -290,7 +286,7 @@ vec4 osgSlug_Fragment(osgSlug_FragmentData data) {
 	}
 
 	if(data.effectId == 3) {
-		// Texture fill: sample osgSlug_effectTexture (from lib_fragment) at UV.
+		// Texture fill: sample osgSlug_effectTexture (from fragment_lib) at UV.
 		vec4 s = texture(osgSlug_effectTexture, data.uv);
 		vec3 blended = mix(data.layerColor.rgb, s.rgb, s.a);
 		return vec4(blended, data.fill * data.layerColor.a);

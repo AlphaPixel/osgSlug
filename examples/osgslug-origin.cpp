@@ -19,7 +19,7 @@
 const static std::string VERT_EFFECTS = R"(
 #version 430 core
 
-#pragma osgSlug lib_vertex
+#pragma osgSlug vertex,vertex_lib
 
 osgSlug_VertexResult osgSlug_Vertex(osgSlug_VertexData data) {
 	// See the comment below (setLayerEffectParam) for HOW `effectParam` could be used...

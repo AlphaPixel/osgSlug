@@ -63,11 +63,11 @@ struct PathDrawableViewportCallback: public osg::NodeCallback {
 //   through osgSlug_VertexData - ShapeDrawable's non-instanced draws just read 0 there.
 // - osgSlug_Vertex_Rotate/_Scale reconstruct their pivot assuming one em maps to one world unit,
 //   which is not true for Stamp mode (its rate is u_halfWidth * 2). Rotate about
-//   points[gl_InstanceID].xy by hand instead. See SHADER_LIB_VERTEX_IMPL's note.
+//   points[gl_InstanceID].xy by hand instead. See SHADER_VERTEX_MAIN's note.
 static const std::string PATH_COMMON = R"GLSL(
 	#version 430 core
 
-	#pragma osgSlug lib_vertex,lib_vertex_impl
+	#pragma osgSlug vertex,vertex_lib,vertex_main
 
 	uniform float u_halfWidth;
 	uniform vec4 u_color;
@@ -228,7 +228,7 @@ static const char* PATH_MITER_MAIN = R"GLSL(
 // interpolation basis differs on each side - a well-known fwidth() unreliability on
 // thin/rotated primitives. pathSluggitEmsPerPixel() below computes the width-direction rate
 // analytically instead (stroke half-width vs. the MVP's screen-space projection scale), and
-// PATH_SLUGGIT_FRAG_HOOK's osgSlug_FragEmCoord() overrides emsPerPixel with it - bypassing the
+// PATH_SLUGGIT_FRAG_HOOK's osgSlug_FragmentEmCoord() overrides emsPerPixel with it - bypassing the
 // unreliable derivative without touching the shared default fragment path every other
 // Slug-rendered shape (text, general shapes, decals) depends on.
 static const std::string PATH_SLUGGIT_MAIN = R"GLSL(
@@ -310,7 +310,7 @@ static const std::string PATH_SLUGGIT_MAIN = R"GLSL(
 	}
 )GLSL";
 
-// Sluggit-only fragment hook: overrides osgSlug_FragEmCoord's emsPerPixel with the analytic
+// Sluggit-only fragment hook: overrides osgSlug_FragmentEmCoord's emsPerPixel with the analytic
 // value PATH_SLUGGIT_MAIN computed (pathEmScale), instead of the unreliable
 // fwidth(geom.emCoord) Atlas.shaders.cpp main() computes by default - see PATH_SLUGGIT_MAIN's
 // header comment. Isotropic: emCoord.x is pinned constant by design (a different, earlier fix),
@@ -321,7 +321,7 @@ static const std::string PATH_SLUGGIT_MAIN = R"GLSL(
 // This is Sluggit's per-FLAVOR default for the FragmentHook slot (Atlas::ProgramSpec::fragHook),
 // not a user hook: a caller's own FragmentHook still substitutes it, and in doing so gives up the
 // analytic emsPerPixel. A Sluggit FragmentHook that cares about AA quality should define its own
-// osgSlug_FragEmCoord the same way this one does.
+// osgSlug_FragmentEmCoord the same way this one does.
 //
 // osgSlug_FragmentData used to be hand-copied here, because the #pragma below is expanded by
 // Atlas.shaders.cpp's own resolver and this file couldn't reach it. Routing PathDrawable's
@@ -330,13 +330,13 @@ static const std::string PATH_SLUGGIT_MAIN = R"GLSL(
 static const char* PATH_SLUGGIT_FRAG_HOOK = R"GLSL(
 	#version 430 core
 
-	#pragma osgSlug lib_fragment
+	#pragma osgSlug fragment_emcoord
 
 	in osgSlug_PathEmScaleBlock {
 		flat float emsPerPixel;
 	} pathEmScale;
 
-	vec2 osgSlug_FragEmCoord(vec2 emCoord, inout vec2 emsPerPixel, int effectId, float time) {
+	vec2 osgSlug_FragmentEmCoord(vec2 emCoord, inout vec2 emsPerPixel, int effectId, float time) {
 		emsPerPixel = vec2(pathEmScale.emsPerPixel);
 
 		return emCoord;

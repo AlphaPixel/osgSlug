@@ -11,7 +11,7 @@
 static const std::string VERT_SHADER = R"(
 #version 430 core
 
-#pragma osgSlug lib_vertex
+#pragma osgSlug vertex,vertex_lib
 
 uniform float u_hourAngle;
 uniform float u_minuteAngle;

@@ -22,14 +22,10 @@ static constexpr uint32_t RAYMARCHER_EFFECT_ID = 10;
 static const char* FRAGMENT_HOOK = R"(
 #version 430 core
 
-#pragma osgSlug lib_fragment
+#pragma osgSlug fragment
 
 uniform float osg_SimulationTime;
 uniform vec2 iResolution;
-
-vec2 osgSlug_FragEmCoord(vec2 emCoord, inout vec2 emsPerPixel, int effectId, float time) {
-	return emCoord;
-}
 
 // Raymarched fractal tunnel. Uses gl_FragCoord so the effect tiles in screen-space
 // and the shape boundary acts as a clipping window into the scene.

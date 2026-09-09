@@ -65,7 +65,7 @@ DEPTH_DRIFT = 0.55
 DEPTH_DRIFT_HOOK = """
 #version 430 core
 
-#pragma osgSlug lib_vertex
+#pragma osgSlug vertex
 
 osgSlug_VertexResult osgSlug_Vertex(osgSlug_VertexData data) {
 	osgSlug_VertexResult r = osgSlug_VertexDefault(data);

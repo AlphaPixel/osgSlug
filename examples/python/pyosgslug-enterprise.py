@@ -168,7 +168,7 @@ void main() {
 # keeping the ring coplanar with the saucer as the model tumbles.
 VERT_EFFECTS = """
 #version 430 core
-#pragma osgSlug lib_vertex
+#pragma osgSlug vertex
 
 vec3 osgSlug_Vertex(
     vec3 pos, vec2 emCoord, vec2 uv,

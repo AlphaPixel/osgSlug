@@ -140,11 +140,7 @@ SkPath buildJigsawPiecePath() {
 static const std::string FRAG_SHADER = R"(
 #version 330 core
 
-#pragma osgSlug lib_fragment
-
-vec2 osgSlug_FragEmCoord(vec2 emCoord, inout vec2 emsPerPixel, int effectId, float time) {
-    return emCoord;
-}
+#pragma osgSlug fragment
 
 vec4 osgSlug_Fragment(osgSlug_FragmentData data) {
     if(data.effectId == 1) {

@@ -37,7 +37,7 @@ DAMAGE_STYLES = {
 DAMAGE_VERTEX_HOOK = """
 #version 430 core
 
-#pragma osgSlug lib_vertex
+#pragma osgSlug vertex
 
 uniform float u_damageStartTime;
 
@@ -62,8 +62,7 @@ osgSlug_VertexResult osgSlug_Vertex(osgSlug_VertexData data) {
 DAMAGE_FRAGMENT_HOOK = """
 #version 430 core
 
-#pragma osgSlug lib_fragment
-#pragma osgSlug lib_fragment_em
+#pragma osgSlug fragment,fragment_lib
 
 uniform float u_damageStartTime;
 

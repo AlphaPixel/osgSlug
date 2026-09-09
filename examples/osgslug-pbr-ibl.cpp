@@ -44,7 +44,7 @@ static constexpr float MSDF_RANGE = 0.45f;
 static std::string makeChromeFrag() {
 	std::string src = R"GLSL(
 #version 430 core
-#pragma osgSlug lib_fragment
+#pragma osgSlug fragment,fragment_lib
 
 // 430, not 330: `#pragma osgx::pbr *` pulls in LIGHT_UNIFORMS, which declares the osgx_lights
 // SSBO (`buffer osgx_LightBuffer`) - SSBOs require GLSL 430+, matching osgSlug's own
@@ -62,10 +62,6 @@ uniform float iblIntensity;
 // osgx_lights come from LIGHT_UNIFORMS (already spliced in via `#pragma osgx::pbr *` above) --
 // the same SSBO-backed osgx::LightSet that OrbitLightRig writes position/intensity into
 // every frame, so this loop stays in sync with it instead of hand-copying a shadow uniform API.
-
-vec2 osgSlug_FragEmCoord(vec2 emCoord, inout vec2 emsPerPixel, int effectId, float time) {
-	return emCoord;
-}
 
 vec4 osgSlug_Fragment(osgSlug_FragmentData data) {
 	// Only the badge's own layer (effectId=1, set in main()) gets the chrome treatment --

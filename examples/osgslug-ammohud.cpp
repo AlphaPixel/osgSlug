@@ -11,7 +11,7 @@
 static const std::string VERT_SHADER = R"(
 #version 430 core
 
-#pragma osgSlug lib_vertex
+#pragma osgSlug vertex
 
 osgSlug_VertexResult osgSlug_Vertex(osgSlug_VertexData data) {
 	if(data.effectId == 2) {

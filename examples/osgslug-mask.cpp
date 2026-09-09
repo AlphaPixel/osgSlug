@@ -50,28 +50,25 @@ static constexpr float MSDF_RANGE = 0.025f;
 // view, since it overlays the tile exactly where it's actually affecting the render.
 // ================================================================================================
 
-// Forward-declares (does NOT `#pragma osgSlug lib_mask`): that library's function BODIES are
+// Forward-declares (does NOT `#pragma osgSlug mask_lib`): that library's function BODIES are
 // already linked in via the always-present MaskHook shader object (SHADER_MASK_FRAGMENT_HOOK),
 // and GLSL rejects the same function being defined twice across shader objects linked into one
-// Program. Pulling in lib_mask a second time here to reach these two helpers is exactly the
+// Program. Pulling in mask_lib a second time here to reach these two helpers is exactly the
 // trap that broke this file's first draft - forward-declare-and-call instead, the same way
 // SHADER_FRAG itself reaches osgSlug_Fragment/osgSlug_FragmentExt/osgSlug_FragmentMask.
 //
 // This hook occupies the FragmentHook slot, which REPLACES the entire default shader object --
-// so it must define BOTH functions that slot's default (SHADER_NOOP_FRAGMENT_HOOK) normally
-// provides, not just osgSlug_Fragment. osgSlug_FragEmCoord is the one easy to forget (main()
-// calls it unconditionally, before osgSlug_Fragment even runs) since most hooks never need to
-// touch it - passthrough here, identical to the noop default.
+// but unlike osgSlug_Fragment, it does NOT need to define osgSlug_FragmentEmCoord itself: `fragment`
+// (as opposed to `fragment_emcoord`) already merges in the identity-passthrough default this
+// hook would otherwise have to hand-write, which used to be the one function every FragmentHook
+// forgot (main() calls it unconditionally, before osgSlug_Fragment even runs, so a hook missing
+// it failed at link time with no clue why from reading the hook's own source).
 static const std::string HOOK_DEBUG_MSDF = R"(
 #version 430 core
-#pragma osgSlug lib_fragment
+#pragma osgSlug fragment
 
 vec2 osgSlug_Mask_LayerOrigin();
 vec3 osgSlug_Mask_DebugMSDF(vec2 canvasCoord);
-
-vec2 osgSlug_FragEmCoord(vec2 emCoord, inout vec2 emsPerPixel, int effectId, float time) {
-	return emCoord;
-}
 
 vec4 osgSlug_Fragment(osgSlug_FragmentData data) {
 	vec3 msd = osgSlug_Mask_DebugMSDF(data.emCoord + osgSlug_Mask_LayerOrigin());

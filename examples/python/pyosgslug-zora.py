@@ -106,7 +106,7 @@ void main() {
 VERT_EFFECTS = """
 #version 430 core
 
-#pragma osgSlug lib_vertex
+#pragma osgSlug vertex,vertex_lib
 
 osgSlug_VertexResult osgSlug_Vertex(osgSlug_VertexData data) {
 	if(data.effectId == 1) return osgSlug_Vertex_Rotate(data, data.effectParam * data.time);
