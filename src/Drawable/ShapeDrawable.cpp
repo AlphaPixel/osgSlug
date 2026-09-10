@@ -249,7 +249,7 @@ void ShapeDrawable::compile() {
 	// [1] gradientMeta: x=gradientId, yz=center, w=r0_norm
 	// [2] gradientXform
 	// [3] effectData: x=effectId, y=shapeIndex, z=msdfData, w=effectParam
-	// [4] transformData: xy=layer.transform.xy (canvas-space origin, read by osgSlug_Mask_Evaluate); z=layer.bleed; w=unused
+	// [4] transformData: xy=layer.transform.xy (canvas-space origin, read by osgSlug_Mask_Evaluate); z=layer.bleed; w=pickID (0=not pickable, see setLayerPickID())
 	// [5] axisX: xyz=model-space dir of +1 em along X, w=worldPerEm rate
 	// [6] axisY: xyz=model-space dir of +1 em along Y, w=worldPerEm rate
 	auto ssbo = osgx::make_ref<osg::ShaderStorageBufferObject>();
@@ -308,7 +308,7 @@ void ShapeDrawable::compile() {
 				cv(packMSDFData(shape->msdfLayer, shape->msdfRange)),
 				layer.effectParam
 			});
-			layerBuf->push_back({layer.transform.x, layer.transform.y, layer.bleed, 0_cv});
+			layerBuf->push_back({layer.transform.x, layer.transform.y, layer.bleed, cv(rs.pickID)});
 			// [5]/[6] quad frame: xyz = model-space direction of +1 em along each quad axis,
 			// w = worldPerEm rate along it. SHADER_VERT's live margin/bleed push uses these
 			// (a hook can override them when it deforms geometry non-uniformly).
@@ -398,6 +398,15 @@ void ShapeDrawable::setLayerShapeIndex(size_t index, size_t shapeIndex) {
 	(*_layers[index].buffer)[3].y() = cv(shapeIndex);
 }
 
+void ShapeDrawable::setLayerPickID(size_t index, uint32_t id) {
+	if(index >= _layers.size() || !_layers[index].buffer) return;
+
+	auto& rs = _layers[index];
+
+	rs.pickID = id;
+	(*rs.buffer)[4].w() = cv(id);
+}
+
 void ShapeDrawable::setLayerGradientTransform(size_t index, const slughorn::Matrix& m) {
 	auto* atlas = getAtlas();
 
@@ -433,7 +442,10 @@ void ShapeDrawable::updateLayer(size_t index, const slughorn::Layer& layer) {
 	buf[1] = gmeta;
 	buf[2] = gxform;
 	buf[3] = Vec4(cv(layer.effectId), shapeIdx, buf[3].z(), buf[3].w());
-	buf[4] = Vec4(layer.transform.x, layer.transform.y, 0_cv, 0_cv);
+	// Preserve bleed (z) and pickID (w) - neither comes from the Layer parameter, so a wholesale
+	// Vec4(...) here previously reset both to 0 on every updateLayer() call (bleed silently lost;
+	// pickID would have been too, once it started meaning something instead of sitting unused).
+	buf[4] = Vec4(layer.transform.x, layer.transform.y, layer.bleed, cv(_layers[index].pickID));
 }
 
 void ShapeDrawable::dirtyLayers() {

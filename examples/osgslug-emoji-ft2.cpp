@@ -9,6 +9,38 @@
 #include "slughorn/emoji.hpp"
 #include "slughorn/serial.hpp"
 
+static const char* blendModeName(slughorn::BlendMode mode) {
+	using BM = slughorn::BlendMode;
+
+	switch(mode) {
+		case BM::SrcOver: return "SrcOver";
+		case BM::Src: return "Src";
+		case BM::Dst: return "Dst";
+		case BM::SrcIn: return "SrcIn";
+		case BM::DstIn: return "DstIn";
+		case BM::SrcOut: return "SrcOut";
+		case BM::DstOut: return "DstOut";
+		case BM::SrcAtop: return "SrcAtop";
+		case BM::DstAtop: return "DstAtop";
+		case BM::Xor: return "Xor";
+		case BM::Clear: return "Clear";
+		case BM::DstOver: return "DstOver";
+		case BM::Multiply: return "Multiply";
+		case BM::Screen: return "Screen";
+		case BM::Overlay: return "Overlay";
+		case BM::Darken: return "Darken";
+		case BM::Lighten: return "Lighten";
+		case BM::ColorDodge: return "ColorDodge";
+		case BM::ColorBurn: return "ColorBurn";
+		case BM::HardLight: return "HardLight";
+		case BM::SoftLight: return "SoftLight";
+		case BM::Difference: return "Difference";
+		case BM::Exclusion: return "Exclusion";
+	}
+
+	return "Unknown";
+}
+
 int main(int argc, char** argv) {
 	osg::ArgumentParser args(&argc, argv);
 
@@ -82,6 +114,11 @@ int main(int argc, char** argv) {
 			OSG_NOTICE
 				<< "Adding layer: " << std::hex << layer.key
 				<< " color=" << color
+				<< std::endl
+			;
+
+			if(layer.blendMode != slughorn::BlendMode::SrcOver) OSG_NOTICE
+				<< "  Non-default BlendMode: " << blendModeName(layer.blendMode)
 				<< std::endl
 			;
 

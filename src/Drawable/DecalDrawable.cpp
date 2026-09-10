@@ -319,8 +319,6 @@ void DecalDrawable::compile() {
 			// computeEmBounds() themselves now always return TRUE bounds.
 			static constexpr slug_t DECAL_EXPAND = 0.01_cv;
 
-			const auto q = shape->computeQuad(layer.transform, layer.scale);
-
 			// The decal's UV grid always spans the shape's FULL given tangent frame - one fixed
 			// [0,1] window, same for every layer regardless of what it references (see this file's
 			// vertex shader: world = P + (u-0.5)*Te + (v-0.5)*Tn, no per-layer scaling). Prior to
@@ -384,9 +382,13 @@ void DecalDrawable::compile() {
 				cv(layer.effectId),
 				shapeIdx,
 				cv(packMSDFData(shape->msdfLayer, shape->msdfRange)),
-				// Padded width (pre-removal parity): q is now the TRUE quad, so re-add the local
-				// margin this drawable still bakes (see DECAL_EXPAND above).
-				(q.x1 - q.x0) + 2_cv * DECAL_EXPAND * layer.scale
+				// This is effectData.w, read straight through as effectParam by SHADER_VERT_DECAL
+				// (fx.effectParam = ld.effectData.w) - same slot/contract as the non-decal LayerData
+				// buffer. Was q.x1-q.x0 (padded quad width) since this SSBO layout's introduction in
+				// 16af75d - that value is never consumed as a width by anything, so every decal
+				// fragment hook reading data.effectParam (erosion, glow falloff, bevel strength) has
+				// silently gotten a bogus quad-width number instead of the real authored param.
+				cv(layer.effectParam)
 			}); // [3]
 
 			Vec4 center, tangentEast, tangentNorth;

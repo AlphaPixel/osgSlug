@@ -41,6 +41,11 @@ public:
 		// null if that composite had no mask. Pointer identity (not value) is what marks two
 		// layers as "masked together" - see ai/context-todo-mask.md, "Step 2 design".
 		osg::ref_ptr<RenderMask> mask;
+
+		// GPU object-ID pick ID for this layer, packed into transformData.w (see compile()'s own
+		// SSBO layout comment) and read back by SHADER_PICK_FRAG. 0 = not pickable (the default -
+		// most layers never opt in). Set via setLayerPickID(); see ai/context-todo-picking.md.
+		uint32_t pickID = 0;
 	};
 
 	ShapeDrawable() = default;
@@ -77,6 +82,14 @@ public:
 	virtual void setLayerEffectParam(size_t index, slug_t param);
 	virtual void setLayerShapeIndex(size_t index, size_t shapeIndex);
 	virtual void setLayerGradientTransform(size_t index, const slughorn::Matrix& m);
+
+	// GPU object-ID picking: 0 (default) = this layer never writes a pick ID and is invisible to
+	// SHADER_PICK_FRAG. See RenderShape::pickID's own comment and ai/context-todo-picking.md.
+	virtual void setLayerPickID(size_t index, uint32_t id);
+
+	uint32_t getLayerPickID(size_t index) const {
+		return index < _layers.size() ? _layers[index].pickID : 0;
+	}
 
 	// Full re-pack from a Layer struct. Re-runs gradient packing internally.
 	virtual void updateLayer(size_t index, const slughorn::Layer& layer);

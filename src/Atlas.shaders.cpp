@@ -4,6 +4,7 @@ OSGSLUG_DISABLE_WARNINGS
 
 #include <osg/BlendFunc>
 #include <osg/Shader>
+#include <osgx/Picking.hpp>
 
 OSGSLUG_ENABLE_WARNINGS
 
@@ -31,7 +32,8 @@ void registerOsgSlugCoreShaderLibs() {
 			{"vertex_main", {}, osgSlug::Atlas::SHADER_VERTEX_MAIN},
 			{"fragment_emcoord", {}, osgSlug::Atlas::SHADER_FRAGMENT_EMCOORD},
 			{"fragment", {}, osgSlug::Atlas::SHADER_FRAGMENT},
-			{"fragment_lib", {}, osgSlug::Atlas::SHADER_LIB_FRAGMENT}
+			{"fragment_lib", {}, osgSlug::Atlas::SHADER_LIB_FRAGMENT},
+			{"coverage_lib", {}, osgSlug::Atlas::SHADER_LIB_COVERAGE}
 		};
 
 		osgx::registerShaderLibs("osgSlug", libs);
@@ -42,11 +44,12 @@ void registerOsgSlugCoreShaderLibs() {
 	(void)registered;
 }
 
-// Resolves both osgSlug's registered hook libraries and osgx's PBR/IBL catalogs.
+// Resolves both osgSlug's registered hook libraries and osgx's PBR/IBL/picking catalogs.
 std::string resolveShaderLibs(std::string src) {
 	registerOsgSlugCoreShaderLibs();
 	osgx::registerPBRShaderLibs();
 	osgx::registerIBLShaderLibs();
+	osgx::registerPickShaderLibs();
 
 	return osgx::resolveShaderLibs(std::move(src));
 }
@@ -93,7 +96,7 @@ struct osgSlug_LayerData {
 	vec4 gradientMeta; // x = gradientId (1-based), yz = gradient center, w = r0_norm
 	vec4 gradientXform;// gradient transform (B matrix / direction / sweep)
 	vec4 effectData; // x = effectId, y = shapeIndex (into AtlasShapeBuffer), z = packed msdfLayer+msdfRange (see packMSDFData()) or -1 if no MSDF tile, w = effectParam
-	vec4 transformData; // xy = layer.transform.xy (canvas-space origin); z = layer.bleed (em); w = unused
+	vec4 transformData; // xy = layer.transform.xy (canvas-space origin); z = layer.bleed (em); w = pickID (0 = not pickable, see ShapeDrawable::setLayerPickID())
 	vec4 axisX; // xyz = model-space direction of +1 em along the quad's X axis, w = worldPerEm rate
 	vec4 axisY; // xyz = model-space direction of +1 em along the quad's Y axis, w = worldPerEm rate
 };
@@ -369,6 +372,321 @@ vec3 osgSlug_MSDFBevelNormal(
 	float bevelWidth,
 	float bevelStrength
 );
+)";
+
+// slug_Render/slug_RenderText (Lengyel's Slug band/curve-texture analytic coverage algorithm) and
+// osgSlug_CoverageFill(), which wraps them with the exact early-mask-discard-then-fill sequence
+// main() (SHADER_FRAG) itself uses. Always linked into SHADER_FRAG via #pragma osgSlug
+// coverage_lib (see its own pull-in comment there) - factored out into its own catalog entry, not
+// just left inline, so osgSlug's pick fragment shader can pull in the SAME functions and get
+// byte-identical coverage decisions instead of re-deriving Slug's own math a second time. See
+// slughorn/ai/context-todo-picking.md.
+// Prerequisites (the consuming shader must already have, BEFORE this pragma): #pragma osgSlug
+// fragment_emcoord (geom/fx blocks + osgSlug_FragmentMaskData), `uniform float
+// osg_SimulationTime;`, `uniform bool osgSlug_textMode;`.
+//
+// MUST be defined (in file order) before Atlas::SHADER_FRAG below: SHADER_FRAG's own static
+// initializer is what first calls resolveShaderLibs() at process static-init time (see
+// registerOsgSlugCoreShaderLibs()'s own comment at the top of this file), and its raw text
+// contains `#pragma osgSlug coverage_lib` - this must already be registered (i.e. THIS string
+// already constructed) by the time that runs, or the pragma silently expands to nothing instead
+// of throwing (registerShaderLibs() hasn't seen "coverage_lib" yet at that point, so
+// resolveShaderLibs() just leaves an unrecognized-namespace pragma... except "osgSlug" itself IS
+// a recognized namespace by then, just missing this one entry - see resolveShaderLibs()'s own
+// unknown-lib-name error path, which DOES catch this case and throw. Still: keep this above
+// SHADER_FRAG, not after, and this whole class of bug stays a compile-time throw instead of a
+// silent no-op).
+const std::string Atlas::SHADER_LIB_COVERAGE = R"(
+
+// Forward declarations only (safe to repeat across shader objects linked into one Program,
+// unlike function bodies) - this lib's own osgSlug_CoverageFill() below needs them regardless of
+// whether the consuming shader happens to also declare/use them itself (SHADER_FRAG does, later,
+// for its own osgSlug_Fragment/FragmentExt calls; osgSlug's pick fragment shader doesn't need
+// either directly, only through here).
+float osgSlug_FragmentMask(osgSlug_FragmentMaskData data);
+vec2 osgSlug_FragmentEmCoord(vec2 emCoord, inout vec2 emsPerPixel, int effectId, float time);
+
+uniform sampler2D osgSlug_curveTexture;
+uniform usampler2D osgSlug_bandTexture;
+
+// log2(atlas.getTextureWidth()); set by Atlas::createDefaultStateSet() via __builtin_ctz.
+uniform int osgSlug_texWidth;
+
+// Must match slughorn::Atlas::INDIRECTION_SIZE.
+#define SLUG_INDIRECTION_SIZE 32
+
+uint slug_CalcRootCode(float y1, float y2, float y3) {
+	uint i1 = floatBitsToUint(y1) >> 31u;
+	uint i2 = floatBitsToUint(y2) >> 30u;
+	uint i3 = floatBitsToUint(y3) >> 29u;
+
+	uint shift = (i2 & 2u) | (i1 & ~2u);
+	shift = (i3 & 4u) | (shift & ~4u);
+
+	return ((0x2E74u >> shift) & 0x0101u);
+}
+
+vec2 slug_SolveHorizPoly(vec4 p12, vec2 p3) {
+	vec2 a = p12.xy - p12.zw * 2.0 + p3;
+	vec2 b = p12.xy - p12.zw;
+	float ra = 1.0 / a.y;
+	float rb = 0.5 / b.y;
+
+	float d = sqrt(max(b.y * b.y - a.y * p12.y, 0.0));
+	float t1 = (b.y - d) * ra;
+	float t2 = (b.y + d) * ra;
+
+	if(abs(a.y) < 1.0 / 65536.0) { t1 = p12.y * rb; t2 = t1; }
+
+	return vec2(
+		(a.x * t1 - b.x * 2.0) * t1 + p12.x,
+		(a.x * t2 - b.x * 2.0) * t2 + p12.x
+	);
+}
+
+vec2 slug_SolveVertPoly(vec4 p12, vec2 p3) {
+	vec2 a = p12.xy - p12.zw * 2.0 + p3;
+	vec2 b = p12.xy - p12.zw;
+	float ra = 1.0 / a.x;
+	float rb = 0.5 / b.x;
+
+	float d = sqrt(max(b.x * b.x - a.x * p12.x, 0.0));
+	float t1 = (b.x - d) * ra;
+	float t2 = (b.x + d) * ra;
+
+	if(abs(a.x) < 1.0 / 65536.0) { t1 = p12.x * rb; t2 = t1; }
+
+	return vec2(
+		(a.y * t1 - b.y * 2.0) * t1 + p12.y,
+		(a.y * t2 - b.y * 2.0) * t2 + p12.y
+	);
+}
+
+ivec2 slug_CalcBandLoc(ivec2 glyphLoc, uint offset) {
+	ivec2 bandLoc = ivec2(glyphLoc.x + int(offset), glyphLoc.y);
+
+	bandLoc.y += bandLoc.x >> osgSlug_texWidth;
+	bandLoc.x &= (1 << osgSlug_texWidth) - 1;
+
+	return bandLoc;
+}
+
+// 2026-08-30: re-derive a curve's second texel location the same way slug_CalcBandLoc()
+// re-derives a band fetch's row, instead of flat-adding to curveLoc.x. Packing today always
+// aligns a curve's 2 texels to start at an even X so they never straddle a row, making this a
+// no-op - but endpoint-shared curve packing (planned) removes that alignment, so a curve's
+// second texel CAN legitimately land at the start of the next row.
+ivec2 slug_CalcCurveLoc(ivec2 curveLoc, int offset) {
+	ivec2 loc = ivec2(curveLoc.x + offset, curveLoc.y);
+
+	loc.y += loc.x >> osgSlug_texWidth;
+	loc.x &= (1 << osgSlug_texWidth) - 1;
+
+	return loc;
+}
+
+float slug_CalcCoverage(float xcov, float ycov, float xwgt, float ywgt) {
+	float coverage = max(
+		abs(xcov * xwgt + ycov * ywgt) / max(xwgt + ywgt, 1.0 / 65536.0),
+		min(abs(xcov), abs(ycov))
+	);
+
+	return clamp(coverage, 0.0, 1.0);
+}
+
+// ------------------------------------------------------------------------------------------------
+// slug_BandY / slug_BandX
+// ------------------------------------------------------------------------------------------------
+int slug_BandY(ivec2 glyphLoc, vec4 bandTransform, vec2 renderCoord) {
+	int q = clamp(int(renderCoord.y * bandTransform.y + bandTransform.w), 0, SLUG_INDIRECTION_SIZE - 1);
+
+	return int(texelFetch(osgSlug_bandTexture, ivec2(glyphLoc.x + q, glyphLoc.y), 0).r);
+}
+
+int slug_BandX(ivec2 glyphLoc, vec4 bandTransform, vec2 renderCoord) {
+	int q = clamp(int(renderCoord.x * bandTransform.x + bandTransform.z), 0, SLUG_INDIRECTION_SIZE - 1);
+
+	return int(texelFetch(osgSlug_bandTexture, ivec2(glyphLoc.x + SLUG_INDIRECTION_SIZE + q, glyphLoc.y), 0).r);
+}
+
+// ------------------------------------------------------------------------------------------------
+// slug_Render
+// ------------------------------------------------------------------------------------------------
+float slug_Render(
+	vec2 renderCoord,
+	vec2 pixelsPerEm,
+	vec4 bandTransform,
+	ivec2 glyphLoc,
+	ivec2 bandMax,
+	out int totalIterations
+) {
+	int curveIndex;
+
+	int bandY = slug_BandY(glyphLoc, bandTransform, renderCoord);
+	int bandX = slug_BandX(glyphLoc, bandTransform, renderCoord);
+
+	float xcov = 0.0;
+	float xwgt = 0.0;
+	int iters = 0;
+
+	uvec2 hbandData = texelFetch(osgSlug_bandTexture, ivec2(glyphLoc.x + 2 * SLUG_INDIRECTION_SIZE + bandY, glyphLoc.y), 0).xy;
+
+	for(curveIndex = 0; curveIndex < int(hbandData.x); curveIndex++) {
+		iters++;
+
+		// 2026-08-26: re-derive this fetch's row every iteration (instead of computing
+		// hbandLoc once and flat-adding curveIndex to its X) so a band's curve-index list
+		// can span more than one texture row - see slughorn.cpp's Atlas::build() comment
+		// at the (now-removed) "count > _texWidth" guard for the full story.
+		ivec2 hbandLoc = slug_CalcBandLoc(glyphLoc, hbandData.y + uint(curveIndex));
+		ivec2 curveLoc = ivec2(texelFetch(osgSlug_bandTexture, hbandLoc, 0).xy);
+
+		vec4 p12 = texelFetch(osgSlug_curveTexture, curveLoc, 0) - vec4(renderCoord, renderCoord);
+
+		// 2026-08-31: same re-derive-per-fetch pattern as slug_CalcBandLoc above, now applied to
+		// a curve's own second texel - needed once packTextures() (slughorn.cpp) started
+		// sharing texels between connected curves (Lengyel's Slug convention: a chain of N
+		// connected curves costs N+1 texels instead of 2N), which packs densely with no
+		// per-curve row alignment. Adds a handful of ALU ops per curve iteration; negligible
+		// next to the texture fetch and sqrt-based polynomial solve already in this loop.
+		// Shipped as the default (no opt-in flag) - lossless, and verified bit-identical
+		// against the pre-sharing renderer at real CJK-atlas scale (see slughorn's
+		// slughorn-test-render.cpp and NEXT_SESSION.md history).
+		vec2 p3 = texelFetch(osgSlug_curveTexture, slug_CalcCurveLoc(curveLoc, 1), 0).xy - renderCoord;
+
+		if(max(max(p12.x, p12.z), p3.x) * pixelsPerEm.x < -0.5) break;
+
+		uint code = slug_CalcRootCode(p12.y, p12.w, p3.y);
+
+		if(code != 0u) {
+			vec2 r = slug_SolveHorizPoly(p12, p3) * pixelsPerEm.x;
+
+			if((code & 1u) != 0u) {
+				xcov += clamp(r.x + 0.5, 0.0, 1.0);
+				xwgt = max(xwgt, clamp(1.0 - abs(r.x) * 2.0, 0.0, 1.0));
+			}
+
+			if(code > 1u) {
+				xcov -= clamp(r.y + 0.5, 0.0, 1.0);
+				xwgt = max(xwgt, clamp(1.0 - abs(r.y) * 2.0, 0.0, 1.0));
+			}
+		}
+	}
+
+	float ycov = 0.0;
+	float ywgt = 0.0;
+
+	uvec2 vbandData = texelFetch(osgSlug_bandTexture, ivec2(glyphLoc.x + 2 * SLUG_INDIRECTION_SIZE + bandMax.y + 1 + bandX, glyphLoc.y), 0).xy;
+
+	for(curveIndex = 0; curveIndex < int(vbandData.x); curveIndex++) {
+		iters++;
+
+		// See the matching comment in the horizontal-band loop above.
+		ivec2 vbandLoc = slug_CalcBandLoc(glyphLoc, vbandData.y + uint(curveIndex));
+		ivec2 curveLoc = ivec2(texelFetch(osgSlug_bandTexture, vbandLoc, 0).xy);
+
+		vec4 p12 = texelFetch(osgSlug_curveTexture, curveLoc, 0) - vec4(renderCoord, renderCoord);
+
+		// See the matching endpoint-sharing tradeoff comment in the horizontal-band loop above.
+		vec2 p3 = texelFetch(osgSlug_curveTexture, slug_CalcCurveLoc(curveLoc, 1), 0).xy - renderCoord;
+
+		if(max(max(p12.y, p12.w), p3.y) * pixelsPerEm.y < -0.5) break;
+
+		uint code = slug_CalcRootCode(p12.x, p12.z, p3.x);
+
+		if(code != 0u) {
+			vec2 r = slug_SolveVertPoly(p12, p3) * pixelsPerEm.y;
+
+			if((code & 1u) != 0u) {
+				ycov -= clamp(r.x + 0.5, 0.0, 1.0);
+				ywgt = max(ywgt, clamp(1.0 - abs(r.x) * 2.0, 0.0, 1.0));
+			}
+
+			if(code > 1u) {
+				ycov += clamp(r.y + 0.5, 0.0, 1.0);
+				ywgt = max(ywgt, clamp(1.0 - abs(r.y) * 2.0, 0.0, 1.0));
+			}
+		}
+	}
+
+	totalIterations = iters;
+
+	return slug_CalcCoverage(xcov, ycov, xwgt, ywgt);
+}
+
+// ------------------------------------------------------------------------------------------------
+// slug_RenderText
+// ------------------------------------------------------------------------------------------------
+float slug_RenderText(
+	vec2 renderCoord,
+	vec2 emsPerPixel,
+	vec2 pixelsPerEm,
+	vec4 bandTransform,
+	ivec2 glyphLoc,
+	ivec2 bandMax,
+	out int totalIterations
+) {
+	float ppem = 1.0 / max(emsPerPixel.x, emsPerPixel.y);
+
+	int iters;
+	float c = slug_Render(renderCoord, pixelsPerEm, bandTransform, glyphLoc, bandMax, iters);
+
+#ifndef OSGSLUG_NO_MSAA
+	if(ppem < 16.0) {
+		vec2 d = emsPerPixel * (1.0 / 3.0);
+		int i1, i2, i3, i4;
+		float msaa = 0.25 * (
+			slug_Render(renderCoord + vec2(-d.x, -d.y), pixelsPerEm, bandTransform, glyphLoc, bandMax, i1) +
+			slug_Render(renderCoord + vec2( d.x, -d.y), pixelsPerEm, bandTransform, glyphLoc, bandMax, i2) +
+			slug_Render(renderCoord + vec2(-d.x, d.y), pixelsPerEm, bandTransform, glyphLoc, bandMax, i3) +
+			slug_Render(renderCoord + vec2( d.x, d.y), pixelsPerEm, bandTransform, glyphLoc, bandMax, i4)
+		);
+		float msaaAmount = 1.0 - smoothstep(8.0, 16.0, ppem);
+
+		c = mix(c, msaa, msaaAmount);
+
+		iters += i1 + i2 + i3 + i4;
+	}
+#endif
+
+	totalIterations = iters;
+
+	return c;
+}
+
+// Computes Slug's own analytic fill coverage [0,1] for the CURRENT fragment, exactly like
+// main()'s own (former) inline computation - INCLUDING the same early mask discard (see
+// osgSlug_FragmentMask's own doc comment in SHADER_FRAGMENT_EMCOORD): a masked-away fragment
+// never returns from this call at all, same as before.
+//
+// Deliberately excludes osgSlug_FragmentExt (glow/halo effects can make a fragment visible even
+// where Slug's own fill is exactly 0 - out of scope here, see ai/context-todo-picking.md) and the
+// text-mode stem-darkening/gamma reshaping main() applies afterward (an AA-only cosmetic
+// adjustment on values already inside (0,1); immaterial to a covered/not-covered decision).
+//
+// out maskFill: the same mask-coverage value main() folds into its final alpha later - callers
+// that don't need it (a pick fragment shader) can still just declare a throwaway local for it.
+// out iterations: slug_Render's own iteration count, needed only for main()'s heatmap debug
+// modes - a pick fragment shader can likewise ignore it via a throwaway local.
+float osgSlug_CoverageFill(out float maskFill, out int iterations) {
+	ivec2 glyphLoc = ivec2(fx.shapeData.xy);
+	ivec2 bandMax = ivec2(fx.shapeData.zw);
+	vec2 emsPerPixel = fwidth(geom.emCoord);
+
+	maskFill = osgSlug_FragmentMask(
+		osgSlug_FragmentMaskData(geom.emCoord, geom.uv, emsPerPixel, osg_SimulationTime)
+	);
+
+	if(maskFill < 0.001) discard;
+
+	vec2 renderCoord = osgSlug_FragmentEmCoord(geom.emCoord, emsPerPixel, fx.effectId, osg_SimulationTime);
+	vec2 pixelsPerEm = 1.0 / emsPerPixel;
+
+	return osgSlug_textMode
+		? slug_RenderText(renderCoord, emsPerPixel, pixelsPerEm, fx.bandXform, glyphLoc, bandMax, iterations)
+		: slug_Render(renderCoord, pixelsPerEm, fx.bandXform, glyphLoc, bandMax, iterations)
+	;
+}
 )";
 
 // #pragma osgSlug fragment - SHADER_FRAGMENT_EMCOORD plus a default (identity passthrough)
@@ -696,8 +1014,10 @@ vec4 osgSlug_Effect_GlowMSDF(float msdfSd, int msdfLayer, float msdfRange, vec4 
 
 uniform float osg_SimulationTime;
 
-uniform sampler2D osgSlug_curveTexture;
-uniform usampler2D osgSlug_bandTexture;
+// osgSlug_curveTexture/osgSlug_bandTexture/osgSlug_texWidth and SLUG_INDIRECTION_SIZE moved into
+// coverage_lib (see the #pragma osgSlug coverage_lib pull-in below, where SHADER_LIB_COVERAGE's
+// own comment explains why) - the same declarations a pick fragment shader needs to reuse
+// osgSlug_CoverageFill() without also linking the rest of this file.
 uniform sampler2D osgSlug_gradientTexture;
 uniform sampler2DArray osgSlug_msdfTexture;
 uniform int osgSlug_gradientCount;
@@ -711,11 +1031,11 @@ uniform int osgSlug_layerMask;
 
 out vec4 color;
 
-// log2(atlas.getTextureWidth()); set by Atlas::createDefaultStateSet() via __builtin_ctz.
-uniform int osgSlug_texWidth;
-
-// Must match slughorn::Atlas::INDIRECTION_SIZE.
-#define SLUG_INDIRECTION_SIZE 32
+// Provides osgSlug_curveTexture/osgSlug_bandTexture/osgSlug_texWidth, SLUG_INDIRECTION_SIZE, and
+// osgSlug_CoverageFill() (Slug's own analytic fill test, factored out so a pick fragment shader
+// can reuse it byte-for-byte - see SHADER_LIB_COVERAGE's own comment). Pulled in here, ahead of
+// the MSDF helpers just below, which also need SLUG_INDIRECTION_SIZE.
+#pragma osgSlug coverage_lib
 
 // ================================================================================================
 // MSDF field helpers (prototypes + usage contract in SHADER_LIB_FRAGMENT)
@@ -774,248 +1094,10 @@ vec3 osgSlug_MSDFBevelNormal(
 	return normalize(flatNormal + (tangentU * edgeDir.x + tangentV * edgeDir.y) * bevel * bevelStrength);
 }
 
-// ================================================================================================
-// Slug core
-// ================================================================================================
-
-uint slug_CalcRootCode(float y1, float y2, float y3) {
-	uint i1 = floatBitsToUint(y1) >> 31u;
-	uint i2 = floatBitsToUint(y2) >> 30u;
-	uint i3 = floatBitsToUint(y3) >> 29u;
-
-	uint shift = (i2 & 2u) | (i1 & ~2u);
-	shift = (i3 & 4u) | (shift & ~4u);
-
-	return ((0x2E74u >> shift) & 0x0101u);
-}
-
-vec2 slug_SolveHorizPoly(vec4 p12, vec2 p3) {
-	vec2 a = p12.xy - p12.zw * 2.0 + p3;
-	vec2 b = p12.xy - p12.zw;
-	float ra = 1.0 / a.y;
-	float rb = 0.5 / b.y;
-
-	float d = sqrt(max(b.y * b.y - a.y * p12.y, 0.0));
-	float t1 = (b.y - d) * ra;
-	float t2 = (b.y + d) * ra;
-
-	if(abs(a.y) < 1.0 / 65536.0) { t1 = p12.y * rb; t2 = t1; }
-
-	return vec2(
-		(a.x * t1 - b.x * 2.0) * t1 + p12.x,
-		(a.x * t2 - b.x * 2.0) * t2 + p12.x
-	);
-}
-
-vec2 slug_SolveVertPoly(vec4 p12, vec2 p3) {
-	vec2 a = p12.xy - p12.zw * 2.0 + p3;
-	vec2 b = p12.xy - p12.zw;
-	float ra = 1.0 / a.x;
-	float rb = 0.5 / b.x;
-
-	float d = sqrt(max(b.x * b.x - a.x * p12.x, 0.0));
-	float t1 = (b.x - d) * ra;
-	float t2 = (b.x + d) * ra;
-
-	if(abs(a.x) < 1.0 / 65536.0) { t1 = p12.x * rb; t2 = t1; }
-
-	return vec2(
-		(a.y * t1 - b.y * 2.0) * t1 + p12.y,
-		(a.y * t2 - b.y * 2.0) * t2 + p12.y
-	);
-}
-
-ivec2 slug_CalcBandLoc(ivec2 glyphLoc, uint offset) {
-	ivec2 bandLoc = ivec2(glyphLoc.x + int(offset), glyphLoc.y);
-
-	bandLoc.y += bandLoc.x >> osgSlug_texWidth;
-	bandLoc.x &= (1 << osgSlug_texWidth) - 1;
-
-	return bandLoc;
-}
-
-// 2026-08-30: re-derive a curve's second texel location the same way slug_CalcBandLoc()
-// re-derives a band fetch's row, instead of flat-adding to curveLoc.x. Packing today always
-// aligns a curve's 2 texels to start at an even X so they never straddle a row, making this a
-// no-op - but endpoint-shared curve packing (planned) removes that alignment, so a curve's
-// second texel CAN legitimately land at the start of the next row.
-ivec2 slug_CalcCurveLoc(ivec2 curveLoc, int offset) {
-	ivec2 loc = ivec2(curveLoc.x + offset, curveLoc.y);
-
-	loc.y += loc.x >> osgSlug_texWidth;
-	loc.x &= (1 << osgSlug_texWidth) - 1;
-
-	return loc;
-}
-
-float slug_CalcCoverage(float xcov, float ycov, float xwgt, float ywgt) {
-	float coverage = max(
-		abs(xcov * xwgt + ycov * ywgt) / max(xwgt + ywgt, 1.0 / 65536.0),
-		min(abs(xcov), abs(ycov))
-	);
-
-	return clamp(coverage, 0.0, 1.0);
-}
-
-// ------------------------------------------------------------------------------------------------
-// slug_BandY / slug_BandX
-// ------------------------------------------------------------------------------------------------
-int slug_BandY(ivec2 glyphLoc, vec4 bandTransform, vec2 renderCoord) {
-	int q = clamp(int(renderCoord.y * bandTransform.y + bandTransform.w), 0, SLUG_INDIRECTION_SIZE - 1);
-
-	return int(texelFetch(osgSlug_bandTexture, ivec2(glyphLoc.x + q, glyphLoc.y), 0).r);
-}
-
-int slug_BandX(ivec2 glyphLoc, vec4 bandTransform, vec2 renderCoord) {
-	int q = clamp(int(renderCoord.x * bandTransform.x + bandTransform.z), 0, SLUG_INDIRECTION_SIZE - 1);
-
-	return int(texelFetch(osgSlug_bandTexture, ivec2(glyphLoc.x + SLUG_INDIRECTION_SIZE + q, glyphLoc.y), 0).r);
-}
-
-// ------------------------------------------------------------------------------------------------
-// slug_Render
-// ------------------------------------------------------------------------------------------------
-float slug_Render(
-	vec2 renderCoord,
-	vec2 pixelsPerEm,
-	vec4 bandTransform,
-	ivec2 glyphLoc,
-	ivec2 bandMax,
-	out int totalIterations
-) {
-	int curveIndex;
-
-	int bandY = slug_BandY(glyphLoc, bandTransform, renderCoord);
-	int bandX = slug_BandX(glyphLoc, bandTransform, renderCoord);
-
-	float xcov = 0.0;
-	float xwgt = 0.0;
-	int iters = 0;
-
-	uvec2 hbandData = texelFetch(osgSlug_bandTexture, ivec2(glyphLoc.x + 2 * SLUG_INDIRECTION_SIZE + bandY, glyphLoc.y), 0).xy;
-
-	for(curveIndex = 0; curveIndex < int(hbandData.x); curveIndex++) {
-		iters++;
-
-		// 2026-08-26: re-derive this fetch's row every iteration (instead of computing
-		// hbandLoc once and flat-adding curveIndex to its X) so a band's curve-index list
-		// can span more than one texture row - see slughorn.cpp's Atlas::build() comment
-		// at the (now-removed) "count > _texWidth" guard for the full story.
-		ivec2 hbandLoc = slug_CalcBandLoc(glyphLoc, hbandData.y + uint(curveIndex));
-		ivec2 curveLoc = ivec2(texelFetch(osgSlug_bandTexture, hbandLoc, 0).xy);
-
-		vec4 p12 = texelFetch(osgSlug_curveTexture, curveLoc, 0) - vec4(renderCoord, renderCoord);
-
-		// 2026-08-31: same re-derive-per-fetch pattern as slug_CalcBandLoc above, now applied to
-		// a curve's own second texel - needed once packTextures() (slughorn.cpp) started
-		// sharing texels between connected curves (Lengyel's Slug convention: a chain of N
-		// connected curves costs N+1 texels instead of 2N), which packs densely with no
-		// per-curve row alignment. Adds a handful of ALU ops per curve iteration; negligible
-		// next to the texture fetch and sqrt-based polynomial solve already in this loop.
-		// Shipped as the default (no opt-in flag) - lossless, and verified bit-identical
-		// against the pre-sharing renderer at real CJK-atlas scale (see slughorn's
-		// slughorn-test-render.cpp and NEXT_SESSION.md history).
-		vec2 p3 = texelFetch(osgSlug_curveTexture, slug_CalcCurveLoc(curveLoc, 1), 0).xy - renderCoord;
-
-		if(max(max(p12.x, p12.z), p3.x) * pixelsPerEm.x < -0.5) break;
-
-		uint code = slug_CalcRootCode(p12.y, p12.w, p3.y);
-
-		if(code != 0u) {
-			vec2 r = slug_SolveHorizPoly(p12, p3) * pixelsPerEm.x;
-
-			if((code & 1u) != 0u) {
-				xcov += clamp(r.x + 0.5, 0.0, 1.0);
-				xwgt = max(xwgt, clamp(1.0 - abs(r.x) * 2.0, 0.0, 1.0));
-			}
-
-			if(code > 1u) {
-				xcov -= clamp(r.y + 0.5, 0.0, 1.0);
-				xwgt = max(xwgt, clamp(1.0 - abs(r.y) * 2.0, 0.0, 1.0));
-			}
-		}
-	}
-
-	float ycov = 0.0;
-	float ywgt = 0.0;
-
-	uvec2 vbandData = texelFetch(osgSlug_bandTexture, ivec2(glyphLoc.x + 2 * SLUG_INDIRECTION_SIZE + bandMax.y + 1 + bandX, glyphLoc.y), 0).xy;
-
-	for(curveIndex = 0; curveIndex < int(vbandData.x); curveIndex++) {
-		iters++;
-
-		// See the matching comment in the horizontal-band loop above.
-		ivec2 vbandLoc = slug_CalcBandLoc(glyphLoc, vbandData.y + uint(curveIndex));
-		ivec2 curveLoc = ivec2(texelFetch(osgSlug_bandTexture, vbandLoc, 0).xy);
-
-		vec4 p12 = texelFetch(osgSlug_curveTexture, curveLoc, 0) - vec4(renderCoord, renderCoord);
-
-		// See the matching endpoint-sharing tradeoff comment in the horizontal-band loop above.
-		vec2 p3 = texelFetch(osgSlug_curveTexture, slug_CalcCurveLoc(curveLoc, 1), 0).xy - renderCoord;
-
-		if(max(max(p12.y, p12.w), p3.y) * pixelsPerEm.y < -0.5) break;
-
-		uint code = slug_CalcRootCode(p12.x, p12.z, p3.x);
-
-		if(code != 0u) {
-			vec2 r = slug_SolveVertPoly(p12, p3) * pixelsPerEm.y;
-
-			if((code & 1u) != 0u) {
-				ycov -= clamp(r.x + 0.5, 0.0, 1.0);
-				ywgt = max(ywgt, clamp(1.0 - abs(r.x) * 2.0, 0.0, 1.0));
-			}
-
-			if(code > 1u) {
-				ycov += clamp(r.y + 0.5, 0.0, 1.0);
-				ywgt = max(ywgt, clamp(1.0 - abs(r.y) * 2.0, 0.0, 1.0));
-			}
-		}
-	}
-
-	totalIterations = iters;
-
-	return slug_CalcCoverage(xcov, ycov, xwgt, ywgt);
-}
-
-// ------------------------------------------------------------------------------------------------
-// slug_RenderText
-// ------------------------------------------------------------------------------------------------
-float slug_RenderText(
-	vec2 renderCoord,
-	vec2 emsPerPixel,
-	vec2 pixelsPerEm,
-	vec4 bandTransform,
-	ivec2 glyphLoc,
-	ivec2 bandMax,
-	out int totalIterations
-) {
-	float ppem = 1.0 / max(emsPerPixel.x, emsPerPixel.y);
-
-	int iters;
-	float c = slug_Render(renderCoord, pixelsPerEm, bandTransform, glyphLoc, bandMax, iters);
-
-#ifndef OSGSLUG_NO_MSAA
-	if(ppem < 16.0) {
-		vec2 d = emsPerPixel * (1.0 / 3.0);
-		int i1, i2, i3, i4;
-		float msaa = 0.25 * (
-			slug_Render(renderCoord + vec2(-d.x, -d.y), pixelsPerEm, bandTransform, glyphLoc, bandMax, i1) +
-			slug_Render(renderCoord + vec2( d.x, -d.y), pixelsPerEm, bandTransform, glyphLoc, bandMax, i2) +
-			slug_Render(renderCoord + vec2(-d.x, d.y), pixelsPerEm, bandTransform, glyphLoc, bandMax, i3) +
-			slug_Render(renderCoord + vec2( d.x, d.y), pixelsPerEm, bandTransform, glyphLoc, bandMax, i4)
-		);
-		float msaaAmount = 1.0 - smoothstep(8.0, 16.0, ppem);
-
-		c = mix(c, msaa, msaaAmount);
-
-		iters += i1 + i2 + i3 + i4;
-	}
-#endif
-
-	totalIterations = iters;
-
-	return c;
-}
+// slug_CalcRootCode/slug_SolveHorizPoly/slug_SolveVertPoly/slug_CalcBandLoc/slug_CalcCurveLoc/
+// slug_CalcCoverage/slug_BandY/slug_BandX/slug_Render/slug_RenderText and osgSlug_CoverageFill()
+// (which calls slug_Render/slug_RenderText the same way main() below used to inline) now live in
+// SHADER_LIB_COVERAGE, pulled in via the #pragma osgSlug coverage_lib above.
 
 // ------------------------------------------------------------------------------------------------
 // slug_Heatmap
@@ -1188,7 +1270,6 @@ void main() {
 	if(osgSlug_layerMask != 0 && (osgSlug_layerMask & (1 << int(geom.layerIndex + 0.5))) == 0) discard;
 
 	ivec2 glyphLoc = ivec2(fx.shapeData.xy);
-	ivec2 bandMax = ivec2(fx.shapeData.zw);
 
 	// fwidth on the raw varying, no discontinuities. osgSlug_FragmentEmCoord may scale it for
 	// effects like tiling (where fract would make fwidth unreliable at tile boundaries).
@@ -1212,24 +1293,15 @@ void main() {
 	// on the mask's AA boundary survive here (maskFill > 0 but < 1) and still need slug_Render's
 	// real coverage - osgSlug_maskFill is folded into the final alpha further down, once
 	// osgSlug_Fragment/osgSlug_FragmentExt have run. See ai/context-todo-mask.md.
-	float osgSlug_maskFill = osgSlug_FragmentMask(
-		osgSlug_FragmentMaskData(geom.emCoord, geom.uv, emsPerPixel, osg_SimulationTime)
-	);
-
-	if(osgSlug_maskFill < COVERAGE_EPSILON) discard;
-
-	// Allow effects to remap em-coords (e.g. fract-based GPU tiling). Gradients and debug
-	// visualisation stay on the raw geom.emCoord; only coverage sampling uses renderCoord.
-	vec2 renderCoord = osgSlug_FragmentEmCoord(geom.emCoord, emsPerPixel, fx.effectId, osg_SimulationTime);
-
-	vec2 pixelsPerEm = 1.0 / emsPerPixel;
-
+	//
+	// osgSlug_CoverageFill() (coverage_lib) does exactly this early-mask-then-Slug-fill sequence
+	// - including the discard above if the mask rejects this fragment outright - and returns the
+	// same `fill` main() used to compute inline here. Factored out so a pick fragment shader can
+	// call the identical function instead of re-deriving Slug's own analytic coverage test; see
+	// ai/context-todo-picking.md.
+	float osgSlug_maskFill;
 	int iterations;
-
-	float fill = osgSlug_textMode
-		? slug_RenderText(renderCoord, emsPerPixel, pixelsPerEm, fx.bandXform, glyphLoc, bandMax, iterations)
-		: slug_Render(renderCoord, pixelsPerEm, fx.bandXform, glyphLoc, bandMax, iterations)
-	;
+	float fill = osgSlug_CoverageFill(osgSlug_maskFill, iterations);
 
 	// Edge-only coverage adjustment for text: stem darkening and gamma correction.
 	if (osgSlug_textMode && fill > 0.0 && fill < 1.0) {
@@ -1409,6 +1481,70 @@ void main() {
 
 		color = vec4(outPremul * osgSlug_maskFill, outAlpha * osgSlug_maskFill);
 	}
+}
+)");
+
+// See Atlas.hpp's own declaration comment. Layer-mask discard matches SHADER_FRAG's main() (a
+// layer hidden via osgSlug_layerMask shouldn't be pickable either); the coverage/discard decision
+// itself is entirely osgSlug_CoverageFill() (coverage_lib) - this shader adds nothing to that
+// logic, only the ID lookup/packing on top of a coverage pass.
+const std::string Atlas::SHADER_PICK_FRAG = resolveShaderLibs(R"(
+#version 430 core
+
+#pragma osgSlug fragment_emcoord
+
+// osg_SimulationTime/osgSlug_textMode MUST be declared before the coverage_lib pragma below:
+// #pragma expands to coverage_lib's SOURCE TEXT splicing in right at this line, and
+// osgSlug_CoverageFill() (defined there) reads both - declaring them afterward instead compiles
+// but fails to LINK ("undefined variable"), since GLSL requires declare-before-use in the final
+// assembled text just like C. See SHADER_FRAG's own identical ordering for the same reason.
+uniform float osg_SimulationTime;
+uniform bool osgSlug_textMode;
+
+#pragma osgSlug coverage_lib
+#pragma osgx::picking encode
+
+// Bitmask controlling which layers are visible - same uniform/semantics as SHADER_FRAG's
+// osgSlug_layerMask (see its own comment there); set identically wherever both programs are used
+// on the same drawable.
+uniform int osgSlug_layerMask;
+
+// Private re-declaration of LayerBuffer (see SHADER_TYPES): needed here because this fragment
+// shader's own shader object never gets SHADER_TYPES prepended (only the vertex shader does - see
+// makeVertShader() in Atlas::createProgram()). GLSL requires each shader object/stage to
+// redeclare the buffer blocks it uses; this is normal, not a hack - see SHADER_LIB_MASK's own
+// identical redeclaration for precedent. Only used to recover transformData.w (this layer's own
+// pick ID, 0 = not pickable - see ShapeDrawable::setLayerPickID()) via geom.layerIndex.
+struct osgSlug_LayerData {
+	vec4 color;
+	vec4 gradientMeta;
+	vec4 gradientXform;
+	vec4 effectData;
+	vec4 transformData;
+	vec4 axisX; // MUST stay member-identical to SHADER_TYPES' declaration (GL links by block
+	vec4 axisY; // layout) - see the expand-removal / GPU-live margin work
+};
+
+layout(std430, binding = 1) readonly buffer LayerBuffer {
+	osgSlug_LayerData layers[];
+};
+
+out vec4 fragColor;
+
+void main() {
+	if(osgSlug_layerMask != 0 && (osgSlug_layerMask & (1 << int(geom.layerIndex + 0.5))) == 0) discard;
+
+	uint pickID = uint(layers[int(geom.layerIndex + 0.5) - 1].transformData.w + 0.5);
+
+	if(pickID == 0u) discard;
+
+	float maskFill;
+	int iterations;
+	float fill = osgSlug_CoverageFill(maskFill, iterations);
+
+	if(fill < 0.001) discard;
+
+	fragColor = osgx_encodePickID(pickID);
 }
 )");
 
@@ -2087,6 +2223,10 @@ osg::Program* Atlas::createProgram(const ProgramSpec& spec, const HookList& hook
 
 osg::Program* Atlas::createDefaultProgram(const HookList& hooks) {
 	return createProgram({.vertMain = SHADER_VERT, .types = SHADER_TYPES, .fragMain = SHADER_FRAG}, hooks);
+}
+
+osg::Program* Atlas::createPickProgram(const HookList& hooks) {
+	return createProgram({.vertMain = SHADER_VERT, .types = SHADER_TYPES, .fragMain = SHADER_PICK_FRAG}, hooks);
 }
 
 osg::StateSet* Atlas::createDefaultStateSet(HookList hooks) const {

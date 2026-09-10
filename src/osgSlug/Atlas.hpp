@@ -167,11 +167,24 @@ public:
 	static const std::string SHADER_LIB_FRAGMENT;
 	static const std::string SHADER_LIB_SCANLINE; // evaluate_bezier + intersect_monotonic + scanline_sweep
 	static const std::string SHADER_LIB_MASK; // osgSlug_SDF_* + osgSlug_Mask_* impls; opt-in via #pragma osgSlug mask_lib
+	// slug_Render/slug_RenderText + their band/curve-texture helpers, and osgSlug_CoverageFill()
+	// (Slug's own analytic fill test, including the early mask-hook discard) - always linked via
+	// #pragma osgSlug coverage_lib in SHADER_FRAG, and reused verbatim by osgSlug's pick fragment
+	// shader so the two can never compute a different answer for the same fragment. See
+	// SHADER_FRAG's own #pragma osgSlug coverage_lib pull-in comment and
+	// slughorn/ai/context-todo-picking.md.
+	static const std::string SHADER_LIB_COVERAGE;
 	static const std::string SHADER_VERT; // main SSBO vertex shader (embedded)
 	static const std::string SHADER_VERT_DECAL; // tangent-plane decal vertex shader (embedded)
 	static const std::string SHADER_FRAG; // main fragment shader (embedded, resolved)
 	static const std::string SHADER_SCANLINE_VERT; // ScanlineDrawable vertex shader
 	static const std::string SHADER_SCANLINE_FRAG; // ScanlineDrawable fragment shader (resolved)
+	// GPU object-ID pick fragment: calls osgSlug_CoverageFill() (coverage_lib) for the real
+	// Slug/mask coverage test - the SAME one SHADER_FRAG's main() uses - and on a coverage pass
+	// writes a packed pick ID (the `pickID` uniform's per-drawable base, plus this fragment's
+	// 0-based layer offset) instead of color; discards otherwise. See createPickProgram() and
+	// ai/context-todo-picking.md.
+	static const std::string SHADER_PICK_FRAG;
 
 	enum Hook { VertexHook, FragmentHook, FragmentExtHook, MaskHook };
 
@@ -218,6 +231,28 @@ public:
 
 	// The standard SHADER_VERT + SHADER_FRAG pipeline every ShapeDrawable/SubdividedDrawable uses.
 	static osg::Program* createDefaultProgram(const HookList& hooks={});
+
+	// SHADER_VERT (unmodified - every VertexHook still runs, so a deformed shape picks correctly)
+	// + SHADER_PICK_FRAG. Meant to run in a shared osgx::Picking.hpp pick camera pass alongside
+	// arbitrary other pickable content, writing into the same object-ID buffer: install on a
+	// StateSet as Program+OVERRIDE over that camera's own generic default program (OSG resolves a
+	// deeper OVERRIDE over an ancestor's - the shared drawable's own real Program, set without
+	// OVERRIDE by createDefaultStateSet(), only wins where no such ancestor exists, i.e. under the
+	// normal scene root). Per-layer opt-in: SHADER_PICK_FRAG reads each layer's own pick ID
+	// straight from the existing LayerBuffer SSBO (transformData.w - see
+	// ShapeDrawable::setLayerPickID()), 0 = not pickable (the default), so individual layers
+	// within one CompositeShape can be pickable independently with no extra uniform or wrapper
+	// StateSet needed per drawable. `hooks` should normally match whatever
+	// VertexHook/FragmentHook/MaskHook the drawable's real Program uses, so a hover/click test
+	// lands on the same deformed/remapped/masked silhouette that's actually on screen - NOT the
+	// same as the real Program's own hooks by default, since createPickProgram() has no drawable
+	// to read them from (static, like createDefaultProgram()); the caller passes them through
+	// explicitly.
+	//
+	// Does NOT consider osgSlug_FragmentExt (glow/halo can make a fragment visible past Slug's own
+	// fill; deliberately out of scope - see SHADER_LIB_COVERAGE's own comment and
+	// ai/context-todo-picking.md).
+	static osg::Program* createPickProgram(const HookList& hooks={});
 
 	osg::StateSet* createDefaultStateSet(HookList hooks={}) const;
 

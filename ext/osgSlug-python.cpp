@@ -429,6 +429,32 @@ PYBIND11_MODULE(osgSlug, m) {
 			"halfWidthDeg"_a,
 			"halfHeightDeg"_a=-1_cv
 		)
+		.def("addPlanarDecal",
+			[](
+				osgSlug::DecalDrawable& self,
+				const slughorn::Layer& layer,
+				const osgSlug::Vec3& origin,
+				const osgSlug::Vec3& tangentU,
+				const osgSlug::Vec3& tangentV
+			) {
+				// slughorn::Mask isn't bound to Python (only the render-side RenderMask is),
+				// so mask clipping isn't reachable here yet - always unmasked.
+				self.addPlanarDecal(layer, origin, tangentU, tangentV);
+			},
+			"layer"_a,
+			"origin"_a,
+			"tangentU"_a,
+			"tangentV"_a,
+			"Add a decal layer on a flat surface: origin is the decal's center in world space, "
+			"tangentU/tangentV are the FULL width/height vectors (not half-extents)."
+		)
+		.def("updatePlanarDecalPosition",
+			&osgSlug::DecalDrawable::updatePlanarDecalPosition,
+			"index"_a,
+			"origin"_a,
+			"tangentU"_a,
+			"tangentV"_a
+		)
 		.def("setDecalTransform",
 			&osgSlug::DecalDrawable::setDecalTransform,
 			"index"_a,
