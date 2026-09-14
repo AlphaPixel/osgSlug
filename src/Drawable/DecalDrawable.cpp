@@ -76,7 +76,7 @@ void DecalDrawable::addDecal(
 	anchor.halfWidthDeg = halfWidthDeg;
 	anchor.halfHeightDeg = halfHeightDeg;
 
-	_decalEntries.push_back({layer, anchor, nullptr});
+	_decalEntries.push_back({anchor, nullptr});
 	addLayer(layer);
 }
 
@@ -100,7 +100,7 @@ void DecalDrawable::addPlanarDecal(
 
 	if(mask) renderMask = new RenderMask(*mask, RENDER_MASK_UBO_BINDING);
 
-	_decalEntries.push_back({layer, anchor, renderMask});
+	_decalEntries.push_back({anchor, renderMask});
 	addLayer(layer);
 }
 
@@ -207,6 +207,22 @@ void DecalDrawable::setDecalTransform(
 	dirtyLayers(index);
 }
 
+void DecalDrawable::clear() {
+	_decalEntries.clear();
+
+	ShapeDrawable::clear();
+}
+
+void DecalDrawable::setBlendMode(slughorn::BlendMode mode) {
+	// _groups is the actual draw-time state (applyBlendMode() reads it per group); _layers is
+	// updated too so getLayer()/getLayers() don't report a stale mode. _decalEntries is
+	// deliberately NOT touched here - it's only ever read inside compile(), which never re-runs
+	// once _compiled is true (DecalDrawable has no path that resets it, unlike PathDrawable), so
+	// writing there would just be dead state with nothing behind it.
+	for(auto& g : _groups) g.blendMode = mode;
+	for(auto& rs : _layers) rs.layer.blendMode = mode;
+}
+
 osg::BoundingBox DecalDrawable::computeBoundingBox() const {
 	osg::BoundingBox bb;
 	bool hasSphere = false;
@@ -243,8 +259,6 @@ osg::BoundingBox DecalDrawable::computeBoundingBox() const {
 
 void DecalDrawable::updateLayer(size_t index, const slughorn::Layer& layer) {
 	if(index >= _decalEntries.size()) return;
-
-	_decalEntries[index].layer = layer;
 
 	SubdividedDrawable::updateLayer(index, layer);
 }
@@ -292,8 +306,11 @@ void DecalDrawable::compile() {
 	index_element_type base = 0;
 	RenderMask* lastRepacked = nullptr; // dedupes repack() across consecutive shared-mask entries
 
+	// _layers[i] is assumed to exist for every _decalEntries[i]: addDecal()/addPlanarDecal() push
+	// to both in lockstep, and clear() (now overridden below) empties both together.
 	for(size_t i = 0; i < _decalEntries.size(); i++) {
-		const auto& [layer, anchor, entryMask] = _decalEntries[i];
+		const auto& [anchor, entryMask] = _decalEntries[i];
+		const auto& layer = _layers[i].layer;
 		const slug_t lidx = cv(i + 1);
 
 		auto layerBuf = osgx::make_ref<osgx::Vec4Array>();

@@ -1,5 +1,6 @@
 examples/tmp/*.cpp
 examples/tmp/*.bk
+examples/python/__pycache__
 
 # Prerequisites
 *.d

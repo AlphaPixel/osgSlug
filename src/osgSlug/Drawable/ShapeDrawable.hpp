@@ -71,7 +71,10 @@ public:
 		return _layers[index].layer;
 	}
 
-	void clear() { _layers.clear(); }
+	// Virtual so subclasses carrying their own per-layer side storage (e.g. DecalDrawable's
+	// _decalEntries) can clear it in lockstep - a non-virtual clear() here would leave _layers
+	// empty while a subclass's own array still held stale entries.
+	virtual void clear() { _layers.clear(); }
 
 	void compile() override;
 

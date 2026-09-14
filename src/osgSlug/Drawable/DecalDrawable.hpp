@@ -72,6 +72,22 @@ public:
 		slug_t rotationAngle=0_cv
 	);
 
+	// Sets every layer's blend mode at once - the common decal case (one uniform "paint on a
+	// surface" look), unlike ShapeDrawable's typically heterogeneous per-layer colors/modes,
+	// which is why this lives here and not on the base. Purely a GL blend-state change: every
+	// layer moves to the SAME new mode together, so RenderGroup membership (who's batched with
+	// whom) never changes, only what each existing group renders with - safe to call any time,
+	// compiled or not, no dirtyLayers() needed. No getBlendMode() counterpart: blendMode is
+	// fundamentally a per-Layer property, and this is only sensible as a write-all shortcut, not
+	// something a whole DecalDrawable can be said to coherently "have".
+	void setBlendMode(slughorn::BlendMode mode);
+
+	// Overridden so _decalEntries (anchors/masks) is cleared right alongside the inherited
+	// _layers - without this, ShapeDrawable::clear() alone would leave _decalEntries stale
+	// and out of lockstep with _layers, which compile() assumes never happens (see its own
+	// comment in DecalDrawable.cpp).
+	void clear() override;
+
 	void updateLayer(size_t index, const slughorn::Layer& layer) override;
 	void compile() override;
 
@@ -94,7 +110,10 @@ private:
 
 	// mask mirrors ShapeDrawable::RenderShape::mask: set immediately by addPlanarDecal() (no
 	// Atlas required yet), null means unmasked. See DecalDrawable::compile()'s group-splitting.
-	struct DecalEntry { slughorn::Layer layer; Anchor anchor; osg::ref_ptr<RenderMask> mask; };
+	// No `layer` field here - that would just duplicate the inherited _layers[i].layer (kept in
+	// sync by every addDecal()/addPlanarDecal() call's own addLayer(layer)); compile() reads it
+	// from there instead.
+	struct DecalEntry { Anchor anchor; osg::ref_ptr<RenderMask> mask; };
 
 	std::vector<DecalEntry> _decalEntries;
 	slug_t _radius = 1_cv;

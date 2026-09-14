@@ -464,6 +464,14 @@ PYBIND11_MODULE(osgSlug, m) {
 			"halfHeightDeg"_a=-1_cv,
 			"rotationAngle"_a=0_cv
 		)
+		.def("setBlendMode",
+			&osgSlug::DecalDrawable::setBlendMode,
+			"mode"_a,
+			"Sets every layer's blend mode at once - a pure GL blend-state change, safe to call "
+			"any time (compiled or not, no dirtyLayers() needed). No getBlendMode(): blendMode is "
+			"a per-Layer property, this is only a write-all shortcut for the common case where a "
+			"decal's paint uses one uniform mode."
+		)
 	;
 
 	py::class_<
