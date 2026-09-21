@@ -55,8 +55,8 @@ from pyosgslug_example import make_trackball, window_size
 
 FONT_PATH = "font/Silkscreen-Bold.ttf"
 
-# Em-space SDF spread for the text's MSDF tiles - effectId 4's chip erosion (DECAL_FRAGMENT_HOOK
-# below) is MSDF-gated (concentrates at the glyph boundary, per data.msdfSd), so this needs to be
+# Em-space SDF spread for the text's baked tiles - effectId 4's chip erosion (DECAL_FRAGMENT_HOOK
+# below) is tile-gated (concentrates at the glyph boundary, per data.sd), so this needs to be
 # enabled again (it was dropped when the BlendMode pivot removed the earlier MSDF-bevel normal).
 MSDF_RANGE = 0.15
 
@@ -225,19 +225,19 @@ vec2 voronoiChip(vec2 p) {
 }
 
 vec4 osgSlug_Fragment(osgSlug_FragmentData data) {
-	// Falls back to a flat fill with no MSDF tile (canvas.set_msdf() in build_decal_atlas()
+	// Falls back to a flat fill with no baked tile (canvas.set_sdf() in build_decal_atlas()
 	// below), AND at effectParam <= 0 - the ported algorithm's "uneven paint survival" term
 	// (broad/mid/fine fbm noise further down) has a threshold baseline that is NOT scaled by
 	// effectParam, only nudged by a small +0.08, so without this explicit bailout --erosion 0
 	// would still show real patchiness instead of pristine paint (worn.cpp's original never
 	// wired 0 to mean "off" for this effectId - it treated 0 as "minimum wear", not "no wear").
-	if(data.msdfSd < 0.0 || data.effectParam <= 0.0) {
+	if(data.sd < 0.0 || data.effectParam <= 0.0) {
 		return vec4(data.layerColor.rgb, data.fill * data.layerColor.a);
 	}
 
 	// distFromEdge grows from 0 at the boundary inward, so chips concentrate at the edge and
 	// vanish toward the center - like paint eroding from the outside in.
-	float distFromEdge = max(0.0, data.msdfSd - 0.5);
+	float distFromEdge = max(0.0, data.sd - 0.5);
 
 	// Procedural wear map, global across the whole word (not per-glyph): low-frequency smooth
 	// noise for organic base variation (some letters naturally more protected than others) plus
@@ -382,9 +382,9 @@ def build_decal_atlas(args):
 				"Twemoji.Mozilla.ttf, not a plain glyph-outline font"
 			)
 
-		# canvas.set_msdf()/canvas.text() do this per glyph automatically (Canvas._applyMSDF());
+		# canvas.set_sdf()/canvas.text() do this per glyph automatically (Canvas._applySDF());
 		# load_emoji_font() bypasses Canvas entirely, so it has to be requested by hand here.
-		source_atlas.request_msdf([layer.key for layer in comp.layers], MSDF_RANGE)
+		source_atlas.request_sdf([layer.key for layer in comp.layers], MSDF_RANGE)
 
 	else:
 		if not slughorn.freetype.load_ascii_font(args.font, source_atlas, config):
@@ -392,7 +392,7 @@ def build_decal_atlas(args):
 
 		canvas = slughorn.canvas.Canvas(source_atlas)
 
-		canvas.set_msdf(True, MSDF_RANGE)
+		canvas.set_sdf(True, MSDF_RANGE)
 		canvas.text(
 			args.text, args.font_size, 0.5, 0.5, args.ink, config.metrics,
 			anchor_y=slughorn.canvas.TextAnchorY.CAP_CENTER,
@@ -419,7 +419,7 @@ def build_decal_atlas(args):
 	# args.ink.rgb, so it stays correct for both cases.
 	base_colors = [(layer.color.r, layer.color.g, layer.color.b) for layer in comp.layers]
 
-	source_atlas.msdf_tile_size = 64
+	source_atlas.set_sdf(slughorn.SDF.Config(tile_size=64))
 	source_atlas.build()
 
 	atlas = osgSlug.Atlas.fromAtlas(source_atlas)

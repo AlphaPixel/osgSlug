@@ -34,9 +34,9 @@ public:
 	// Construction is deliberately Atlas-independent - callers need real identity (this
 	// object, not just its eventual data) before an Atlas is guaranteed resolvable (e.g.
 	// ShapeDrawable::addCompositeShape() may run before this drawable is parented under one).
-	// bindingPoint is the UBO binding index this mask will be bound to in apply(). msdfLayer
-	// (the one field that genuinely needs an Atlas - see repack()) is packed as "none" (-1)
-	// until repack() is called.
+	// bindingPoint is the UBO binding index this mask will be bound to in apply(). The baked
+	// tile (the one thing that genuinely needs an Atlas - see repack()) is packed as "none"
+	// (zero-size rect) until repack() is called.
 	//
 	// No contentOrigin parameter: canvas-space origin is a per-LAYER property (each layer has
 	// its own transform.xy), not a per-mask one - a single shared value here only happens to
@@ -61,14 +61,14 @@ public:
 	// to the imperative per-group apply() below.
 	osg::UniformBufferBinding* getBinding() const { return _binding.get(); }
 
-	// MSDF-only: show the raw baked tile RGB instead of evaluating coverage. Not part of
+	// SDFTile-only: show the raw baked tile texel instead of evaluating coverage. Not part of
 	// slughorn::Mask (a rendering/debug concern, not authoring data) - repack() to upload.
 	void setDebug(bool debug) { _debug = debug; }
 
 	// Re-derives the packed GPU data from the current mask()/contentOrigin and marks it for
 	// re-upload. Call once an Atlas is known (compile() always has one) and again after
 	// mutating mask() in place (e.g. animating params[] frame to frame for a growing-stroke/
-	// radial-wipe/arc-sweep mask) if that mask is type MSDF and its msdfLayer could have
+	// radial-wipe/arc-sweep mask) if that mask is type SDFTile and its tile could have
 	// changed; harmless to call unconditionally otherwise.
 	void repack(const Atlas& atlas);
 
@@ -77,22 +77,24 @@ public:
 	void apply(osg::State& state) const;
 
 private:
-	// CPU mirror of osgSlug_MaskData's std140 layout (48 bytes, zero padding - see the
-	// field-order note in ai/context-todo-mask.md, "params/params2 split"). Real int/bool
-	// bit patterns are required here, NOT numeric-cast-to-float (unlike osgSlug_LayerData's
-	// all-float convention) - osgSlug_MaskData declares actual GLSL int/bool members.
+	// CPU mirror of osgSlug_MaskData's std140 layout (80 bytes: 68 of data, the struct's size
+	// rounds up to its 16-byte alignment - see the field-order note in ai/context-todo-mask.md,
+	// "params/params2 split"). Real int/bool bit patterns are required here, NOT
+	// numeric-cast-to-float (unlike osgSlug_LayerData's all-float convention) -
+	// osgSlug_MaskData declares actual GLSL int/bool members.
 	struct alignas(16) PackedData {
 		slug_t params[4] = {};
+		slug_t sdfRect[4] = {}; // tile texel rect: x, y, w, h (w == 0 = no tile)
+		slug_t sdfFrame[4] = {}; // tile em frame: emOriginX, emOriginY, texelsPerEm, range
 		slug_t params2[2] = {};
 		int32_t type = 0;
-		int32_t msdfLayer = -1;
 		int32_t invert = 0;
 		int32_t debug = 0;
 	};
 
-	static_assert(sizeof(PackedData) == 48);
+	static_assert(sizeof(PackedData) == 80);
 
-	// atlas == nullptr packs msdfLayer as -1 (no MSDF tile resolved yet); see the constructor.
+	// atlas == nullptr packs no tile (zero rect, none resolved yet); see the constructor.
 	void pack(const Atlas* atlas);
 
 	slughorn::Mask _mask;

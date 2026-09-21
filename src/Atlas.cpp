@@ -5,6 +5,7 @@ OSGSLUG_DISABLE_WARNINGS
 
 #include <osg/Image>
 #include <osgUtil/CullVisitor>
+#include <osgx/SDF.hpp>
 
 OSGSLUG_ENABLE_WARNINGS
 
@@ -24,6 +25,12 @@ OSGSLUG_ENABLE_WARNINGS
 #endif
 #ifndef GL_RGB32F
 #define GL_RGB32F 0x8815
+#endif
+#ifndef GL_R32F
+#define GL_R32F 0x822E
+#endif
+#ifndef GL_RED
+#define GL_RED 0x1903
 #endif
 #ifndef GL_RGBA16F_ARB
 #define GL_RGBA16F_ARB 0x881A
@@ -129,44 +136,28 @@ void Atlas::packTextures() {
 			_scanlineTexture = _makeTexture(getScanlineCurveTextureData());
 		}
 
-#ifdef SLUGHORN_HAS_MSDF
 		{
-			const auto& msdfData = getMSDFTextureData();
+			const auto& sdf = getSDF();
 
-			if(!msdfData.empty() && msdfData.depth > 0) {
-				const auto W = static_cast<int>(msdfData.width);
-				const auto H = static_cast<int>(msdfData.height);
-				const auto numLayers = static_cast<int>(msdfData.depth);
-				const size_t floatsPerLayer = static_cast<size_t>(W) * static_cast<size_t>(H) * 3;
-				const auto* src = reinterpret_cast<const float*>(msdfData.bytes.data());
+			if(!sdf.texture.empty()) {
+				const bool single = (sdf.config.type == slughorn::Atlas::SDF::Type::SDF);
+				auto img = new osg::Image();
 
-				auto tex = new osg::Texture2DArray();
+				img->allocateImage(
+					static_cast<int>(sdf.texture.width),
+					static_cast<int>(sdf.texture.height),
+					1,
+					single ? GL_RED : GL_RGB,
+					GL_FLOAT
+				);
 
-				tex->setTextureSize(W, H, numLayers);
-				tex->setFilter(osg::Texture::MIN_FILTER, osg::Texture::LINEAR);
-				tex->setFilter(osg::Texture::MAG_FILTER, osg::Texture::LINEAR);
-				tex->setWrap(osg::Texture::WRAP_S, osg::Texture::CLAMP_TO_EDGE);
-				tex->setWrap(osg::Texture::WRAP_T, osg::Texture::CLAMP_TO_EDGE);
+				img->setInternalTextureFormat(single ? GL_R32F : GL_RGB32F);
 
-				for(int l = 0; l < numLayers; l++) {
-					auto img = new osg::Image();
+				std::memcpy(img->data(), sdf.texture.bytes.data(), sdf.texture.bytes.size());
 
-					img->allocateImage(W, H, 1, GL_RGB, GL_FLOAT);
-					img->setInternalTextureFormat(GL_RGB32F);
-
-					std::memcpy(
-						img->data(),
-						src + static_cast<size_t>(l) * floatsPerLayer,
-						floatsPerLayer * sizeof(float)
-					);
-
-					tex->setImage(static_cast<unsigned int>(l), img);
-				}
-
-				_msdfTexture = tex;
+				_sdfTexture = osgx::SDF::makeTexture(img);
 			}
 		}
-#endif
 
 		// Build the atlas-level shape SSBO (binding 0). One entry per unique shape;
 		// 3 vec4s = 48 bytes per entry: bandXform, shapeData, originData.
@@ -195,6 +186,29 @@ void Atlas::packTextures() {
 		}
 
 		_shapeBuffer->setBufferObject(new osg::ShaderStorageBufferObject());
+
+		// The SDF-only tile table (binding 2), kept OUT of the shape record above on purpose: only
+		// shapes with a baked tile get an entry, in shape order. Layers reach it through the index
+		// each drawable stores in effectData.z. Per tile: rect = (x, y, w, h) in texels;
+		// frame = (emOriginX, emOriginY, texelsPerEm, range), so texel = rect.xy + (em - frame.xy) *
+		// frame.z.
+		_sdfTileBuffer = nullptr;
+		_sdfTileIndex.clear();
+
+		for(const auto& [key, shape] : getShapes()) {
+			if(!shape.sdf) continue;
+
+			const auto& t = *shape.sdf;
+
+			if(!_sdfTileBuffer) _sdfTileBuffer = osgx::make_ref<osgx::Vec4Array>();
+
+			_sdfTileIndex[key] = static_cast<int>(_sdfTileBuffer->size() / 2);
+
+			_sdfTileBuffer->push_back({cv(t.x), cv(t.y), cv(t.w), cv(t.h)});
+			_sdfTileBuffer->push_back({t.emOriginX, t.emOriginY, t.texelsPerEm, t.range});
+		}
+
+		if(_sdfTileBuffer) _sdfTileBuffer->setBufferObject(new osg::ShaderStorageBufferObject());
 	}
 
 	// Always refresh the StateSet so callers can re-apply hook changes by re-calling.
@@ -226,6 +240,12 @@ uint32_t Atlas::getShapeIndex(const slughorn::Key& key) const {
 	if(it == _shapeIndex.end()) throw std::runtime_error("Atlas::getShapeIndex: key not found");
 
 	return it->second;
+}
+
+int Atlas::getSDFTileIndex(const slughorn::Key& key) const {
+	const auto it = _sdfTileIndex.find(key);
+
+	return it == _sdfTileIndex.end() ? -1 : it->second;
 }
 
 osg::ref_ptr<osg::Texture2D> Atlas::_makeTexture(const slughorn::Atlas::TextureData& data) {

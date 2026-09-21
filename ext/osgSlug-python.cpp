@@ -282,8 +282,8 @@ PYBIND11_MODULE(osgSlug, m) {
 			py::return_value_policy::reference_internal
 		)
 		.def_property_readonly(
-			"msdfTexture",
-			&osgSlug::Atlas::getMSDFTexture,
+			"sdfTexture",
+			&osgSlug::Atlas::getSDFTexture,
 			py::return_value_policy::reference_internal
 		)
 		.def("getShapeIndex", &osgSlug::Atlas::getShapeIndex, "key"_a)

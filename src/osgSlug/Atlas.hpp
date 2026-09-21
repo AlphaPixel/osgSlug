@@ -15,10 +15,6 @@ OSGSLUG_DISABLE_WARNINGS
 
 OSGSLUG_ENABLE_WARNINGS
 
-#ifdef SLUGHORN_HAS_MSDF
-#include "slughorn/render.hpp"
-#endif
-
 #include <filesystem>
 #include <string>
 #include <unordered_map>
@@ -77,8 +73,18 @@ public:
 	osg::Texture2D* getGradientTexture() const { return _gradientTexture.get(); }
 	osg::Texture2D* getScanlineTexture() const { return _scanlineTexture.get(); }
 
-	// Valid after packTextures(); null when no shapes have MSDF registered.
-	osg::Texture2DArray* getMSDFTexture() const { return _msdfTexture.get(); }
+	// The one baked SDF/MSDF tile atlas (slughorn::Atlas::getSDF().texture). Valid after
+	// packTextures(); null when no shape requested a tile (Atlas::requestSDF()).
+	osg::Texture2D* getSDFTexture() const { return _sdfTexture.get(); }
+
+	// SDF-only tile table (SSBO binding 2): 2 vec4s per baked tile, {rect, frame} - see
+	// SHADER_FRAG's osgSlug_SDFTile. Indexed by getSDFTileIndex(); null when there are no tiles.
+	// Valid after packTextures().
+	osgx::Vec4Array* getSDFTileBuffer() const { return _sdfTileBuffer.get(); }
+
+	// Index of key's tile in getSDFTileBuffer(), or -1 when the shape has none (this is the value
+	// every drawable stores in its layer's effectData.z).
+	int getSDFTileIndex(const slughorn::Key& key) const;
 
 	// Atlas-level shape SSBO (binding 0). Valid after packTextures().
 	// Returns the 0-based index of key in the shape buffer, or throws if not found.
@@ -158,7 +164,7 @@ public:
 	// (never SHADER_FRAG/SHADER_MASK_FRAGMENT_HOOK*/FragmentExtHook - see SHADER_FRAGMENT_EMCOORD
 	// above, which is what those always use instead).
 	static const std::string SHADER_FRAGMENT;
-	// #pragma osgSlug fragment_lib - osgSlug_Effect_*/osgSlug_Fragment_FadeOut/osgSlug_MSDF*
+	// #pragma osgSlug fragment_lib - osgSlug_Effect_*/osgSlug_Fragment_FadeOut/osgSlug_SDF_*
 	// helper prototypes ONLY (their bodies live inline in SHADER_FRAG, the one always-linked
 	// main fragment unit, same as before). Separate from SHADER_FRAGMENT(_EMCOORD) purely by
 	// convention, matching vertex_lib/mask_lib/scanline_lib: these are genuinely optional extra
@@ -166,7 +172,7 @@ public:
 	// additionally (`#pragma osgSlug fragment,fragment_lib`) rather than being bundled in.
 	static const std::string SHADER_LIB_FRAGMENT;
 	static const std::string SHADER_LIB_SCANLINE; // evaluate_bezier + intersect_monotonic + scanline_sweep
-	static const std::string SHADER_LIB_MASK; // osgSlug_SDF_* + osgSlug_Mask_* impls; opt-in via #pragma osgSlug mask_lib
+	static const std::string SHADER_LIB_MASK; // osgx_SDF_* (osgx/SDF.hpp) + osgSlug_Mask_* impls; opt-in via #pragma osgSlug mask_lib
 	// slug_Render/slug_RenderText + their band/curve-texture helpers, and osgSlug_CoverageFill()
 	// (Slug's own analytic fill test, including the early mask-hook discard) - always linked via
 	// #pragma osgSlug coverage_lib in SHADER_FRAG, and reused verbatim by osgSlug's pick fragment
@@ -299,7 +305,10 @@ private:
 	osg::ref_ptr<osg::Texture2D> _gradientTexture; // null when no gradients registered
 	osg::ref_ptr<osg::Texture2D> _scanlineTexture; // Scanline Sweeper curve data (RGBA32F)
 
-	osg::ref_ptr<osg::Texture2DArray> _msdfTexture; // null when no shapes have MSDF registered
+	osg::ref_ptr<osg::Texture2D> _sdfTexture; // null when no shapes have a baked SDF/MSDF tile
+
+	osg::ref_ptr<osgx::Vec4Array> _sdfTileBuffer; // SDF tile table SSBO, binding 2 (null = no tiles)
+	std::unordered_map<slughorn::Key, int, slughorn::KeyHash> _sdfTileIndex;
 
 	osg::ref_ptr<osgx::Vec4Array> _shapeBuffer; // atlas shape SSBO, binding 0
 	std::unordered_map<slughorn::Key, uint32_t, slughorn::KeyHash> _shapeIndex;

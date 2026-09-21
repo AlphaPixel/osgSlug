@@ -11,7 +11,7 @@
 //   confirmation that N, V, and the specular math are wired correctly, not just a static
 //   flat-shaded color.
 //
-// The dome normal comes from the shape's MSDF distance field via osgSlug_MSDFBevelNormal(), which
+// The dome normal comes from the shape's MSDF distance field via osgSlug_SDF_BevelNormal(), which
 // uses an em-space central difference of the float MSDF tile. That keeps N and its reflection
 // vector smooth at the silhouette instead of quantized by screen-space hardware derivatives.
 
@@ -34,9 +34,9 @@ static float packMaterial(float roughness, float metallic) {
 }
 
 // MSDF range for the dome: em-space half-bandwidth the tile encodes around the edge. Not used
-// for a physically-real distance anywhere (osgSlug_Fragment doesn't get msdfRange, only
-// msdfSd) - the bevel width in the hook is defined directly in msdfSd space instead. Set to
-// just under the badge's own radius (0.5, see canvas.circle() below) so msdfSd sweeps its
+// for a physically-real distance anywhere (osgSlug_Fragment doesn't get the range, only
+// sd) - the bevel width in the hook is defined directly in sd space instead. Set to
+// just under the badge's own radius (0.5, see canvas.circle() below) so sd sweeps its
 // whole edge(0.5)->interior(1.0) range across the ENTIRE shape - reaching 1.0 only right at
 // the center - rather than saturating a few pixels in from the edge.
 static constexpr float MSDF_RANGE = 0.45f;
@@ -58,8 +58,8 @@ uniform vec3 badgeNormalWorld;
 uniform float envMaxMip;
 uniform float iblIntensity;
 
-// Direct-light rig, animated per-frame by osgx::OrbitLightRig (osgx.hpp). osgx_lightCount/
-// osgx_lights come from LIGHT_UNIFORMS (already spliced in via `#pragma osgx::pbr *` above) --
+// Direct-light rig, animated per-frame by osgx::OrbitLightRig (osgx.hpp). osgx_lights
+// comes from LIGHT_UNIFORMS (already spliced in via `#pragma osgx::pbr *` above) --
 // the same SSBO-backed osgx::LightSet that OrbitLightRig writes position/intensity into
 // every frame, so this loop stays in sync with it instead of hand-copying a shadow uniform API.
 
@@ -77,22 +77,22 @@ vec4 osgSlug_Fragment(osgSlug_FragmentData data) {
 	vec3 camUp = normalize(osg_ViewMatrixInverse[1].xyz);
 
 	// Dome normal from the MSDF distance field: flat (Nz) only at the very deepest interior
-	// point, curving continuously all the way out to the edge as msdfSd approaches 0.5
-	// (msdfSd < 0.0 = no MSDF tile - stays flat). BEVEL_WIDTH = 0.5 spans msdfSd's entire
+	// point, curving continuously all the way out to the edge as sd approaches 0.5
+	// (sd < 0.0 = no MSDF tile - stays flat). BEVEL_WIDTH = 0.5 spans sd's entire
 	// edge(0.5)->interior(1.0) range, so this reads as a curved dome across the WHOLE shape,
 	// not just a rim - MSDF_RANGE (see main()) is set to roughly the badge's own radius so
-	// msdfSd actually reaches 1.0 only near dead center instead of saturating a few pixels in.
+	// sd actually reaches 1.0 only near dead center instead of saturating a few pixels in.
 	//
 	// The tilt direction maps the em-space gradient through camRight/camUp - a deliberate
 	// simplification that assumes a mostly camera-facing, un-tilted badge (em x/y == world
 	// x/y == camRight/camUp here).
-	const float BEVEL_WIDTH = 0.5; // msdfSd units: 0.5 = edge .. 1.0 = deep interior
+	const float BEVEL_WIDTH = 0.5; // sd units: 0.5 = edge .. 1.0 = deep interior
 	// Controls how far N tilts at the rim - directly controls how close NdotV gets to 0
 	// there, which drives how bright/edgy the rim's reflections get.
 	const float BEVEL_STRENGTH = 0.7;
 
-	vec3 N = osgSlug_MSDFBevelNormal(
-		data.emCoord, data.msdfSd, Nz, camRight, camUp, BEVEL_WIDTH, BEVEL_STRENGTH
+	vec3 N = osgSlug_SDF_BevelNormal(
+		data.emCoord, data.sd, Nz, camRight, camUp, BEVEL_WIDTH, BEVEL_STRENGTH
 	);
 
 	// V: the camera's constant world-space back axis (osg_ViewMatrixInverse[2], same
@@ -124,7 +124,13 @@ vec4 osgSlug_Fragment(osgSlug_FragmentData data) {
 
 	vec3 direct = vec3(0.0);
 
-	for(int i = 0; i < osgx_lightCount; i++) {
+	// Loop the compile-time OSGX_MAX_LIGHTS, gated by each light's own `enabled` flag - the same
+	// pattern osgx_DirectLighting() uses. LightSet no longer pushes an osgx_lightCount uniform
+	// (it stays 0), so a loop bounded by it never runs; LightSet::setCount() now just disables
+	// the slots past the count instead.
+	for(int i = 0; i < OSGX_MAX_LIGHTS; i++) {
+		if(osgx_lights[i].enabled == 0) continue;
+
 		vec3 L;
 		vec3 radiance = osgx_PointLightRadiance(osgx_lights[i].posIntensity, osgx_lights[i].color, P, L);
 
@@ -213,10 +219,10 @@ int main(int argc, char** argv) {
 	auto atlas = osgx::make_ref<osgSlug::Atlas>();
 	slughorn::canvas::Canvas canvas(*atlas);
 
-	// setMSDF() (before the commit it should apply to) requests this badge's MSDF tile the
-	// moment fill() registers its shape - requestMSDF() is safe pre-build, so build() alone
-	// renders it; no separate post-build registerMSDF()-style call needed below.
-	canvas.setMSDF(true, MSDF_RANGE);
+	// setSDF() (before the commit it should apply to) requests this badge's MSDF tile the
+	// moment fill() registers its shape - requestSDF() is safe pre-build, so build() alone
+	// renders it; no separate post-build registration call needed below.
+	canvas.setSDF(true, MSDF_RANGE);
 	canvas.circle(0.5_cv, 0.5_cv, 0.48_cv);
 	canvas.fill({1.0_cv, 0.86_cv, 0.57_cv, 1.0_cv}); // warm gold tint - F0 for metallic=1
 
@@ -233,7 +239,7 @@ int main(int argc, char** argv) {
 	// much wider em-space span - roughly 2-3 screen pixels per texel at a typical view, which
 	// is why the edge showed visible texel-grid artifacts even with no zoom applied. Must be
 	// set before build().
-	atlas->setMSDFTileSize(128);
+	atlas->setSDF({.tileSize = 128});
 	atlas->build();
 	atlas->packTextures();
 

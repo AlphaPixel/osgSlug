@@ -186,7 +186,7 @@ void SubdividedDrawable::compile() {
 			layerBuf->push_back({
 				cv(layer.effectId),
 				shapeIdx,
-				cv(packMSDFData(shape->msdfLayer, shape->msdfRange)),
+				cv(atlas->getSDFTileIndex(layer.key)), // effectData.z: SDF tile index, -1 = none
 				q.x1 - q.x0
 			});
 			// osgSlug_LayerData grew a 5th slot (transformData) for masking, which this class

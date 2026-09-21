@@ -111,7 +111,6 @@ public:
 		const slug_t emY1 = shape->bearingY + EXPAND;
 
 		const slug_t shapeIdx = cv(_atlas->getShapeIndex(UNIT_SQUARE_KEY));
-		const slug_t msdfPacked = packMSDFData(shape->msdfLayer, shape->msdfRange);
 
 		auto vertices = osgx::make_ref<osgx::Vec4Array>();
 		auto emCoords = osgx::make_ref<osgx::Vec4Array>();
@@ -158,7 +157,7 @@ public:
 			layerBuf->push_back({color.r, color.g, color.b, color.a});
 			layerBuf->push_back({0.0_cv, 0.0_cv, 0.0_cv, 0.0_cv}); // gradientMeta: no gradient
 			layerBuf->push_back({0.0_cv, 0.0_cv, 0.0_cv, 0.0_cv}); // gradientXform: no gradient
-			layerBuf->push_back({0.0_cv, shapeIdx, msdfPacked, 0.0_cv}); // effectData
+			layerBuf->push_back({0.0_cv, shapeIdx, -1.0_cv, 0.0_cv}); // effectData (z = SDF tile index, -1 = none)
 			layerBuf->push_back({0.0_cv, 0.0_cv, 0.0_cv, 0.0_cv}); // transformData
 			layerBuf->setBufferObject(ssbo);
 

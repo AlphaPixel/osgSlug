@@ -77,6 +77,10 @@ def create_scene_canvas():
 	return atlas
 
 if __name__ == "__main__":
+	from pyosgslug_example import DebugModeHandler, configure_viewer, parse_args
+
+	args = parse_args(description=__doc__)
+
 	m = osg.MatrixTransform()
 
 	m.matrix = osg.Matrix.rotate(math.radians(90.0), osg.Vec3(1.0, 0.0, 0.0))
@@ -85,7 +89,8 @@ if __name__ == "__main__":
 
 	viewer = osgViewer.Viewer()
 	viewer.sceneData = m
-	viewer.cameraManipulator = osgGA.TrackballManipulator()
+	viewer.eventHandlers.append(DebugModeHandler(viewer.camera.stateSet))
+	configure_viewer(viewer, m, args)
 
 	while not viewer.done:
 		viewer.frame()

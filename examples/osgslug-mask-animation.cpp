@@ -4,8 +4,8 @@
 // motivated the procedural-vs-baked mask design split in the first place (see
 // ai/context-todo-mask.md). Mutates a RenderMask's underlying slughorn::Mask params in place,
 // frame to frame, then repack()s it - no re-authoring, no atlas rebuild, no baking. Procedural
-// mask types can animate their own *shape* this cheaply; an MSDF-baked mask can only cheaply
-// animate its transform (translate/rotate/scale the sample coordinate), not its underlying
+// mask types can animate their own *shape* this cheaply; a tile-baked mask can only cheaply
+// animate its transform (currently: scale about its center), not its underlying
 // geometry - this demo exercises both.
 //
 // Scene is four quads, one per canvas quadrant, each with its own emoji glyph (COLR, loaded the
@@ -136,9 +136,8 @@ static float pingValue(double t, float phase) {
 }
 
 // Mutates m's "growing"/"spinning"/"zooming" field(s) in place, branching on m.type - shared by
-// every mask this demo animates. cx/cy of each mask's own fixed anchor is already baked into an
-// untouched params[] slot from construction (hexagon's/octagon's/star's own center, MSDF's
-// baked-in cx/cy).
+// every mask this demo animates. Each mask's own fixed anchor is already baked into an untouched
+// params[] slot from construction (hexagon's/octagon's/star's own center, the tile's ox/oy).
 static void animateMask(slughorn::Mask& m, double t, float phase) {
 	switch(m.type) {
 	case slughorn::Mask::Type::Hexagon: {
@@ -159,21 +158,17 @@ static void animateMask(slughorn::Mask& m, double t, float phase) {
 		break;
 	}
 
-	case slughorn::Mask::Type::MSDF: {
-		// The heart quad: a hand-drawn vector path baked into an MSDF tile at authoring time
-		// (see main() below) - its geometry can't cheaply re-animate (that would mean
-		// re-baking), but its SAMPLING WINDOW (params: cx, cy, r, range) can, which is exactly
-		// the "cheaply transform-animatable" property baked masks have. osgSlug_Mask_CoverageFor
-		// (Atlas.shaders.cpp) hard-clamps to maskFill=0 outside [cx-r-range, cx+r+range] in
-		// canvas space, so r IS the reveal's on-screen half-extent - bigger r = bigger apparent
-		// heart, same direction as every other type here. (A previous version of this comment
-		// claimed the opposite; that was wrong, caught when the reveal stopped growing as r
-		// shrank instead of growing.) range (params[3]) is left untouched; it's a small,
-		// roughly-fixed AA padding, not a size.
-		static constexpr float MIN_R = 0.18f, MAX_R = 0.42f;
+	case slughorn::Mask::Type::SDFTile: {
+		// The heart quad: a hand-drawn vector path baked into a distance-field tile at authoring
+		// time (see main() below) - its geometry can't cheaply re-animate (that would mean
+		// re-baking), but its PLACEMENT can, which is exactly the "cheaply transform-animatable"
+		// property baked masks have. params[2] is the tile's scale about its own center (params[0..1]
+		// are its fixed canvas position, left alone), so bigger scale = bigger apparent heart, same
+		// direction as every other type here.
+		static constexpr float MIN_SCALE = 0.5f, MAX_SCALE = 1.2f;
 		const float ping = pingValue(t, phase);
 
-		m.params[2] = MIN_R + ping * (MAX_R - MIN_R);
+		m.params[2] = MIN_SCALE + ping * (MAX_SCALE - MIN_SCALE);
 		break;
 	}
 
@@ -290,7 +285,7 @@ int main(int argc, char** argv) {
 	}
 
 	// Heart mask: hand-drawn path baked as an MSDF tile (no closed-form SDF for a heart - see
-	// heartPath() above). Registration (like requestMSDF() generally) is safe pre-build; capture
+	// heartPath() above). Registration (like requestSDF() generally) is safe pre-build; capture
 	// the resulting Mask now and attach it to its quad's composite once glyph metrics are
 	// available below.
 	canvas.beginPath();
@@ -299,7 +294,7 @@ int main(int argc, char** argv) {
 	canvas.finalize(); // discards canvas's own (layer-less) staged composite
 
 	// Freezes the atlas. Must happen before centerGlyphOnQuad() below - see its doc comment.
-	atlas->setMSDFTileSize(128);
+	atlas->setSDF({.tileSize = 128});
 	atlas->build();
 	atlas->packTextures();
 

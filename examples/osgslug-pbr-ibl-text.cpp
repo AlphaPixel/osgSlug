@@ -6,7 +6,7 @@
 // osgx::OrbitLightRig with the badge example; only the shape-specific bits (glyph loading,
 // per-layer material/MSDF registration, light-rig centering on the text's bounding box) differ.
 //
-// The bevel/normal reconstruction (osgSlug_MSDFBevelNormal, Atlas.shaders.cpp) is untested so
+// The bevel/normal reconstruction (osgSlug_SDF_BevelNormal, Atlas.shaders.cpp) is untested so
 // far on thin glyph strokes and sharp corners - the badge example only ever exercised it on a
 // single filled circle. Expect this to be the first place new bevel/MSDF-range tuning surfaces.
 
@@ -55,8 +55,8 @@ uniform vec3 textNormalWorld;
 uniform float envMaxMip;
 uniform float iblIntensity;
 
-// Direct-light rig, animated per-frame by osgx::OrbitLightRig (osgx.hpp). osgx_lightCount/
-// osgx_lights come from LIGHT_UNIFORMS (already spliced in via `#pragma osgx::pbr *` above) --
+// Direct-light rig, animated per-frame by osgx::OrbitLightRig (osgx.hpp). osgx_lights
+// comes from LIGHT_UNIFORMS (already spliced in via `#pragma osgx::pbr *` above) --
 // the same SSBO-backed osgx::LightSet that OrbitLightRig writes position/intensity into
 // every frame, so this loop stays in sync with it instead of hand-copying a shadow uniform API.
 
@@ -71,14 +71,14 @@ vec4 osgSlug_Fragment(osgSlug_FragmentData data) {
 	vec3 camRight = normalize(osg_ViewMatrixInverse[0].xyz);
 	vec3 camUp = normalize(osg_ViewMatrixInverse[1].xyz);
 
-	const float BEVEL_WIDTH = 0.5; // msdfSd units: 0.5 = edge .. 1.0 = deep interior
+	const float BEVEL_WIDTH = 0.5; // sd units: 0.5 = edge .. 1.0 = deep interior
 	const float BEVEL_STRENGTH = 0.7;
 
-	// osgSlug_MSDFBevelNormal (Atlas.shaders.cpp) - same helper the badge example uses, now
-	// shared instead of duplicated. Uses the em-space MSDF gradient (osgSlug_MSDFGradient),
-	// never dFdx/dFdy(msdfSd) - see BUG.md.
-	vec3 N = osgSlug_MSDFBevelNormal(
-		data.emCoord, data.msdfSd, Nz, camRight, camUp, BEVEL_WIDTH, BEVEL_STRENGTH
+	// osgSlug_SDF_BevelNormal (Atlas.shaders.cpp) - same helper the badge example uses, now
+	// shared instead of duplicated. Uses the em-space MSDF gradient (osgSlug_SDF_Gradient),
+	// never dFdx/dFdy(sd) - see BUG.md.
+	vec3 N = osgSlug_SDF_BevelNormal(
+		data.emCoord, data.sd, Nz, camRight, camUp, BEVEL_WIDTH, BEVEL_STRENGTH
 	);
 
 	vec3 V = normalize(osg_ViewMatrixInverse[2].xyz);
@@ -97,7 +97,13 @@ vec4 osgSlug_Fragment(osgSlug_FragmentData data) {
 
 	vec3 direct = vec3(0.0);
 
-	for(int i = 0; i < osgx_lightCount; i++) {
+	// Loop the compile-time OSGX_MAX_LIGHTS, gated by each light's own `enabled` flag - the same
+	// pattern osgx_DirectLighting() uses. LightSet no longer pushes an osgx_lightCount uniform
+	// (it stays 0), so a loop bounded by it never runs; LightSet::setCount() now just disables
+	// the slots past the count instead.
+	for(int i = 0; i < OSGX_MAX_LIGHTS; i++) {
+		if(osgx_lights[i].enabled == 0) continue;
+
 		vec3 L;
 		vec3 radiance = osgx_PointLightRadiance(osgx_lights[i].posIntensity, osgx_lights[i].color, P, L);
 
@@ -198,10 +204,10 @@ int main(int argc, char** argv) {
 	baseline.moveTo(0.0_cv, 0.5_cv);
 	baseline.lineTo(float(text.size()) * fontSize * 1.0_cv, 0.5_cv);
 
-	// setMSDF() requests each glyph's MSDF tile as textOnPath() commits it - requestMSDF() is
+	// setSDF() requests each glyph's MSDF tile as textOnPath() commits it - requestSDF() is
 	// idempotent, so repeated glyphs (shared shape key) cost nothing extra; no need to
 	// deduplicate keys or batch-register after the fact like the old registerMSDF() did.
-	canvas.setMSDF(true, MSDF_RANGE);
+	canvas.setSDF(true, MSDF_RANGE);
 
 	canvas.textOnPath(
 		baseline,
@@ -219,7 +225,7 @@ int main(int argc, char** argv) {
 		layer.effectId = 1;
 	}
 
-	atlas->setMSDFTileSize(64);
+	atlas->setSDF({.tileSize = 64});
 	atlas->build();
 	atlas->packTextures();
 

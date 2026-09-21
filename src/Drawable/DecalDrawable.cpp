@@ -398,7 +398,7 @@ void DecalDrawable::compile() {
 			layerBuf->push_back({
 				cv(layer.effectId),
 				shapeIdx,
-				cv(packMSDFData(shape->msdfLayer, shape->msdfRange)),
+				cv(atlas->getSDFTileIndex(layer.key)), // effectData.z: SDF tile index, -1 = none
 				// This is effectData.w, read straight through as effectParam by SHADER_VERT_DECAL
 				// (fx.effectParam = ld.effectData.w) - same slot/contract as the non-decal LayerData
 				// buffer. Was q.x1-q.x0 (padded quad width) since this SSBO layout's introduction in

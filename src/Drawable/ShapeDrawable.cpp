@@ -248,7 +248,7 @@ void ShapeDrawable::compile() {
 	// [0] color: RGBA
 	// [1] gradientMeta: x=gradientId, yz=center, w=r0_norm
 	// [2] gradientXform
-	// [3] effectData: x=effectId, y=shapeIndex, z=msdfData, w=effectParam
+	// [3] effectData: x=effectId, y=shapeIndex, z=SDF tile index (-1 = none), w=effectParam
 	// [4] transformData: xy=layer.transform.xy (canvas-space origin, read by osgSlug_Mask_Evaluate); z=layer.bleed; w=pickID (0=not pickable, see setLayerPickID())
 	// [5] axisX: xyz=model-space dir of +1 em along X, w=worldPerEm rate
 	// [6] axisY: xyz=model-space dir of +1 em along Y, w=worldPerEm rate
@@ -305,7 +305,7 @@ void ShapeDrawable::compile() {
 			layerBuf->push_back({
 				cv(layer.effectId),
 				shapeIdx,
-				cv(packMSDFData(shape->msdfLayer, shape->msdfRange)),
+				cv(atlas->getSDFTileIndex(layer.key)), // effectData.z: SDF tile index, -1 = none
 				layer.effectParam
 			});
 			layerBuf->push_back({layer.transform.x, layer.transform.y, layer.bleed, cv(rs.pickID)});

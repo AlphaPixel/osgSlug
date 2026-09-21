@@ -119,9 +119,10 @@ vec3 osgx_OrientIBL(vec3 d) {{
 vec4 osgSlug_Fragment(osgSlug_FragmentData data) {{
 	int layerIdx = int(geom.layerIndex + 0.5) - 1;
 	vec3 localN = iconFaceNormals[clamp(layerIdx, 0, {MAX_ICON_LAYERS - 1})];
-	mat3 modelRot = mat3(osg_ViewMatrixInverse) * mat3(osg_ModelViewMatrix);
-	vec3 N = normalize(modelRot * localN);
-	vec3 V = normalize(osg_ViewMatrixInverse[3].xyz - vec3(data.emCoord, 0.0));
+	mat4 modelMatrix = osg_ViewMatrixInverse * osg_ModelViewMatrix;
+	vec3 N = normalize(mat3(modelMatrix) * localN);
+	vec3 worldPos = (modelMatrix * vec4(data.emCoord, 0.0, 1.0)).xyz;
+	vec3 V = normalize(osg_ViewMatrixInverse[3].xyz - worldPos);
 	vec3 diffuseIrradiance = texture(diffuseEnv, osgx_OrientIBL(N)).rgb;
 	float maxMip = float(max(textureQueryLevels(envMap) - 2, 0));
 	vec3 prefiltered = textureLod(envMap, osgx_OrientIBL(reflect(-V, N)), roughness * maxMip).rgb;
@@ -156,16 +157,10 @@ def project_polyhedron(poly):
 			"indices": face.vertices,
 			"normal": normal,
 			"depth": depth,
-			"light": max(0.0, facing),
 			"front_facing": facing > 0.0,
 		})
 
 	return verts, faces
-
-def shade(color, light):
-	l = 0.25 + 0.75 * light
-
-	return slughorn.Color(color.x * l, color.y * l, color.z * l, 1.0)
 
 def build_lit_icon(canvas, verts, faces, color):
 	"""Return (CompositeShape, normals), where normal i belongs to composite layer i."""
@@ -184,7 +179,7 @@ def build_lit_icon(canvas, verts, faces, color):
 			canvas.line_to(v.x, v.y)
 
 		canvas.close_path()
-		canvas.fill(shade(color, face["light"]))
+		canvas.fill(slughorn.Color(color.x, color.y, color.z, 1.0))
 		normals.append(face["normal"])
 
 	return canvas.finalize(), normals
@@ -286,6 +281,13 @@ def build_scene(w, h):
 			osg.Uniform(osg.Uniform.Type.FLOAT_VEC3, "iconFaceNormals", padded_normals)
 		)
 		apply_environment_uniforms(sd.stateSet, environment, args.ibl_intensity, args.icon_roughness, args.icon_metallic)
+
+		# Atlas's default StateSet disables GL_DEPTH_TEST (HUD/overlay default). This icon is
+		# embedded in a real 3D scene alongside the mesh row, so it opts back into real depth
+		# testing itself, same as BoxDrawable/DecalDrawable/PathDrawable/ScanlineDrawable do.
+		sd.stateSet.attributes[osg.StateAttribute.DEPTH] = (
+			osg.Depth(osg.Depth.LESS, 0.0, 1.0, False), osg.StateAttribute.ON
+		)
 
 	root.children.append(icon_atlas)
 

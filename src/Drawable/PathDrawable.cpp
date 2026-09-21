@@ -292,8 +292,7 @@ static const std::string PATH_SLUGGIT_MAIN = R"GLSL(
 		fx.shapeData = u_shapeData;
 		fx.effectId = u_effectId;
 		fx.gradientId = 0;
-		fx.msdfLayer = -1;
-		fx.msdfRange = 0.0;
+		fx.sdfTile = -1;
 		fx.effectParam = u_effectParam;
 
 		// Evaluated at the POST-hook position and frame: a hook that displaces or reorients the
@@ -392,8 +391,7 @@ static const char* PATH_STAMP_VERT = R"GLSL(
 		fx.shapeData = u_shapeData;
 		fx.effectId = u_effectId;
 		fx.gradientId = 0;
-		fx.msdfLayer = -1;
-		fx.msdfRange = 0.0;
+		fx.sdfTile = -1;
 		fx.effectParam = u_effectParam;
 
 		gl_Position = gl_ModelViewProjectionMatrix * vec4(r.pos, 1.0);
@@ -472,8 +470,7 @@ static const char* PATH_STAMP_TABLE_VERT = R"GLSL(
 		fx.shapeData = sd.shapeData;
 		fx.effectId = u_effectId;
 		fx.gradientId = 0;
-		fx.msdfLayer = -1;
-		fx.msdfRange = 0.0;
+		fx.sdfTile = -1;
 		fx.effectParam = u_effectParam;
 
 		gl_Position = gl_ModelViewProjectionMatrix * vec4(r.pos, 1.0);

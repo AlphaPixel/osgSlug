@@ -121,16 +121,23 @@ def build_scene(w, h):
 	return atlas
 
 if __name__ == "__main__":
-	from pyosgslug_example import window_size, make_trackball
+	from pyosgslug_example import (
+		DebugModeHandler,
+		configure_viewer,
+		parse_args,
+		window_size,
+	)
 
+	args = parse_args(description=__doc__)
 	W, H = window_size()
 
 	viewer = osgViewer.Viewer()
 	root = build_scene(W, H)
 
 	viewer.sceneData = root
-	viewer.cameraManipulator = make_trackball(root)
 	viewer.camera.clearColor = osg.Vec4(0.2, 0.2, 0.2, 1.0)
+	viewer.eventHandlers.append(DebugModeHandler(viewer.camera.stateSet))
+	configure_viewer(viewer, root, args)
 
 	while not viewer.done:
 		viewer.frame()

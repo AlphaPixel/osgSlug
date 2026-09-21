@@ -5,6 +5,7 @@ OSGSLUG_DISABLE_WARNINGS
 #include <osg/BlendFunc>
 #include <osg/Shader>
 #include <osgx/Picking.hpp>
+#include <osgx/SDF.hpp>
 
 OSGSLUG_ENABLE_WARNINGS
 
@@ -41,15 +42,17 @@ void registerOsgSlugCoreShaderLibs() {
 		return true;
 	}();
 
-	(void)registered;
+	// TODO: THIS IS HEINOUS! I _hate_ static data that can't be explicitly constructed/destroyed!
+	static_cast<void>(registered);
 }
 
-// Resolves both osgSlug's registered hook libraries and osgx's PBR/IBL/picking catalogs.
+// Resolves both osgSlug's registered hook libraries and osgx's PBR/IBL/picking/SDF catalogs.
 std::string resolveShaderLibs(std::string src) {
 	registerOsgSlugCoreShaderLibs();
 	osgx::registerPBRShaderLibs();
 	osgx::registerIBLShaderLibs();
 	osgx::registerPickShaderLibs();
+	osgx::registerSDFShaderLibs();
 
 	return osgx::resolveShaderLibs(std::move(src));
 }
@@ -95,7 +98,7 @@ struct osgSlug_LayerData {
 	vec4 color; // RGBA flat color
 	vec4 gradientMeta; // x = gradientId (1-based), yz = gradient center, w = r0_norm
 	vec4 gradientXform;// gradient transform (B matrix / direction / sweep)
-	vec4 effectData; // x = effectId, y = shapeIndex (into AtlasShapeBuffer), z = packed msdfLayer+msdfRange (see packMSDFData()) or -1 if no MSDF tile, w = effectParam
+	vec4 effectData; // x = effectId, y = shapeIndex (into AtlasShapeBuffer), z = SDF tile index (into SDFTileBuffer, -1 = no tile), w = effectParam
 	vec4 transformData; // xy = layer.transform.xy (canvas-space origin); z = layer.bleed (em); w = pickID (0 = not pickable, see ShapeDrawable::setLayerPickID())
 	vec4 axisX; // xyz = model-space direction of +1 em along the quad's X axis, w = worldPerEm rate
 	vec4 axisY; // xyz = model-space direction of +1 em along the quad's Y axis, w = worldPerEm rate
@@ -160,8 +163,7 @@ out osgSlug_GeomBlock {
 out osgSlug_FxBlock {
 	flat int effectId;
 	flat int gradientId;
-	flat int msdfLayer; // -1 = no MSDF tile
-	flat float msdfRange;
+	flat int sdfTile; // index into SDFTileBuffer (fragment only), -1 = no tile
 	flat float effectParam;
 	flat vec4 bandXform;
 	flat vec4 shapeData;
@@ -225,8 +227,7 @@ in osgSlug_GeomBlock {
 in osgSlug_FxBlock {
 	flat int effectId;
 	flat int gradientId;
-	flat int msdfLayer;
-	flat float msdfRange;
+	flat int sdfTile;
 	flat float effectParam;
 	flat vec4 bandXform;
 	flat vec4 shapeData;
@@ -239,7 +240,7 @@ in osgSlug_FxBlock {
 
 // All per-fragment data the osgSlug_FragmentMask early hook receives. Called before
 // slug_Render - only geom.emCoord and its screen-space derivative exist yet; no fill, no
-// msdfSd, no layerColor. This is deliberate: osgSlug_FragmentMask's whole point is to let
+// sd, no layerColor. This is deliberate: osgSlug_FragmentMask's whole point is to let
 // main() discard before paying for slug_Render's curve-band loop on fragments the mask has
 // already excluded, so it cannot depend on anything slug_Render produces. See
 // ai/context-todo-mask.md, "osgSlug_FragmentMask() early hook."
@@ -247,7 +248,7 @@ struct osgSlug_FragmentMaskData {
 	vec2 emCoord; // em-space coordinate (geom.emCoord, raw/untiled)
 	vec2 uv; // normalized [0,1] UV (geom.uv) - the decal mask hook reads this instead, since a
 	// decal quad has no meaningful "canvas em-space"/layer origin of its own to evaluate against.
-	vec2 emsPerPixel; // fwidth(geom.emCoord), precomputed in main() before any discard
+	vec2 emsPerPixel; // fwidth(geom.emCoord), computed once in main() and shared with every hook
 	float time; // osg_SimulationTime
 };
 
@@ -259,22 +260,20 @@ struct osgSlug_FragmentData {
 	vec4 layerColor; // effective layer color (after gradient resolve)
 	int effectId; // per-layer effect selector
 	float time; // osg_SimulationTime
-	float msdfSd; // MSDF signed distance: 0.5=edge, >0.5=interior; -1.0=no tile
+	float sd; // baked SDF/MSDF signed distance: 0.5=edge, >0.5=interior; -1.0=no tile
 	float effectParam; // per-layer float (set via setLayerEffectParam)
-	// fwidth(geom.emCoord), precomputed in main() before any discard - see
-	// osgSlug_FragmentExtData.emsPerPixel for why: derivatives computed later, in a nested
-	// hook call that follows a discard, are unreliable on some drivers for axis-aligned
-	// geometry specifically (osgSlug_Mask_Coverage hit exactly this). Use this instead of
-	// calling fwidth() yourself inside a hook.
+	// fwidth(geom.emCoord), computed once in main() and shared with every hook. Prefer this over
+	// calling fwidth() yourself: a flavor may override it (PathDrawable's Sluggit mode replaces
+	// it with an analytic value via osgSlug_FragmentEmCoord), and a hook's own fwidth() call
+	// would silently bypass that override.
 	vec2 emsPerPixel;
 };
 
 // All per-fragment data the osgSlug_FragmentExt pre-discard hook receives.
 struct osgSlug_FragmentExtData {
 	float fill; // Slug analytic coverage [0,1]
-	float msdfSd; // MSDF signed distance: 0.5=edge, >0.5=interior; -1.0=no tile
-	int msdfLayer; // MSDF atlas layer index (-1=no tile)
-	float msdfRange; // MSDF range (em-space half-bandwidth of the distance tile)
+	float sd; // baked SDF/MSDF signed distance: 0.5=edge, >0.5=interior; -1.0=no tile
+	float sdfRange; // tile range (em-space half-bandwidth of the distance field); 0.0 = no tile
 	vec2 emCoord; // em-space coordinate
 	vec2 uv; // normalized [0,1] UV
 	vec4 layerColor; // effective layer color (after gradient resolve)
@@ -290,15 +289,17 @@ uniform sampler2D osgSlug_effectTexture;
 // Mask descriptor - populated by osgSlug::RenderMask, bound via RenderGroup/applyMask() at
 // draw time (see ShapeDrawable.cpp). Field order matches RenderMask::PackedData exactly
 // (largest-alignment-first: minimal std140 padding) - keep the two in sync if either changes.
-// type: 0=MSDF 1=Circle 2=Rect 3=Capsule 4=Arc 5=ArcBand 6=Hexagon 7=Octagon 8=Star
-// params: SDF [0..3]; MSDF stores cx,cy,r,range here (bbox derived in shader).
+// type: 0=SDFTile 1=Circle 2=Rect 3=Capsule 4=Arc 5=ArcBand 6=Hexagon 7=Octagon 8=Star
+// params: analytical SDF [0..3]; SDFTile: xy = canvas-space position of the tile shape's em origin,
+// z = scale about the tile's own center (1 = as baked).
 // params2: SDF overflow [4,5]; Arc: angle_end; ArcBand: angle_end + stroke_hw.
-// msdfLayer/debug are MSDF-only fields; ignored for analytical types.
-// MSDF sampling reuses osgSlug_msdfTexture (unit 3, always bound by the Atlas's own default
-// StateSet) - a mask's MSDF tile lives in the same Texture2DArray every glyph/shape already
-// samples, so SHADER_LIB_MASK re-declares that uniform rather than binding a second texture
-// unit to the same data (see SHADER_LIB_MASK's LayerBuffer re-declaration for why re-declaring
-// instead of importing is the normal, required pattern for a separately-linked shader object).
+// sdfRect/sdfFrame/debug are SDFTile-only fields (sdfRect/sdfFrame mirror osgSlug_SDFTile's);
+// sdfRect.zw == 0 means the key has no baked tile. Ignored for analytical types.
+// SDFTile sampling reuses osgSlug_sdfTexture (unit 3, always bound by the Atlas's own default
+// StateSet) - a mask's tile lives in the same texture every glyph/shape already samples, so
+// SHADER_LIB_MASK re-declares that uniform rather than binding a second texture unit to the same
+// data (see SHADER_LIB_MASK's LayerBuffer re-declaration for why re-declaring instead of
+// importing is the normal, required pattern for a separately-linked shader object).
 //
 // NOTE: no contentOrigin field here (deliberately removed) - it was a per-MASK value shared
 // across every layer in a masked RenderGroup, but "canvas bbox min" is fundamentally a
@@ -309,9 +310,10 @@ uniform sampler2D osgSlug_effectTexture;
 // below - it reads transformData.xy from the per-layer LayerBuffer SSBO instead.
 struct osgSlug_MaskData {
 	vec4 params;
+	vec4 sdfRect;
+	vec4 sdfFrame;
 	vec2 params2;
 	int type;
-	int msdfLayer;
 	bool invert;
 	bool debug;
 };
@@ -335,37 +337,39 @@ vec4 osgSlug_Effect_PixelGrid(float fill, vec2 emCoord, vec4 layerColor);
 vec4 osgSlug_Effect_TextureFill(float fill, vec2 uv, vec4 layerColor);
 vec4 osgSlug_Effect_Wave(float fill, vec2 uv, vec4 layerColor, float time);
 vec4 osgSlug_Effect_Glow(float fill, vec2 uv, vec4 layerColor, float time, float circleR);
-vec4 osgSlug_Effect_GlowMSDF(float msdfSd, int msdfLayer, float msdfRange, vec4 layerColor, float effectParam, out int blendMode);
+vec4 osgSlug_Effect_GlowSDF(float sd, float sdfRange, vec4 layerColor, float effectParam, out int blendMode);
 
 // A scalar alpha envelope: 1 before fadeBegin, smoothly falls to 0 by fadeEnd, then remains 0.
 // fadeEnd must be greater than fadeBegin.
 float osgSlug_Fragment_FadeOut(float time, float fadeBegin, float fadeEnd);
 
-// MSDF field helpers (implementations live in the main fragment shader only).
+// SDF field helpers (implementations live in the main fragment shader only). They work on
+// whatever the Atlas baked - a single-channel SDF or a multi-channel MSDF - and hand back the same
+// scalar either way.
 //
-// osgSlug_MSDFSd: median-of-three MSDF reconstruction at an ARBITRARY em-space coordinate --
-// same tile mapping as the msdfSd the hooks already receive (0.5=edge, >0.5=interior);
-// returns -1.0 if this shape has no MSDF tile registered.
+// osgSlug_SDF_Sample: signed distance at an ARBITRARY em-space coordinate -- same tile mapping as
+// the sd the hooks already receive (0.5=edge, >0.5=interior); returns -1.0 if this shape has no
+// baked tile.
 //
-// osgSlug_MSDFGradient: em-space gradient of the MSDF field (d(sd)/d(em), points toward the
-// interior), by central differences one tile texel wide; vec2(0.0) if no tile. Use THIS --
-// never dFdx/dFdy(msdfSd) - when a hook needs the field's direction: screen-space derivatives
-// are constant per 2x2 hardware quad, so anything built from them (a bevel normal, a
-// reflection vector) is quantized into pixel-scale blocks that sharp downstream lookups
-// amplify into crunchy edges (see BUG.md, 2026-07-06). The tile texture is float (GL_RGB32F),
-// so a texel-baseline difference of it is smooth per pixel.
-float osgSlug_MSDFSd(vec2 emCoord);
-vec2 osgSlug_MSDFGradient(vec2 emCoord);
+// osgSlug_SDF_Gradient: em-space gradient of the field (d(sd)/d(em), points toward the interior),
+// by central differences one tile texel wide; vec2(0.0) if no tile. Use THIS -- never
+// dFdx/dFdy(sd) -- when a hook needs the field's direction: screen-space derivatives are constant
+// per 2x2 hardware quad, so anything built from them (a bevel normal, a reflection vector) is
+// quantized into pixel-scale blocks that sharp downstream lookups amplify into crunchy edges (see
+// BUG.md, 2026-07-06). The tile texture is float, so a texel-baseline difference of it is smooth
+// per pixel.
+float osgSlug_SDF_Sample(vec2 emCoord);
+vec2 osgSlug_SDF_Gradient(vec2 emCoord);
 
-// osgSlug_MSDFBevelNormal: tilts flatNormal toward the shape's edge as msdfSd approaches 0.5,
-// giving a smoothly-curved "dome"/bevel look across any MSDF-registered shape (badge, glyph,
-// whatever) instead of a flat facet. tangentU/tangentV are the world-space axes the em-space
-// gradient's x/y map onto (e.g. camRight/camUp for a camera-facing, un-tilted shape).
-// bevelWidth is in msdfSd units (0.5=edge..1.0=deep interior); bevelStrength scales how far the
-// normal tilts at the rim. Returns flatNormal unchanged where there's no MSDF tile or no bevel.
-vec3 osgSlug_MSDFBevelNormal(
+// osgSlug_SDF_BevelNormal: tilts flatNormal toward the shape's edge as sd approaches 0.5, giving a
+// smoothly-curved "dome"/bevel look across any tile-baked shape (badge, glyph, whatever) instead
+// of a flat facet. tangentU/tangentV are the world-space axes the em-space gradient's x/y map onto
+// (e.g. camRight/camUp for a camera-facing, un-tilted shape). bevelWidth is in sd units
+// (0.5=edge..1.0=deep interior); bevelStrength scales how far the normal tilts at the rim.
+// Returns flatNormal unchanged where there's no tile or no bevel.
+vec3 osgSlug_SDF_BevelNormal(
 	vec2 emCoord,
-	float msdfSd,
+	float sd,
 	vec3 flatNormal,
 	vec3 tangentU,
 	vec3 tangentV,
@@ -795,19 +799,7 @@ void main() {
 	fx.bandXform = sd.bandXform;
 	fx.shapeData = sd.shapeData;
 	fx.effectId = effectId;
-	if(ld.effectData.z < 0.0) {
-		fx.msdfLayer = -1;
-		fx.msdfRange = 0.0;
-	}
-	else {
-		// See packMSDFData() (Drawable/Util.hpp): payload lives entirely in the mantissa (bits
-		// 0-22); sign+exponent are pinned to 0x3F800000 so the bit pattern is always a normal
-		// float, never a subnormal a GPU might flush to zero on load.
-		uint msdfPacked = floatBitsToUint(ld.effectData.z);
-
-		fx.msdfLayer = int(bitfieldExtract(msdfPacked, 12, 11)) - 1;
-		fx.msdfRange = float(bitfieldExtract(msdfPacked, 0, 12)) / 256.0;
-	}
+	fx.sdfTile = ld.effectData.z < 0.0 ? -1 : int(ld.effectData.z + 0.5);
 	fx.effectParam = ld.effectData.w;
 	fx.gradientId = int(ld.gradientMeta.x + 0.5);
 	geom.gradientMeta = ld.gradientMeta;
@@ -901,18 +893,7 @@ void main() {
 	fx.shapeData = sd.shapeData;
 	fx.effectId = effectId;
 	fx.gradientId = int(ld.gradientMeta.x + 0.5);
-	// DecalDrawable::compile() already packs this the same way SHADER_VERT does (see
-	// packMSDFData()) - just never got unpacked here until now.
-	if(ld.effectData.z < 0.0) {
-		fx.msdfLayer = -1;
-		fx.msdfRange = 0.0;
-	}
-	else {
-		uint msdfPacked = floatBitsToUint(ld.effectData.z);
-
-		fx.msdfLayer = int(bitfieldExtract(msdfPacked, 12, 11)) - 1;
-		fx.msdfRange = float(bitfieldExtract(msdfPacked, 0, 12)) / 256.0;
-	}
+	fx.sdfTile = ld.effectData.z < 0.0 ? -1 : int(ld.effectData.z + 0.5);
 	fx.effectParam = ld.effectData.w;
 	geom.gradientMeta = ld.gradientMeta;
 	geom.gradientXform = ld.gradientXform;
@@ -990,13 +971,13 @@ float osgSlug_Fragment_FadeOut(float time, float fadeBegin, float fadeEnd) {
 	return 1.0 - smoothstep(fadeBegin, fadeEnd, time);
 }
 
-vec4 osgSlug_Effect_GlowMSDF(float msdfSd, int msdfLayer, float msdfRange, vec4 layerColor, float effectParam, out int blendMode) {
+vec4 osgSlug_Effect_GlowSDF(float sd, float sdfRange, vec4 layerColor, float effectParam, out int blendMode) {
 	blendMode = 0;
 
-	if(msdfLayer < 0) return vec4(0.0);
+	if(sdfRange <= 0.0) return vec4(0.0);
 
-	float dist = 0.5 - msdfSd;
-	float distEm = dist * 2.0 * msdfRange;
+	float dist = 0.5 - sd;
+	float distEm = dist * 2.0 * sdfRange;
 
 	const float SEAM_HALF_EM = 0.005;
 	float glowMask = smoothstep(-SEAM_HALF_EM, SEAM_HALF_EM, distEm);
@@ -1004,7 +985,7 @@ vec4 osgSlug_Effect_GlowMSDF(float msdfSd, int msdfLayer, float msdfRange, vec4 
 	const float EASE_WIDTH_EM = 0.02;
 	float ease = smoothstep(0.0, EASE_WIDTH_EM, distEm);
 
-	float outerFadeEm = effectParam > 0.0 ? effectParam : msdfRange * 0.5;
+	float outerFadeEm = effectParam > 0.0 ? effectParam : sdfRange * 0.5;
 	float alpha = (1.0 - smoothstep(0.0, outerFadeEm, distEm)) * glowMask * ease;
 
 	if(alpha < 0.001) return vec4(0.0);
@@ -1019,7 +1000,21 @@ uniform float osg_SimulationTime;
 // own comment explains why) - the same declarations a pick fragment shader needs to reuse
 // osgSlug_CoverageFill() without also linking the rest of this file.
 uniform sampler2D osgSlug_gradientTexture;
-uniform sampler2DArray osgSlug_msdfTexture;
+uniform sampler2D osgSlug_sdfTexture;
+uniform int osgSlug_sdfType; // 0 = SDF (read .r), 1 = MSDF (median of .rgb)
+
+// The SDF-only tile table (binding 2), one entry per baked tile; a layer's effectData.z holds its
+// index, which reaches here as fx.sdfTile. Deliberately its own buffer - the shape record
+// (osgSlug_AtlasShapeData) and layer record stay SDF-free. rect = (x, y, w, h) in texels; frame =
+// (emOriginX, emOriginY, texelsPerEm, range): texel = rect.xy + (em - frame.xy) * frame.z.
+struct osgSlug_SDFTile {
+	vec4 rect;
+	vec4 frame;
+};
+
+layout(std430, binding = 2) readonly buffer SDFTileBuffer {
+	osgSlug_SDFTile sdfTiles[];
+};
 uniform int osgSlug_gradientCount;
 uniform int osgSlug_debugMode;
 uniform bool osgSlug_textMode; // enables MSAA, stem darkening, and gamma for text layers
@@ -1034,41 +1029,60 @@ out vec4 color;
 // Provides osgSlug_curveTexture/osgSlug_bandTexture/osgSlug_texWidth, SLUG_INDIRECTION_SIZE, and
 // osgSlug_CoverageFill() (Slug's own analytic fill test, factored out so a pick fragment shader
 // can reuse it byte-for-byte - see SHADER_LIB_COVERAGE's own comment). Pulled in here, ahead of
-// the MSDF helpers just below, which also need SLUG_INDIRECTION_SIZE.
+// the SDF helpers just below, which also need SLUG_INDIRECTION_SIZE.
 #pragma osgSlug coverage_lib
 
 // ================================================================================================
-// MSDF field helpers (prototypes + usage contract in SHADER_LIB_FRAGMENT)
+// SDF field helpers (prototypes + usage contract in SHADER_LIB_FRAGMENT)
 // ================================================================================================
 
-float osgSlug_MSDFSd(vec2 emCoord) {
-	if(fx.msdfLayer < 0) return -1.0;
+// Raw texel of a baked tile at an em-space coordinate. rect/frame are the tile's
+// osgSlug_AtlasShapeData fields: texel = rect.xy + (em - frame.xy) * frame.z. Clamped to the
+// tile's own texels so bilinear filtering can never read a neighbouring tile (the tile's exterior
+// edge is deep-outside distance anyway, so clamping is what the old per-layer CLAMP_TO_EDGE did).
+// Also used by SHADER_LIB_MASK, which forward-declares these two.
+vec3 osgSlug_SDF_TileTexel(vec4 sdfRect, vec4 sdfFrame, vec2 emCoord) {
+	vec2 texel = clamp(
+		sdfRect.xy + (emCoord - sdfFrame.xy) * sdfFrame.z,
+		sdfRect.xy + 0.5,
+		sdfRect.xy + sdfRect.zw - 0.5
+	);
 
-	vec2 emOrigin = -fx.bandXform.zw / fx.bandXform.xy;
-	vec2 emSize = float(SLUG_INDIRECTION_SIZE) / fx.bandXform.xy;
-	vec2 tileUV = (emCoord - emOrigin + fx.msdfRange) / (emSize + 2.0 * fx.msdfRange);
-	vec3 msd = texture(osgSlug_msdfTexture, vec3(tileUV, float(fx.msdfLayer))).rgb;
-
-	return max(min(msd.r, msd.g), min(max(msd.r, msd.g), msd.b));
+	return texture(osgSlug_sdfTexture, texel / vec2(textureSize(osgSlug_sdfTexture, 0))).rgb;
 }
 
-vec2 osgSlug_MSDFGradient(vec2 emCoord) {
-	if(fx.msdfLayer < 0) return vec2(0.0);
+// The scalar every consumer wants, whatever the tile's SDF type: 0.5 = edge, >0.5 = inside.
+float osgSlug_SDF_TileSample(vec4 sdfRect, vec4 sdfFrame, vec2 emCoord) {
+	vec3 t = osgSlug_SDF_TileTexel(sdfRect, sdfFrame, emCoord);
 
-	// One tile texel expressed in em units - the tile spans the shape's em bbox plus
-	// msdfRange of padding on every side (the same denominator as tileUV above).
-	vec2 emSpan = float(SLUG_INDIRECTION_SIZE) / fx.bandXform.xy + 2.0 * fx.msdfRange;
-	vec2 dEm = emSpan / vec2(textureSize(osgSlug_msdfTexture, 0).xy);
+	if(osgSlug_sdfType == 0) return t.r;
+
+	return max(min(t.r, t.g), min(max(t.r, t.g), t.b));
+}
+
+float osgSlug_SDF_Sample(vec2 emCoord) {
+	if(fx.sdfTile < 0) return -1.0;
+
+	osgSlug_SDFTile tile = sdfTiles[fx.sdfTile];
+
+	return osgSlug_SDF_TileSample(tile.rect, tile.frame, emCoord);
+}
+
+vec2 osgSlug_SDF_Gradient(vec2 emCoord) {
+	if(fx.sdfTile < 0) return vec2(0.0);
+
+	// One tile texel expressed in em units (tiles keep the shape's aspect: one uniform scale).
+	float dEm = 1.0 / sdfTiles[fx.sdfTile].frame.z;
 
 	return vec2(
-		osgSlug_MSDFSd(emCoord + vec2(dEm.x, 0.0)) - osgSlug_MSDFSd(emCoord - vec2(dEm.x, 0.0)),
-		osgSlug_MSDFSd(emCoord + vec2(0.0, dEm.y)) - osgSlug_MSDFSd(emCoord - vec2(0.0, dEm.y))
+		osgSlug_SDF_Sample(emCoord + vec2(dEm, 0.0)) - osgSlug_SDF_Sample(emCoord - vec2(dEm, 0.0)),
+		osgSlug_SDF_Sample(emCoord + vec2(0.0, dEm)) - osgSlug_SDF_Sample(emCoord - vec2(0.0, dEm))
 	) / (2.0 * dEm);
 }
 
-vec3 osgSlug_MSDFBevelNormal(
+vec3 osgSlug_SDF_BevelNormal(
 	vec2 emCoord,
-	float msdfSd,
+	float sd,
 	vec3 flatNormal,
 	vec3 tangentU,
 	vec3 tangentV,
@@ -1077,14 +1091,14 @@ vec3 osgSlug_MSDFBevelNormal(
 ) {
 	const float EPSILON = 0.0001;
 
-	if(msdfSd < 0.0) return flatNormal;
+	if(sd < 0.0) return flatNormal;
 
-	float bevel = 1.0 - clamp((msdfSd - 0.5) / bevelWidth, 0.0, 1.0);
+	float bevel = 1.0 - clamp((sd - 0.5) / bevelWidth, 0.0, 1.0);
 
 	if(bevel <= EPSILON) return flatNormal;
 
 	// Gradient points toward the interior; the bevel wants interior->edge, hence the negation.
-	vec2 grad = -osgSlug_MSDFGradient(emCoord);
+	vec2 grad = -osgSlug_SDF_Gradient(emCoord);
 	float gradLen = length(grad);
 
 	if(gradLen <= EPSILON) return flatNormal;
@@ -1234,14 +1248,14 @@ float osgSlug_FragmentMask(osgSlug_FragmentMaskData data);
 
 // Pre-discard hook: fires for EVERY quad fragment, even where fill < 0.001 (outside Slug's
 // own coverage). This is what lets exterior-fragment effects (glow, halos) attach to a
-// standard Slug drawable without a separate MSDF-only program - contrast with
+// standard Slug drawable without a separate SDF-only program - contrast with
 // osgSlug_Fragment(), which only ever sees fragments Slug already considers covered.
 // Defined in its own always-linked unit (see Atlas::SHADER_NOOP_FRAGMENT_EXT), independent
 // of osgSlug_Fragment's effects unit, so existing custom effects units never need to know
 // this hook exists.
 //
-// data.msdfSd: median-of-three MSDF reconstruction for this fragment - 0.5=edge, >0.5=interior,
-// or -1.0 if this shape has no MSDF tile registered.
+// data.sd: baked SDF/MSDF distance for this fragment (median-of-three for an MSDF atlas) - 0.5=edge,
+// >0.5=interior, or -1.0 if this shape has no baked tile.
 //
 // Return value: STRAIGHT (non-premultiplied) alpha - rgb is the true color, alpha is coverage.
 // main() premultiplies internally (osgSlug's fragment output + blend func are premultiplied
@@ -1355,8 +1369,8 @@ void main() {
 		effectiveColor = vec4(gc.rgb, gc.a * geom.color.a);
 	}
 
-	// Compute msdfSd once; -1.0 means no tile registered. Shared by fData and feData.
-	float msdfSd = osgSlug_MSDFSd(geom.emCoord);
+	// Compute sd once; -1.0 means no tile registered. Shared by fData and feData.
+	float sd = osgSlug_SDF_Sample(geom.emCoord);
 
 	// Build osgSlug_FragmentData once; shared by all osgSlug_Fragment call sites below.
 	osgSlug_FragmentData fData;
@@ -1367,7 +1381,7 @@ void main() {
 	fData.layerColor = effectiveColor;
 	fData.effectId = fx.effectId;
 	fData.time = osg_SimulationTime;
-	fData.msdfSd = msdfSd;
+	fData.sd = sd;
 	fData.effectParam = fx.effectParam;
 	fData.emsPerPixel = emsPerPixel;
 
@@ -1409,9 +1423,8 @@ void main() {
 	osgSlug_FragmentExtData feData;
 
 	feData.fill = fill;
-	feData.msdfSd = msdfSd;
-	feData.msdfLayer = fx.msdfLayer;
-	feData.msdfRange = fx.msdfRange;
+	feData.sd = sd;
+	feData.sdfRange = fx.sdfTile >= 0 ? sdfTiles[fx.sdfTile].frame.w : 0.0;
 	feData.emCoord = geom.emCoord;
 	feData.uv = geom.uv;
 	feData.layerColor = effectiveColor;
@@ -1797,14 +1810,26 @@ void main() {
 }
 )");
 
-// osgSlug_SDF_* - closed-form signed distance functions (negative = inside).
-// osgSlug_Mask_* - coverage helpers + full osgSlug_mask dispatcher.
+// osgx_SDF_* (via #pragma osgx::sdf SHAPES, see osgx/SDF.hpp) - closed-form signed distance
+// functions (negative = inside). Used to live here as osgSlug_SDF_* - extracted to osgx
+// 2026-09-18, since every one of those functions was already pure math with zero dependency on
+// osgSlug's own state. Two names changed to match slughorn::Mask::Type's own vocabulary:
+// osgSlug_SDF_Box -> osgx_SDF_Rect, osgSlug_SDF_Pie -> osgx_SDF_Arc.
+// osgSlug_Mask_* - coverage helpers + full osgSlug_mask dispatcher (genuinely osgSlug-specific -
+// stayed here).
 // Opt-in via: #pragma osgSlug mask_lib
 // Prerequisites: #pragma osgSlug fragment_emcoord (or fragment) - for osgSlug_MaskData /
 // osgSlug_FragmentData.
 // Requires #version 430: the LayerBuffer re-declaration below is a `buffer` (SSBO) block,
 // illegal pre-4.30 - something any hook using mask_lib must declare correctly.
-const std::string Atlas::SHADER_LIB_MASK = R"(
+//
+// Wrapped in this file's own resolveShaderLibs() (not a raw R"(...)" literal, unlike before this
+// extraction) so the #pragma osgx::sdf SHAPES line below is already expanded into real GLSL by
+// the time THIS string itself gets registered as the "mask_lib" library entry - resolveShaderLibs()
+// only does one pass over whatever source it's handed (see Shader.hpp's own comment), so a
+// registered library's OWN source must already be fully resolved, not left for some future
+// caller's pass to expand a second time.
+const std::string Atlas::SHADER_LIB_MASK = resolveShaderLibs(R"(
 
 // Private re-declaration of LayerBuffer (see SHADER_TYPES): needed here because this fragment
 // hook's shader object never gets SHADER_TYPES prepended (that only happens for the vertex
@@ -1833,150 +1858,83 @@ layout(std430, binding = 1) readonly buffer LayerBuffer {
 // themselves. Redeclaring LayerBuffer a second time would be harmless (declarations, unlike
 // function bodies, may repeat verbatim across shader objects linked into one Program), but
 // pulling in the whole mask pragma library an entire second time to get it is NOT harmless:
-// that library also pulls in every osgSlug_SDF_*/osgSlug_Mask_* function BODY below, and GLSL
+// that library also pulls in every osgx_SDF_*/osgSlug_Mask_* function BODY below, and GLSL
 // rejects the same function being defined twice across linked shader objects of one stage --
 // exactly the trap osgslug-mask.cpp's --debug-msdf hook hit before this helper existed.
 vec2 osgSlug_Mask_LayerOrigin() {
 	return layers[int(geom.layerIndex + 0.5) - 1].transformData.xy;
 }
 
-// Private re-declaration of osgSlug_msdfTexture (see SHADER_TYPES/SHADER_FRAG): same reason as
-// LayerBuffer above - this shader object never gets SHADER_FRAG prepended. GLSL shares the
-// binding automatically across shader objects when the uniform name+type match (the Atlas's own
-// default StateSet already binds this to unit 3 unconditionally, since every glyph/shape's own
-// MSDF sampling depends on it too), so a mask's MSDF tile needs no separate texture unit.
-uniform sampler2DArray osgSlug_msdfTexture;
+// Forward declarations of the tile sampling helpers, DEFINED in SHADER_FRAG (the always-linked main
+// fragment unit, which owns osgSlug_sdfTexture/osgSlug_sdfType): a mask's baked tile lives in the
+// very same atlas texture every glyph/shape already samples, so this shader object needs neither
+// a second texture unit nor its own copy of the SDF-type branch. rect/frame are the tile's
+// osgSlug_AtlasShapeData fields, mirrored into osgSlug_mask (see osgSlug_MaskData).
+vec3 osgSlug_SDF_TileTexel(vec4 sdfRect, vec4 sdfFrame, vec2 emCoord);
+float osgSlug_SDF_TileSample(vec4 sdfRect, vec4 sdfFrame, vec2 emCoord);
 
 // --- Signed distance primitives ---
-
-float osgSlug_SDF_Circle(vec2 p, vec2 center, float r) {
-	return length(p - center) - r;
-}
-
-float osgSlug_SDF_Box(vec2 p, vec2 center, vec2 halfExt) {
-	vec2 d = abs(p - center) - halfExt;
-	return length(max(d, vec2(0.0))) + min(max(d.x, d.y), 0.0);
-}
-
-float osgSlug_SDF_Capsule(vec2 p, vec2 a, vec2 b, float r) {
-	vec2 pa = p - a, ba = b - a;
-	float h = clamp(dot(pa, ba) / dot(ba, ba), 0.0, 1.0);
-	return length(pa - ba * h) - r;
-}
-
-// Filled pie sector. a0/a1 in radians, standard math convention (0=+X, CCW positive).
-float osgSlug_SDF_Pie(vec2 p, vec2 center, float r, float a0, float a1) {
-	vec2 q = p - center;
-	float midAngle = (a0 + a1) * 0.5;
-	float halfSpan = (a1 - a0) * 0.5;
-	vec2 sc = vec2(sin(halfSpan), cos(halfSpan));
-	float cosM = cos(-midAngle), sinM = sin(-midAngle);
-	vec2 rp = vec2(q.x * cosM - q.y * sinM, q.x * sinM + q.y * cosM);
-	rp.x = abs(rp.x);
-	float l = length(rp) - r;
-	float m = length(rp - sc * clamp(dot(rp, sc), 0.0, r));
-	return max(l, m * sign(sc.y * rp.x - sc.x * rp.y));
-}
-
-// Stroked arc (annular band along an arc). rb = stroke half-width.
-float osgSlug_SDF_ArcBand(vec2 p, vec2 center, float ra, float a0, float a1, float rb) {
-	vec2 q = p - center;
-	float midAngle = (a0 + a1) * 0.5;
-	float halfSpan = (a1 - a0) * 0.5;
-	float cosM = cos(-midAngle), sinM = sin(-midAngle);
-	vec2 rp = vec2(q.x * cosM - q.y * sinM, q.x * sinM + q.y * cosM);
-	rp.y = abs(rp.y);
-	vec2 sc_x = vec2(cos(halfSpan), sin(halfSpan));
-	float k = (sc_x.x * rp.y > sc_x.y * rp.x) ? dot(rp, sc_x) : length(rp);
-	return sqrt(max(dot(rp, rp) + ra * ra - 2.0 * ra * k, 0.0)) - rb;
-}
-
-// Rotates p by angle a (CCW, radians). Used by every rotatable mask primitive below to pre-
-// rotate the query point by -rotation into the shape's own unrotated local frame - same trick
-// for all of them, not worth a dedicated per-shape variant.
-vec2 osgSlug_SDF_Rotate(vec2 p, float a) {
-	float c = cos(a), s = sin(a);
-	return vec2(p.x * c - p.y * s, p.x * s + p.y * c);
-}
-
-// Regular hexagon (flat-top at rotation=0). Exact SDF (Inigo Quilez, iquilezles.org/articles/distfunctions2d).
-float osgSlug_SDF_Hexagon(vec2 p, vec2 center, float r, float rotation) {
-	vec2 q = abs(osgSlug_SDF_Rotate(p - center, -rotation));
-	const vec3 k = vec3(-0.866025404, 0.5, 0.577350269);
-
-	q -= 2.0 * min(dot(k.xy, q), 0.0) * k.xy;
-	q -= vec2(clamp(q.x, -k.z * r, k.z * r), r);
-
-	return length(q) * sign(q.y);
-}
-
-// Regular octagon. Exact SDF (Inigo Quilez, iquilezles.org/articles/distfunctions2d).
-float osgSlug_SDF_Octagon(vec2 p, vec2 center, float r, float rotation) {
-	vec2 q = abs(osgSlug_SDF_Rotate(p - center, -rotation));
-	const vec3 k = vec3(-0.9238795325, 0.3826834323, 0.4142135623);
-
-	q -= 2.0 * min(dot(vec2(k.x, k.y), q), 0.0) * vec2(k.x, k.y);
-	q -= 2.0 * min(dot(vec2(-k.x, k.y), q), 0.0) * vec2(-k.x, k.y);
-	q -= vec2(clamp(q.x, -k.z * r, k.z * r), r);
-
-	return length(q) * sign(q.y);
-}
-
-// General n-pointed star (Inigo Quilez, iquilezles.org/articles/distfunctions2d). r = outer
-// radius, points = point count (rounded to the nearest integer >= 3), innerRatio in [0,1] maps
-// to IQ's "m" shape parameter (0 = sharpest spikes, 1 = regular n-gon).
-float osgSlug_SDF_Star(vec2 p, vec2 center, float r, float points, float innerRatio, float rotation) {
-	vec2 q = osgSlug_SDF_Rotate(p - center, -rotation);
-	float n = max(round(points), 3.0);
-	float m = mix(2.0, n, clamp(innerRatio, 0.0, 1.0));
-
-	float an = 3.14159265 / n;
-	float en = 3.14159265 / m;
-	vec2 acs = vec2(cos(an), sin(an));
-	vec2 ecs = vec2(cos(en), sin(en));
-
-	float bn = mod(atan(q.x, q.y), 2.0 * an) - an;
-	q = length(q) * vec2(cos(bn), abs(sin(bn)));
-	q -= r * acs;
-	q += ecs * clamp(-dot(q, ecs), 0.0, r * acs.y / ecs.y);
-
-	return length(q) * sign(q.x);
-}
+//
+// SHAPES: osgx_SDF_Circle/Rect/Capsule/Arc/ArcBand/Rotate/Hexagon/Octagon/Star.
+// SAMPLING: osgx_SDF_Median/ScreenPixelRange/CoverageFromDistance - the baked-tile branch of
+// osgSlug_Mask_CoverageFor uses CoverageFromDistance (Median is not needed: osgSlug_SDF_TileSample
+// already reduces the tile's texel to one scalar for either SDF type, and ScreenPixelRange is unused: this
+// file already has an em-space screen scale, emsPerPixel). See osgx/SDF.hpp.
+// Resolved by THIS file's own resolveShaderLibs() wrapper (see its own comment above), which
+// registers osgx::registerSDFShaderLibs() before delegating to osgx::resolveShaderLibs().
+//
+// Only THIS shader object pulls in SAMPLING: GLSL rejects one function defined twice across the
+// shader objects of one Program, so any other library/hook that needs these functions must
+// forward-declare them instead of pulling in the pragma a second time.
+#pragma osgx::sdf SHAPES,SAMPLING
 
 // --- Mask helpers ---
 
-// 1-pixel AA ramp from a signed distance (dist < 0 = inside). emsPerPixel must be
-// data.emsPerPixel (precomputed in main() before any discard) - NOT a fresh fwidth() call
-// here: derivatives computed this deep in a hook call chain, following a discard elsewhere in
-// the shader, produced degenerate (zero) results for axis-aligned geometry on at least one
-// driver (NVIDIA) - see osgSlug_FragmentData.emsPerPixel's comment.
+// 1-pixel AA ramp from a signed distance (dist < 0 = inside). emsPerPixel should be
+// data.emsPerPixel (computed once in main(), and possibly overridden by the drawable flavor -
+// see osgSlug_FragmentData.emsPerPixel's comment) rather than a fresh fwidth() call here.
 float osgSlug_Mask_Coverage(float dist, vec2 emsPerPixel) {
 	float px = max(emsPerPixel.x, emsPerPixel.y);
 	return clamp(0.5 - dist / px, 0.0, 1.0);
 }
 
-// Debug-only: raw baked MSDF tile RGB (the msd.r/g/b channels, before median-of-three
-// reconstruction) at a canvas-space coordinate, or vec3(-1.0) if there's no tile or
-// canvasCoord falls outside its baked extent. NOT called by the automatic
+// The em-space point (in the tile shape's own frame) that canvasCoord maps to: subtract the canvas
+// position of the shape's em origin, then undo the mask's scale about the tile's own center (the
+// center of the baked rect, in em - the rect is padded evenly around the shape, so that is the
+// shape's own bbox center too).
+vec2 osgSlug_Mask_TileEm(vec2 canvasCoord) {
+	float scale = max(osgSlug_mask.params.z, 1e-6);
+	vec2 center = osgSlug_mask.sdfFrame.xy + osgSlug_mask.sdfRect.zw * (0.5 / osgSlug_mask.sdfFrame.z);
+	vec2 em = canvasCoord - osgSlug_mask.params.xy;
+
+	return center + (em - center) / scale;
+}
+
+bool osgSlug_Mask_InsideTile(vec2 tileEm) {
+	vec2 t = (tileEm - osgSlug_mask.sdfFrame.xy) * osgSlug_mask.sdfFrame.z;
+
+	return all(greaterThanEqual(t, vec2(0.0))) && all(lessThanEqual(t, osgSlug_mask.sdfRect.zw));
+}
+
+// Debug-only: the raw baked tile texel (.rgb: all three channels of an MSDF, .r only for a plain
+// SDF) at a canvas-space coordinate, before any reconstruction, or vec3(-1.0) if there's no tile
+// or canvasCoord falls outside its baked extent. NOT called by the automatic
 // osgSlug_FragmentMask() pipeline below - osgSlug_FragmentMask returns a coverage float, which
 // has no room for a raw-tile preview. Call this instead from your own FragmentExt/Fragment hook
-// when you want to visualize a baked mask's tile directly (e.g. the --debug-msdf flag in
-// osgslug-mask.cpp). Forward-declare it (`vec3 osgSlug_Mask_DebugMSDF(vec2 canvasCoord);`)
+// when you want to visualize a baked mask's tile directly (e.g. the --debug-tile flag in
+// osgslug-mask.cpp). Forward-declare it (`vec3 osgSlug_Mask_DebugTile(vec2 canvasCoord);`)
 // plus the ordinary fragment-data pragma - do NOT also pull in the mask pragma library in that
 // hook: this function's BODY is already linked in via the always-present MaskHook shader object, and
 // GLSL rejects the same function being defined twice across shader objects linked into one
-// Program. See osgslug-mask.cpp's HOOK_DEBUG_MSDF for the working pattern.
-vec3 osgSlug_Mask_DebugMSDF(vec2 canvasCoord) {
-	if(osgSlug_mask.type != 0 || osgSlug_mask.msdfLayer < 0) return vec3(-1.0);
+// Program. See osgslug-mask.cpp's HOOK_DEBUG_TILE for the working pattern.
+vec3 osgSlug_Mask_DebugTile(vec2 canvasCoord) {
+	if(osgSlug_mask.type != 0 || osgSlug_mask.sdfRect.z <= 0.0) return vec3(-1.0);
 
-	float cx = osgSlug_mask.params.x, cy = osgSlug_mask.params.y;
-	float r = osgSlug_mask.params.z, rng = osgSlug_mask.params.w;
-	vec4 bbox = vec4(cx - r - rng, cy - r - rng, cx + r + rng, cy + r + rng);
-	vec2 tileUV = (canvasCoord - bbox.xy) / (bbox.zw - bbox.xy);
+	vec2 tileEm = osgSlug_Mask_TileEm(canvasCoord);
 
-	if(any(lessThan(tileUV, vec2(0.0))) || any(greaterThan(tileUV, vec2(1.0)))) return vec3(-1.0);
+	if(!osgSlug_Mask_InsideTile(tileEm)) return vec3(-1.0);
 
-	return texture(osgSlug_msdfTexture, vec3(tileUV, float(osgSlug_mask.msdfLayer))).rgb;
+	return osgSlug_SDF_TileTexel(osgSlug_mask.sdfRect, osgSlug_mask.sdfFrame, tileEm);
 }
 
 // Coverage-only mask evaluation: reads osgSlug_mask, returns maskFill in [0,1] (invert already
@@ -1993,41 +1951,36 @@ float osgSlug_Mask_CoverageFor(vec2 canvasCoord, vec2 emsPerPixel) {
 
 	float maskFill;
 
-	if(osgSlug_mask.type == 0) { // MSDF - baked tile sample
-		if(osgSlug_mask.msdfLayer < 0) {
-			// No tile baked at all - treat as "definitely outside," not a discard: an
-			// unconditional discard here would run before invert is ever applied below,
-			// silently making invert a no-op. maskFill = 0.0 lets invert flip it correctly.
+	if(osgSlug_mask.type == 0) { // SDFTile - baked tile sample
+		// No tile baked at all, or canvasCoord outside the tile's extent: no distance data exists
+		// there, but the tile is padded by its range beyond the shape's true bounds, so "outside"
+		// reliably means "outside the shape." Treated as maskFill = 0.0, NOT a discard: an
+		// unconditional discard here would run before invert is ever applied below, silently making
+		// invert a no-op. Procedural types (Circle/Rect/etc.) never hit this at all: their SDF
+		// formulas are closed-form and valid everywhere, so this brings a tile's invert behavior in
+		// line with them instead of being a discard-shaped exception.
+		vec2 tileEm = osgSlug_Mask_TileEm(canvasCoord);
+
+		if(osgSlug_mask.sdfRect.z <= 0.0 || !osgSlug_Mask_InsideTile(tileEm)) {
 			maskFill = 0.0;
 		}
 		else {
-			float cx = osgSlug_mask.params.x, cy = osgSlug_mask.params.y;
-			float r = osgSlug_mask.params.z, rng = osgSlug_mask.params.w;
-			vec4 bbox = vec4(cx - r - rng, cy - r - rng, cx + r + rng, cy + r + rng);
-			vec2 tileUV = (canvasCoord - bbox.xy) / (bbox.zw - bbox.xy);
-
-			// Outside the baked tile's extent: no SDF data exists there, but the tile is padded
-			// by rng beyond the shape's true bounds, so "outside" reliably means "outside the
-			// shape." Same reasoning as msdfLayer<0 above - maskFill = 0.0, not discard, so
-			// invert still applies below. Procedural types (Circle/Rect/etc.) never hit this at
-			// all: their SDF formulas are closed-form and valid everywhere, so they never needed
-			// this distinction - this brings MSDF's invert behavior in line with them instead
-			// of being a discard-shaped exception.
-			if(any(lessThan(tileUV, vec2(0.0))) || any(greaterThan(tileUV, vec2(1.0)))) {
-				maskFill = 0.0;
-			}
-			else {
-				vec3 msd = texture(osgSlug_msdfTexture, vec3(tileUV, float(osgSlug_mask.msdfLayer))).rgb;
-				float maskSd = max(min(msd.r, msd.g), min(max(msd.r, msd.g), msd.b));
-				float pxRange = max(2.0 * rng / max(emsPerPixel.x, emsPerPixel.y), 1.0);
-				maskFill = clamp((maskSd - 0.5) * pxRange + 0.5, 0.0, 1.0);
-			}
+			float maskSd = osgSlug_SDF_TileSample(osgSlug_mask.sdfRect, osgSlug_mask.sdfFrame, tileEm);
+			// The tile's distance range is 2 * range em wide (sdfFrame.w = range) - times the mask's
+			// scale, in canvas units - so this is how many SCREEN pixels it spans at this fragment:
+			// the same quantity osgx_SDF_ScreenPixelRange() derives from texture-space derivatives,
+			// here computed from emsPerPixel instead.
+			float screenPixelRange = max(
+				2.0 * osgSlug_mask.sdfFrame.w * max(osgSlug_mask.params.z, 1e-6) / max(emsPerPixel.x, emsPerPixel.y),
+				1.0
+			);
+			maskFill = osgx_SDF_CoverageFromDistance(maskSd, screenPixelRange);
 		}
 	}
 
 	else if(osgSlug_mask.type == 1) { // Circle
 		maskFill = osgSlug_Mask_Coverage(
-			osgSlug_SDF_Circle(canvasCoord, osgSlug_mask.params.xy, osgSlug_mask.params.z),
+			osgx_SDF_Circle(canvasCoord, osgSlug_mask.params.xy, osgSlug_mask.params.z),
 			emsPerPixel
 		);
 	}
@@ -2036,14 +1989,14 @@ float osgSlug_Mask_CoverageFor(vec2 canvasCoord, vec2 emsPerPixel) {
 		vec2 center = osgSlug_mask.params.xy + osgSlug_mask.params.zw * 0.5;
 		vec2 halfExt = osgSlug_mask.params.zw * 0.5;
 		maskFill = osgSlug_Mask_Coverage(
-			osgSlug_SDF_Box(canvasCoord, center, halfExt),
+			osgx_SDF_Rect(canvasCoord, center, halfExt),
 			emsPerPixel
 		);
 	}
 
 	else if(osgSlug_mask.type == 3) { // Capsule
 		maskFill = osgSlug_Mask_Coverage(
-			osgSlug_SDF_Capsule(
+			osgx_SDF_Capsule(
 				canvasCoord,
 				osgSlug_mask.params.xy,
 				osgSlug_mask.params.zw,
@@ -2055,7 +2008,7 @@ float osgSlug_Mask_CoverageFor(vec2 canvasCoord, vec2 emsPerPixel) {
 
 	else if(osgSlug_mask.type == 4) { // Arc - filled pie sector
 		maskFill = osgSlug_Mask_Coverage(
-			osgSlug_SDF_Pie(
+			osgx_SDF_Arc(
 				canvasCoord,
 				osgSlug_mask.params.xy,
 				osgSlug_mask.params.z,
@@ -2068,7 +2021,7 @@ float osgSlug_Mask_CoverageFor(vec2 canvasCoord, vec2 emsPerPixel) {
 
 	else if(osgSlug_mask.type == 5) { // ArcBand - stroked arc
 		maskFill = osgSlug_Mask_Coverage(
-			osgSlug_SDF_ArcBand(
+			osgx_SDF_ArcBand(
 				canvasCoord,
 				osgSlug_mask.params.xy,
 				osgSlug_mask.params.z,
@@ -2082,7 +2035,7 @@ float osgSlug_Mask_CoverageFor(vec2 canvasCoord, vec2 emsPerPixel) {
 
 	else if(osgSlug_mask.type == 6) { // Hexagon
 		maskFill = osgSlug_Mask_Coverage(
-			osgSlug_SDF_Hexagon(
+			osgx_SDF_Hexagon(
 				canvasCoord,
 				osgSlug_mask.params.xy,
 				osgSlug_mask.params.z,
@@ -2094,7 +2047,7 @@ float osgSlug_Mask_CoverageFor(vec2 canvasCoord, vec2 emsPerPixel) {
 
 	else if(osgSlug_mask.type == 7) { // Octagon
 		maskFill = osgSlug_Mask_Coverage(
-			osgSlug_SDF_Octagon(
+			osgx_SDF_Octagon(
 				canvasCoord,
 				osgSlug_mask.params.xy,
 				osgSlug_mask.params.z,
@@ -2105,7 +2058,7 @@ float osgSlug_Mask_CoverageFor(vec2 canvasCoord, vec2 emsPerPixel) {
 
 	else { // Star (type == 8)
 		maskFill = osgSlug_Mask_Coverage(
-			osgSlug_SDF_Star(
+			osgx_SDF_Star(
 				canvasCoord,
 				osgSlug_mask.params.xy,
 				osgSlug_mask.params.z,
@@ -2120,7 +2073,7 @@ float osgSlug_Mask_CoverageFor(vec2 canvasCoord, vec2 emsPerPixel) {
 
 	return maskFill;
 }
-)";
+)");
 
 // Default (always-linked, NOT opt-in) implementation of the osgSlug_FragmentMask early hook --
 // see main()'s call site in SHADER_FRAG and osgSlug_FragmentMaskData's comment. Unlike
@@ -2244,7 +2197,12 @@ osg::StateSet* Atlas::createDefaultStateSet(HookList hooks) const {
 	ss->addUniform(new osg::Uniform("osgSlug_curveTexture", 0));
 	ss->addUniform(new osg::Uniform("osgSlug_bandTexture", 1));
 	ss->addUniform(new osg::Uniform("osgSlug_gradientTexture", 2));
-	ss->addUniform(new osg::Uniform("osgSlug_msdfTexture", 3));
+	ss->addUniform(new osg::Uniform("osgSlug_sdfTexture", 3));
+	// One SDF type per Atlas (slughorn::Atlas::SDF::Config::type): 0 = SDF (read .r), 1 = MSDF (median).
+	ss->addUniform(new osg::Uniform(
+		"osgSlug_sdfType",
+		getSDF().config.type == slughorn::Atlas::SDF::Type::MSDF ? 1 : 0
+	));
 	ss->addUniform(new osg::Uniform("osgSlug_effectTexture", 4));
 	ss->addUniform(new osg::Uniform(
 		"osgSlug_gradientCount",
@@ -2267,13 +2225,11 @@ osg::StateSet* Atlas::createDefaultStateSet(HookList hooks) const {
 		osg::StateAttribute::ON
 	);
 
-#ifdef SLUGHORN_HAS_MSDF
-	if(_msdfTexture.valid()) ss->setTextureAttributeAndModes(
+	if(_sdfTexture.valid()) ss->setTextureAttributeAndModes(
 		3,
-		_msdfTexture,
+		_sdfTexture,
 		osg::StateAttribute::ON
 	);
-#endif
 
 	if(_shapeBuffer.valid() && _shapeBuffer->getTotalDataSize() > 0) {
 		ss->setAttributeAndModes(
@@ -2282,6 +2238,20 @@ osg::StateSet* Atlas::createDefaultStateSet(HookList hooks) const {
 				_shapeBuffer,
 				0,
 				_shapeBuffer->getTotalDataSize()
+			),
+			osg::StateAttribute::ON
+		);
+	}
+
+	// SDF-only tile table, its own binding so nothing above had to grow (see SHADER_FRAG's
+	// osgSlug_SDFTile).
+	if(_sdfTileBuffer.valid() && _sdfTileBuffer->getTotalDataSize() > 0) {
+		ss->setAttributeAndModes(
+			new osg::ShaderStorageBufferBinding(
+				2,
+				_sdfTileBuffer,
+				0,
+				_sdfTileBuffer->getTotalDataSize()
 			),
 			osg::StateAttribute::ON
 		);

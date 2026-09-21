@@ -2,9 +2,9 @@
 
 // Shape masking demo - exercises slughorn::Mask on CompositeShape.
 //
-// --type msdf|circle|rect|capsule|arc|arcband mask approach (default: msdf)
+// --type tile|circle|rect|capsule|arc|arcband mask approach (default: tile)
 // --invert knockout: discard inside the mask
-// --debug-msdf show raw MSDF tile RGB (msdf type only)
+// --debug-tile show the raw baked tile texel (tile type only)
 //
 // Scene: a two-layer composite (orange rect + yellow rect), masked as a whole by a shape at
 // center. Both layers share one CompositeShape.mask, so both get masked together - this is
@@ -21,10 +21,10 @@
 // ai/context-todo-mask.md, "osgSlug_FragmentMask() early hook."
 //
 // All --type values produce a visually comparable result; the differences are in edge
-// quality, cost, and whether the mask shape was pre-baked (msdf) or evaluated analytically
+// quality, cost, and whether the mask shape was pre-baked (tile) or evaluated analytically
 // each fragment.
 //
-// Coordinate recovery (only needed by --debug-msdf's custom hook below; the automatic path
+// Coordinate recovery (only needed by --debug-tile's custom hook below; the automatic path
 // does this internally): data.emCoord is shape-local, (0,0) = this layer's own canvas bbox
 // min. canvasCoord = data.emCoord + layerOrigin, where layerOrigin is this fragment's own
 // layer's transform.xy, read per-layer from the LayerBuffer SSBO - each layer has its own
@@ -39,12 +39,12 @@ static constexpr float MASK_CY = 0.5f;
 static constexpr float MSDF_RANGE = 0.025f;
 
 // ================================================================================================
-// GLSL - --debug-msdf only: shows the raw baked MSDF tile RGB (median-of-three inputs, before
+// GLSL - --debug-tile only: shows the raw baked tile texel (the median-of-three inputs for an MSDF, before
 // reconstruction) in place of the normal fill color, for fragments the mask (and Slug's own
-// coverage) already let through. osgSlug_Mask_DebugMSDF is the opt-in helper the automatic
+// coverage) already let through. osgSlug_Mask_DebugTile is the opt-in helper the automatic
 // osgSlug_FragmentMask pipeline itself never calls (its early hook only returns a coverage
 // float - no room for a raw-tile preview); see that helper's comment in SHADER_LIB_MASK for
-// why. Unlike the OLD --debug-msdf (which showed the tile across the whole shape, mask or no
+// why. Unlike the OLD debug flag (which showed the tile across the whole shape, mask or no
 // mask, since masking used to gate osgSlug_Fragment's output rather than discard beforehand),
 // this now only shows tile pixels the mask has already revealed - arguably the more useful
 // view, since it overlays the tile exactly where it's actually affecting the render.
@@ -63,15 +63,15 @@ static constexpr float MSDF_RANGE = 0.025f;
 // hook would otherwise have to hand-write, which used to be the one function every FragmentHook
 // forgot (main() calls it unconditionally, before osgSlug_Fragment even runs, so a hook missing
 // it failed at link time with no clue why from reading the hook's own source).
-static const std::string HOOK_DEBUG_MSDF = R"(
+static const std::string HOOK_DEBUG_TILE = R"(
 #version 430 core
 #pragma osgSlug fragment
 
 vec2 osgSlug_Mask_LayerOrigin();
-vec3 osgSlug_Mask_DebugMSDF(vec2 canvasCoord);
+vec3 osgSlug_Mask_DebugTile(vec2 canvasCoord);
 
 vec4 osgSlug_Fragment(osgSlug_FragmentData data) {
-	vec3 msd = osgSlug_Mask_DebugMSDF(data.emCoord + osgSlug_Mask_LayerOrigin());
+	vec3 msd = osgSlug_Mask_DebugTile(data.emCoord + osgSlug_Mask_LayerOrigin());
 
 	if(msd.r < -0.5) return vec4(data.layerColor.rgb, data.fill * data.layerColor.a);
 
@@ -90,7 +90,7 @@ static slughorn::Mask::Type maskTypeFromString(const std::string& s) {
 	if(s == "arc") return slughorn::Mask::Type::Arc;
 	if(s == "arcband") return slughorn::Mask::Type::ArcBand;
 
-	return slughorn::Mask::Type::MSDF;
+	return slughorn::Mask::Type::SDFTile;
 }
 
 // ================================================================================================
@@ -105,7 +105,7 @@ int main(int argc, char** argv) {
 		{
 			"--type <string>",
 			"Example to run; one of:\n"
-			"\tmsdf (DEFAULT)\n"
+			"\ttile (DEFAULT)\n"
 			"\tcircle\n"
 			"\trect\n"
 			"\tcapsule\n"
@@ -114,11 +114,11 @@ int main(int argc, char** argv) {
 		}
 	})) return 0;
 
-	std::string typeName = "msdf";
+	std::string typeName = "tile";
 
 	while(args.read("--type", typeName)) {
 		if(!example::validateArgument(args, "--type", typeName, {
-			"msdf",
+			"tile",
 			"circle",
 			"rect",
 			"capsule",
@@ -128,10 +128,10 @@ int main(int argc, char** argv) {
 	}
 
 	bool invert = false;
-	bool debugMSDF = false;
+	bool debugTile = false;
 
 	if(args.read("--invert")) invert = true;
-	if(args.read("--debug-msdf")) debugMSDF = true;
+	if(args.read("--debug-tile")) debugTile = true;
 
 	const auto maskType = maskTypeFromString(typeName);
 
@@ -163,10 +163,10 @@ int main(int argc, char** argv) {
 
 	// Mask: canvas.mask() authoring sugar (slughorn/canvas.hpp) - both forms stage the mask
 	// onto the CompositeShape finalize() is about to produce, so it lands on rectComp directly
-	// with no separate composite/key-extraction dance. MSDF form commits the accumulated path
-	// (the circle drawn just below) as a baked mask shape, deriving cx/cy/r from its own
+	// with no separate composite/key-extraction dance. Tile form commits the accumulated path
+	// (the circle drawn just below) as a baked mask shape, recording its own
 	// canvas-space bbox; procedural forms need no atlas registration at all.
-	if(maskType == slughorn::Mask::Type::MSDF) {
+	if(maskType == slughorn::Mask::Type::SDFTile) {
 		canvas.beginPath();
 		canvas.circle(MASK_CX, MASK_CY, 0.25f);
 		canvas.mask(MSDF_RANGE, invert);
@@ -201,10 +201,10 @@ int main(int argc, char** argv) {
 
 	auto rectComp = canvas.finalize();
 
-	// canvas.mask()'s MSDF branch already called atlas->requestMSDF() itself above - requestMSDF()
-	// (unlike the old registerMSDF()) is safe to call pre-build, so build() alone renders the
+	// canvas.mask()'s tile branch already called atlas->requestSDF() itself above - requestSDF()
+	// is safe to call pre-build, so build() alone renders the
 	// queued tile; no post-build registration step needed here at all.
-	atlas->setMSDFTileSize(128);
+	atlas->setSDF({.tileSize = 128});
 	atlas->build();
 	atlas->packTextures();
 
@@ -212,12 +212,12 @@ int main(int argc, char** argv) {
 
 	sd->addCompositeShape(rectComp);
 
-	// osgSlug_mask itself (type/invert/params/params2/msdfLayer) is populated automatically per
+	// osgSlug_mask itself (type/invert/params/params2/sdfRect/sdfFrame) is populated automatically per
 	// masked RenderGroup - see ShapeDrawable::compile() and
 	// ShapeDrawable::drawImplementation()'s applyMask(). No StateSet override needed for the
 	// normal path at all: sd inherits the Atlas's own default StateSet (which already links the
 	// automatic masking hook), so masking works the instant CompositeShape.mask is set.
-	if(debugMSDF) sd->setHooks({{osgSlug::Atlas::FragmentHook, HOOK_DEBUG_MSDF}});
+	if(debugTile) sd->setHooks({{osgSlug::Atlas::FragmentHook, HOOK_DEBUG_TILE}});
 
 	atlas->addChild(sd);
 

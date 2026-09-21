@@ -122,7 +122,7 @@ void BoxDrawable::compile() {
 			layerBuf->push_back({
 				cv(layer.effectId),
 				shapeIdx,
-				cv(packMSDFData(shape->msdfLayer, shape->msdfRange)),
+				cv(atlas->getSDFTileIndex(layer.key)), // effectData.z: SDF tile index, -1 = none
 				layer.effectParam
 			});
 			layerBuf->push_back({layer.transform.x, layer.transform.y, layer.bleed, 0_cv});

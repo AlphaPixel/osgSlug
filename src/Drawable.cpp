@@ -45,10 +45,9 @@ void RenderMask::pack(const Atlas* atlas) {
 		return;
 	}
 
-	// params/params2: raw copy. Authoring owns these for every type - including MSDF's
-	// cx/cy/r/range (see the Mask::Type::MSDF comment in slughorn.hpp); nothing here can
-	// derive that bbox on the author's behalf, per slughorn's "raw data out, frontend
-	// decides" contract.
+	// params/params2: raw copy. Authoring owns these for every type - including SDFTile's
+	// ox/oy (the canvas-space position of the tile shape's em origin; see the Mask comment in
+	// slughorn.hpp), which the baked tile cannot know on its own.
 	d.params[0] = _mask.params[0];
 	d.params[1] = _mask.params[1];
 	d.params[2] = _mask.params[2];
@@ -60,12 +59,22 @@ void RenderMask::pack(const Atlas* atlas) {
 	d.invert = _mask.invert ? 1 : 0;
 	d.debug = _debug ? 1 : 0;
 
-	// msdfLayer is assigned internally by Atlas::requestMSDF() - the only field here the
-	// author genuinely cannot supply, so it's the one case pack() resolves itself.
-	d.msdfLayer = -1;
+	// The tile itself is assigned internally by Atlas::requestSDF() - the one thing here the
+	// author genuinely cannot supply, so it's the one case pack() resolves itself. Left zeroed
+	// (rect.zw == 0) when there is no atlas yet or no tile, which the shader reads as "none".
+	if(atlas && _mask.type == slughorn::Mask::Type::SDFTile && _mask.key) {
+		if(const auto shape = atlas->getShape(*_mask.key); shape && shape->sdf) {
+			const auto& t = *shape->sdf;
 
-	if(atlas && _mask.type == slughorn::Mask::Type::MSDF && _mask.key) {
-		if(const auto shape = atlas->getShape(*_mask.key)) d.msdfLayer = shape->msdfLayer;
+			d.sdfRect[0] = cv(t.x);
+			d.sdfRect[1] = cv(t.y);
+			d.sdfRect[2] = cv(t.w);
+			d.sdfRect[3] = cv(t.h);
+			d.sdfFrame[0] = t.emOriginX;
+			d.sdfFrame[1] = t.emOriginY;
+			d.sdfFrame[2] = t.texelsPerEm;
+			d.sdfFrame[3] = t.range;
+		}
 	}
 
 	std::memcpy(&(*_data)[0], &d, sizeof(d));
