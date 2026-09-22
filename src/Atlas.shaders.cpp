@@ -1032,6 +1032,11 @@ out vec4 color;
 // the SDF helpers just below, which also need SLUG_INDIRECTION_SIZE.
 #pragma osgSlug coverage_lib
 
+// osgx_SDF_Median/ScreenPixelRange/CoverageFromDistance (osgx/SDF.hpp). DEFINED here - SHADER_FRAG
+// is the one always-linked fragment unit - and only DECLARED (SAMPLING_DECL) by SHADER_LIB_MASK, since
+// GLSL rejects one function defined twice across a Program's shader objects.
+#pragma osgx::sdf SAMPLING
+
 // ================================================================================================
 // SDF field helpers (prototypes + usage contract in SHADER_LIB_FRAGMENT)
 // ================================================================================================
@@ -1057,7 +1062,7 @@ float osgSlug_SDF_TileSample(vec4 sdfRect, vec4 sdfFrame, vec2 emCoord) {
 
 	if(osgSlug_sdfType == 0) return t.r;
 
-	return max(min(t.r, t.g), min(max(t.r, t.g), t.b));
+	return osgx_SDF_Median(t);
 }
 
 float osgSlug_SDF_Sample(vec2 emCoord) {
@@ -1876,17 +1881,17 @@ float osgSlug_SDF_TileSample(vec4 sdfRect, vec4 sdfFrame, vec2 emCoord);
 // --- Signed distance primitives ---
 //
 // SHAPES: osgx_SDF_Circle/Rect/Capsule/Arc/ArcBand/Rotate/Hexagon/Octagon/Star.
-// SAMPLING: osgx_SDF_Median/ScreenPixelRange/CoverageFromDistance - the baked-tile branch of
-// osgSlug_Mask_CoverageFor uses CoverageFromDistance (Median is not needed: osgSlug_SDF_TileSample
-// already reduces the tile's texel to one scalar for either SDF type, and ScreenPixelRange is unused: this
-// file already has an em-space screen scale, emsPerPixel). See osgx/SDF.hpp.
-// Resolved by THIS file's own resolveShaderLibs() wrapper (see its own comment above), which
-// registers osgx::registerSDFShaderLibs() before delegating to osgx::resolveShaderLibs().
+// SAMPLING_DECL: declarations of osgx_SDF_Median/ScreenPixelRange/CoverageFromDistance - the
+// baked-tile branch of osgSlug_Mask_CoverageFor uses CoverageFromDistance (Median is not needed:
+// osgSlug_SDF_TileSample already reduces the tile's texel to one scalar for either SDF type, and
+// ScreenPixelRange is unused: this file already has an em-space screen scale, emsPerPixel). See
+// osgx/SDF.hpp. Resolved by THIS file's own resolveShaderLibs() wrapper (see its own comment above),
+// which registers osgx::registerSDFShaderLibs() before delegating to osgx::resolveShaderLibs().
 //
-// Only THIS shader object pulls in SAMPLING: GLSL rejects one function defined twice across the
-// shader objects of one Program, so any other library/hook that needs these functions must
-// forward-declare them instead of pulling in the pragma a second time.
-#pragma osgx::sdf SHAPES,SAMPLING
+// The DEFINITIONS (SAMPLING) live in SHADER_FRAG, the always-linked unit: GLSL rejects one function
+// defined twice across the shader objects of one Program, so every other library/hook that needs
+// these functions pulls in SAMPLING_DECL instead of SAMPLING.
+#pragma osgx::sdf SHAPES,SAMPLING_DECL
 
 // --- Mask helpers ---
 
