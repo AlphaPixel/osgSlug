@@ -233,7 +233,7 @@ static const char* PATH_MITER_MAIN = R"GLSL(
 // Slug-rendered shape (text, general shapes, decals) depends on.
 static const std::string PATH_SLUGGIT_MAIN = R"GLSL(
 	uniform vec4 u_emCorners; // x=emX0, y=emY0, z=emX1, w=emY1
-	uniform vec4 u_bandXform; // x=bandScaleX, y=bandScaleY, z=bandOffsetX, w=bandOffsetY
+	uniform vec4 u_bandTransform; // x=bandScaleX, y=bandScaleY, z=bandOffsetX, w=bandOffsetY
 	uniform vec4 u_shapeData; // x=bandTexX, y=bandTexY, z=bandMaxX, w=bandMaxY
 	uniform vec2 osgSlug_viewport; // live viewport size (see PathDrawable::compile()'s cull callback)
 
@@ -287,8 +287,8 @@ static const std::string PATH_SLUGGIT_MAIN = R"GLSL(
 		geom.color = u_color;
 		geom.layerIndex = 0.0;
 		geom.gradientMeta = vec4(0.0);
-		geom.gradientXform = vec4(0.0);
-		fx.bandXform = u_bandXform;
+		geom.gradientTransform = vec4(0.0);
+		fx.bandTransform = u_bandTransform;
 		fx.shapeData = u_shapeData;
 		fx.effectId = u_effectId;
 		fx.gradientId = 0;
@@ -351,7 +351,7 @@ static const char* PATH_SLUGGIT_FRAG_HOOK = R"GLSL(
 // emCoords vary fully over both axes - unlike Sluggit, which pins emX to the midpoint.
 static const char* PATH_STAMP_VERT = R"GLSL(
 	uniform vec4 u_emCorners; // x=emX0, y=emY0, z=emX1, w=emY1
-	uniform vec4 u_bandXform;
+	uniform vec4 u_bandTransform;
 	uniform vec4 u_shapeData;
 
 	const vec2 CORNERS[4] = vec2[4](
@@ -386,8 +386,8 @@ static const char* PATH_STAMP_VERT = R"GLSL(
 		geom.color = u_color;
 		geom.layerIndex = 0.0;
 		geom.gradientMeta = vec4(0.0);
-		geom.gradientXform = vec4(0.0);
-		fx.bandXform = u_bandXform;
+		geom.gradientTransform = vec4(0.0);
+		fx.bandTransform = u_bandTransform;
 		fx.shapeData = u_shapeData;
 		fx.effectId = u_effectId;
 		fx.gradientId = 0;
@@ -403,7 +403,7 @@ static const char* PATH_STAMP_VERT = R"GLSL(
 // points[gl_InstanceID].w (unused by single-shape Stamp) is the 0-based index into that table.
 // A separate shader from PATH_STAMP_VERT rather than a branch inside it: AtlasShapeData (the
 // Atlas's own shared per-shape SSBO) has no em-bounds field, so per-instance shape variety needs
-// its own table with a wider record (bandXform/shapeData/originData/emCorners) that AtlasShapeData
+// its own table with a wider record (bandTransform/shapeData/originData/emCorners) that AtlasShapeData
 // doesn't have room for - see ai/context-todo-pathdrawable.md, "Future: Extract StampDrawable +
 // user-configurable SSBO bindings". Binding numbers below must match
 // PATH_POINTS_SSBO_BINDING/PATH_SHAPE_TABLE_SSBO_BINDING (PathDrawable.hpp).
@@ -411,7 +411,7 @@ static const char* PATH_STAMP_TABLE_VERT = R"GLSL(
 	// points[].w is the 0-based index into this table; PATH_COMMON declares the points SSBO
 	// itself (binding 0).
 	struct osgSlug_ShapeTableData {
-		vec4 bandXform;
+		vec4 bandTransform;
 		vec4 shapeData;
 		vec4 originData;
 		vec4 emCorners; // x=emX0, y=emY0, z=emX1, w=emY1
@@ -465,8 +465,8 @@ static const char* PATH_STAMP_TABLE_VERT = R"GLSL(
 		geom.color = u_color;
 		geom.layerIndex = 0.0;
 		geom.gradientMeta = vec4(0.0);
-		geom.gradientXform = vec4(0.0);
-		fx.bandXform = sd.bandXform;
+		geom.gradientTransform = vec4(0.0);
+		fx.bandTransform = sd.bandTransform;
 		fx.shapeData = sd.shapeData;
 		fx.effectId = u_effectId;
 		fx.gradientId = 0;
@@ -766,7 +766,7 @@ void PathDrawable::compile() {
 				static_cast<float>(shape->originY)
 			)));
 			ss->addUniform(new osg::Uniform("u_emCorners", Vec4(emX0, emY0, emX1, emY1)));
-			ss->addUniform(new osg::Uniform("u_bandXform", Vec4(
+			ss->addUniform(new osg::Uniform("u_bandTransform", Vec4(
 				shape->bandScaleX, shape->bandScaleY,
 				shape->bandOffsetX, shape->bandOffsetY
 			)));

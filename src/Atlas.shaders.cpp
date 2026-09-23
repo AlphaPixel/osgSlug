@@ -50,6 +50,7 @@ void registerOsgSlugCoreShaderLibs() {
 std::string resolveShaderLibs(std::string src) {
 	registerOsgSlugCoreShaderLibs();
 	osgx::registerPBRShaderLibs();
+	osgx::registerLightShaderLibs();
 	osgx::registerIBLShaderLibs();
 	osgx::registerPickShaderLibs();
 	osgx::registerSDFShaderLibs();
@@ -81,7 +82,7 @@ namespace osgSlug {
 
 const std::string Atlas::SHADER_ATLAS_TYPES = R"(
 struct osgSlug_AtlasShapeData {
-	vec4 bandXform; // xy = bandScaleX/Y, zw = bandOffsetX/Y
+	vec4 bandTransform; // xy = bandScaleX/Y, zw = bandOffsetX/Y
 	vec4 shapeData; // xy = glyphLoc (ivec2), zw = bandMax (ivec2)
 	vec4 originData; // xy = originX/Y, zw = unused
 };
@@ -97,7 +98,7 @@ const std::string Atlas::SHADER_TYPES = SHADER_ATLAS_TYPES + R"(
 struct osgSlug_LayerData {
 	vec4 color; // RGBA flat color
 	vec4 gradientMeta; // x = gradientId (1-based), yz = gradient center, w = r0_norm
-	vec4 gradientXform;// gradient transform (B matrix / direction / sweep)
+	vec4 gradientTransform;// gradient transform (B matrix / direction / sweep)
 	vec4 effectData; // x = effectId, y = shapeIndex (into AtlasShapeBuffer), z = SDF tile index (into SDFTileBuffer, -1 = no tile), w = effectParam
 	vec4 transformData; // xy = layer.transform.xy (canvas-space origin); z = layer.bleed (em); w = pickID (0 = not pickable, see ShapeDrawable::setLayerPickID())
 	vec4 axisX; // xyz = model-space direction of +1 em along the quad's X axis, w = worldPerEm rate
@@ -157,7 +158,7 @@ out osgSlug_GeomBlock {
 	vec4 color; // effective layer color
 	flat float layerIndex;// 1-based layer index (for osgSlug_layerMask); flat - used as an array index
 	vec4 gradientMeta;
-	vec4 gradientXform;
+	vec4 gradientTransform;
 } geom;
 
 out osgSlug_FxBlock {
@@ -165,7 +166,7 @@ out osgSlug_FxBlock {
 	flat int gradientId;
 	flat int sdfTile; // index into SDFTileBuffer (fragment only), -1 = no tile
 	flat float effectParam;
-	flat vec4 bandXform;
+	flat vec4 bandTransform;
 	flat vec4 shapeData;
 } fx;
 )";
@@ -221,7 +222,7 @@ in osgSlug_GeomBlock {
 	vec4 color;
 	flat float layerIndex;
 	vec4 gradientMeta;
-	vec4 gradientXform;
+	vec4 gradientTransform;
 } geom;
 
 in osgSlug_FxBlock {
@@ -229,7 +230,7 @@ in osgSlug_FxBlock {
 	flat int gradientId;
 	flat int sdfTile;
 	flat float effectParam;
-	flat vec4 bandXform;
+	flat vec4 bandTransform;
 	flat vec4 shapeData;
 } fx;
 
@@ -687,8 +688,8 @@ float osgSlug_CoverageFill(out float maskFill, out int iterations) {
 	vec2 pixelsPerEm = 1.0 / emsPerPixel;
 
 	return osgSlug_textMode
-		? slug_RenderText(renderCoord, emsPerPixel, pixelsPerEm, fx.bandXform, glyphLoc, bandMax, iterations)
-		: slug_Render(renderCoord, pixelsPerEm, fx.bandXform, glyphLoc, bandMax, iterations)
+		? slug_RenderText(renderCoord, emsPerPixel, pixelsPerEm, fx.bandTransform, glyphLoc, bandMax, iterations)
+		: slug_Render(renderCoord, pixelsPerEm, fx.bandTransform, glyphLoc, bandMax, iterations)
 	;
 }
 )";
@@ -796,14 +797,14 @@ void main() {
 	geom.uv = a_emCoord.zw;
 	geom.layerIndex = a_position.w;
 	geom.color = ld.color;
-	fx.bandXform = sd.bandXform;
+	fx.bandTransform = sd.bandTransform;
 	fx.shapeData = sd.shapeData;
 	fx.effectId = effectId;
 	fx.sdfTile = ld.effectData.z < 0.0 ? -1 : int(ld.effectData.z + 0.5);
 	fx.effectParam = ld.effectData.w;
 	fx.gradientId = int(ld.gradientMeta.x + 0.5);
 	geom.gradientMeta = ld.gradientMeta;
-	geom.gradientXform = ld.gradientXform;
+	geom.gradientTransform = ld.gradientTransform;
 
 	gl_Position = osg_ModelViewProjectionMatrix * vec4(pos, 1.0);
 }
@@ -831,7 +832,7 @@ osgSlug_VertexResult osgSlug_Vertex(osgSlug_VertexData data);
 struct osgSlug_DecalLayerData {
 	vec4 color;
 	vec4 gradientMeta;
-	vec4 gradientXform;
+	vec4 gradientTransform;
 	vec4 effectData;
 	vec4 center;
 	vec4 tangentEast;
@@ -889,14 +890,14 @@ void main() {
 	geom.uv = a_emCoord.zw;
 	geom.layerIndex = a_position.w;
 	geom.color = ld.color;
-	fx.bandXform = sd.bandXform;
+	fx.bandTransform = sd.bandTransform;
 	fx.shapeData = sd.shapeData;
 	fx.effectId = effectId;
 	fx.gradientId = int(ld.gradientMeta.x + 0.5);
 	fx.sdfTile = ld.effectData.z < 0.0 ? -1 : int(ld.effectData.z + 0.5);
 	fx.effectParam = ld.effectData.w;
 	geom.gradientMeta = ld.gradientMeta;
-	geom.gradientXform = ld.gradientXform;
+	geom.gradientTransform = ld.gradientTransform;
 
 	gl_Position = osg_ModelViewProjectionMatrix * vec4(pos, 1.0);
 }
@@ -1133,9 +1134,9 @@ vec3 slug_Heatmap(float t) {
 // ------------------------------------------------------------------------------------------------
 // slug_EmToUV
 // ------------------------------------------------------------------------------------------------
-vec2 slug_EmToUV(vec2 emCoord, vec4 bandXform) {
-	vec2 emOrigin = -bandXform.zw / bandXform.xy;
-	vec2 emSize = float(SLUG_INDIRECTION_SIZE) / bandXform.xy;
+vec2 slug_EmToUV(vec2 emCoord, vec4 bandTransform) {
+	vec2 emOrigin = -bandTransform.zw / bandTransform.xy;
+	vec2 emSize = float(SLUG_INDIRECTION_SIZE) / bandTransform.xy;
 
 	return (emCoord - emOrigin) / emSize;
 }
@@ -1148,10 +1149,10 @@ vec4 slug_ApplyDebug(
 	vec2 emCoord,
 	vec4 layerColor,
 	ivec2 glyphLoc,
-	vec4 bandXform,
+	vec4 bandTransform,
 	int iterations
 ) {
-	vec2 bandCoord = emCoord * bandXform.xy + bandXform.zw;
+	vec2 bandCoord = emCoord * bandTransform.xy + bandTransform.zw;
 
 	int qY = clamp(int(bandCoord.y), 0, SLUG_INDIRECTION_SIZE - 1);
 	int qX = clamp(int(bandCoord.x), 0, SLUG_INDIRECTION_SIZE - 1);
@@ -1343,15 +1344,15 @@ void main() {
 	if(fx.gradientId > 0 && osgSlug_gradientCount > 0) {
 		float t;
 
-		if(geom.gradientXform.w == 0.0) {
+		if(geom.gradientTransform.w == 0.0) {
 			// Linear: xform = (dirX, dirY, offset, 0)
-			t = dot(geom.emCoord, geom.gradientXform.xy) + geom.gradientXform.z;
+			t = dot(geom.emCoord, geom.gradientTransform.xy) + geom.gradientTransform.z;
 		}
 
-		else if(geom.gradientXform.w > 0.0) {
+		else if(geom.gradientTransform.w > 0.0) {
 			// Radial/AffineRadial: xform = B matrix (column-major mat2); meta.yz = center; meta.w = r0_norm
 			vec2 d = geom.emCoord - geom.gradientMeta.yz;
-			mat2 B = mat2(geom.gradientXform);
+			mat2 B = mat2(geom.gradientTransform);
 
 			t = length(B * d) - geom.gradientMeta.w;
 		}
@@ -1359,11 +1360,11 @@ void main() {
 		else {
 			// Sweep: xform = (cx, cy, startAngle, -invArcSpan)
 			float angle = atan(
-				geom.emCoord.y - geom.gradientXform.y,
-				geom.emCoord.x - geom.gradientXform.x
+				geom.emCoord.y - geom.gradientTransform.y,
+				geom.emCoord.x - geom.gradientTransform.x
 			);
 
-			t = (angle - geom.gradientXform.z) * (-geom.gradientXform.w);
+			t = (angle - geom.gradientTransform.z) * (-geom.gradientTransform.w);
 		}
 
 		t = clamp(t, 0.0, 1.0);
@@ -1407,9 +1408,9 @@ void main() {
 		vec4 fillColor = osgSlug_Fragment(fData);
 
 		vec4 borderColor = vec4(
-			fract(fx.bandXform.x * 127.1),
-			fract(fx.bandXform.y * 311.7),
-			fract(fx.bandXform.z * 74.3 + fx.bandXform.w * 19.1),
+			fract(fx.bandTransform.x * 127.1),
+			fract(fx.bandTransform.y * 311.7),
+			fract(fx.bandTransform.z * 74.3 + fx.bandTransform.w * 19.1),
 			1.0
 		);
 
@@ -1456,7 +1457,7 @@ void main() {
 	else if(extColor.a < COVERAGE_EPSILON) {
 		color = (osgSlug_debugMode == 0 || osgSlug_debugMode == 6)
 			? osgSlug_Fragment(fData)
-			: slug_ApplyDebug(fill, geom.emCoord, effectiveColor, glyphLoc, fx.bandXform, iterations)
+			: slug_ApplyDebug(fill, geom.emCoord, effectiveColor, glyphLoc, fx.bandTransform, iterations)
 		;
 
 		// See the debug-mode-3 branch above for why this always premultiplies.
@@ -1470,7 +1471,7 @@ void main() {
 			: (
 				(osgSlug_debugMode == 0 || osgSlug_debugMode == 6)
 					? osgSlug_Fragment(fData)
-					: slug_ApplyDebug(fill, geom.emCoord, effectiveColor, glyphLoc, fx.bandXform, iterations
+					: slug_ApplyDebug(fill, geom.emCoord, effectiveColor, glyphLoc, fx.bandTransform, iterations
 				)
 			)
 		;
@@ -1536,7 +1537,7 @@ uniform int osgSlug_layerMask;
 struct osgSlug_LayerData {
 	vec4 color;
 	vec4 gradientMeta;
-	vec4 gradientXform;
+	vec4 gradientTransform;
 	vec4 effectData;
 	vec4 transformData;
 	vec4 axisX; // MUST stay member-identical to SHADER_TYPES' declaration (GL links by block
@@ -1846,7 +1847,7 @@ const std::string Atlas::SHADER_LIB_MASK = resolveShaderLibs(R"(
 struct osgSlug_LayerData {
 	vec4 color;
 	vec4 gradientMeta;
-	vec4 gradientXform;
+	vec4 gradientTransform;
 	vec4 effectData;
 	vec4 transformData;
 	vec4 axisX; // MUST stay member-identical to SHADER_TYPES' declaration (GL links by block

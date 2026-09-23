@@ -247,7 +247,7 @@ void ShapeDrawable::compile() {
 	//
 	// [0] color: RGBA
 	// [1] gradientMeta: x=gradientId, yz=center, w=r0_norm
-	// [2] gradientXform
+	// [2] gradientTransform
 	// [3] effectData: x=effectId, y=shapeIndex, z=SDF tile index (-1 = none), w=effectParam
 	// [4] transformData: xy=layer.transform.xy (canvas-space origin, read by osgSlug_Mask_Evaluate); z=layer.bleed; w=pickID (0=not pickable, see setLayerPickID())
 	// [5] axisX: xyz=model-space dir of +1 em along X, w=worldPerEm rate

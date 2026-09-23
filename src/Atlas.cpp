@@ -160,7 +160,7 @@ void Atlas::packTextures() {
 		}
 
 		// Build the atlas-level shape SSBO (binding 0). One entry per unique shape;
-		// 3 vec4s = 48 bytes per entry: bandXform, shapeData, originData.
+		// 3 vec4s = 48 bytes per entry: bandTransform, shapeData, originData.
 		_shapeBuffer = osgx::make_ref<osgx::Vec4Array>();
 
 		uint32_t idx = 0;

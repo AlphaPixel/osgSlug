@@ -74,7 +74,7 @@ layout(local_size_x = 1) in;
 struct LayerData {
 	vec4 color;
 	vec4 gradientMeta;
-	vec4 gradientXform;
+	vec4 gradientTransform;
 	vec4 effectData;
 	vec4 transformData;
 	vec4 axisX;

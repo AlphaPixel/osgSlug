@@ -39,11 +39,12 @@ static std::string makeChromeFrag() {
 #version 430 core
 #pragma osgSlug fragment,fragment_lib
 
-// 430, not 330: `#pragma osgx::pbr *` pulls in LIGHT_UNIFORMS, which declares the osgx_lights
+// 430, not 330: `#pragma osgx::light *` pulls in LIGHT_UNIFORMS, which declares the osgx_lights
 // SSBO (`buffer osgx_LightBuffer`) - SSBOs require GLSL 430+, matching osgSlug's own
 // SHADER_VERT/SHADER_FRAG (Atlas.shaders.cpp).
 const float PI = 3.14159265359;
 #pragma osgx::pbr *
+#pragma osgx::light *
 
 )GLSL";
 
@@ -56,7 +57,7 @@ uniform float envMaxMip;
 uniform float iblIntensity;
 
 // Direct-light rig, animated per-frame by osgx::OrbitLightRig (osgx.hpp). osgx_lights
-// comes from LIGHT_UNIFORMS (already spliced in via `#pragma osgx::pbr *` above) --
+// comes from LIGHT_UNIFORMS (already spliced in via `#pragma osgx::light *` above) --
 // the same SSBO-backed osgx::LightSet that OrbitLightRig writes position/intensity into
 // every frame, so this loop stays in sync with it instead of hand-copying a shadow uniform API.
 
@@ -120,6 +121,7 @@ vec4 osgSlug_Fragment(osgSlug_FragmentData data) {
 )GLSL";
 
 	osgx::registerPBRShaderLibs();
+	osgx::registerLightShaderLibs();
 	osgx::registerIBLShaderLibs();
 
 	return osgx::resolveShaderLibs(src);

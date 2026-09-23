@@ -156,7 +156,7 @@ public:
 
 			layerBuf->push_back({color.r, color.g, color.b, color.a});
 			layerBuf->push_back({0.0_cv, 0.0_cv, 0.0_cv, 0.0_cv}); // gradientMeta: no gradient
-			layerBuf->push_back({0.0_cv, 0.0_cv, 0.0_cv, 0.0_cv}); // gradientXform: no gradient
+			layerBuf->push_back({0.0_cv, 0.0_cv, 0.0_cv, 0.0_cv}); // gradientTransform: no gradient
 			layerBuf->push_back({0.0_cv, shapeIdx, -1.0_cv, 0.0_cv}); // effectData (z = SDF tile index, -1 = none)
 			layerBuf->push_back({0.0_cv, 0.0_cv, 0.0_cv, 0.0_cv}); // transformData
 			layerBuf->setBufferObject(ssbo);
