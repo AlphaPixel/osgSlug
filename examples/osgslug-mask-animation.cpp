@@ -239,6 +239,8 @@ struct MaskAnimCallback: public osg::NodeCallback {
 
 int main(int argc, char** argv) {
 	osg::ArgumentParser args(&argc, argv);
+	auto lib = osgSlug::initialize(args);
+
 	osgViewer::Viewer viewer(args);
 
 	if(!example::setupArguments(

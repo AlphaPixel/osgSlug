@@ -96,6 +96,8 @@ osg::ref_ptr<osg::Geometry> createRTTQuad(osg::Texture2D* colorTex) {
 
 int main(int argc, char** argv) {
 	osg::ArgumentParser args(&argc, argv);
+	auto lib = osgSlug::initialize(args);
+
 	osgViewer::Viewer viewer(args);
 
 	if(!example::setupArguments(args, "RTT: osgSlug -> FBO -> scene quad (x=freeze/thaw)")) return 0;

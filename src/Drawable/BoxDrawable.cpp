@@ -73,7 +73,7 @@ void BoxDrawable::compile() {
 
 		osg::ref_ptr<RenderMask> mask;
 
-		if(composite.mask) mask = new RenderMask(*composite.mask, RENDER_MASK_UBO_BINDING);
+		if(composite.mask) mask = new RenderMask(*composite.mask);
 
 		for(size_t li = 0; li < composite.layers.size(); li++) {
 			const auto& layer = composite.layers[li];
@@ -174,7 +174,12 @@ void BoxDrawable::compile() {
 	);
 
 	ss->setAttributeAndModes(
-		new osg::ShaderStorageBufferBinding(1, _layers[0].buffer, 0, totalSize),
+		new osg::ShaderStorageBufferBinding(
+			osgx::Library::instance().bindings().get("osgSlug::layers"),
+			_layers[0].buffer,
+			0,
+			totalSize
+		),
 		osg::StateAttribute::ON
 	);
 

@@ -2,7 +2,7 @@
 
 // Same chrome/IBL technique as osgslug-pbr-ibl.cpp (the circle badge), applied to real text
 // glyphs instead of a single primitive - see ai/context-todo-lighting.md's "Ultimate Goal".
-// Shares the promoted osgx::pbr GLSL (DIRECT_SPECULAR/IBL_SPECULAR/TONEMAP_PBR_NEUTRAL) and
+// Shares the promoted osgx::pbr GLSL (DIRECT_SPECULAR/TONEMAP_PBR_NEUTRAL), osgx::Environment, and
 // osgx::OrbitLightRig with the badge example; only the shape-specific bits (glyph loading,
 // per-layer material/MSDF registration, light-rig centering on the text's bounding box) differ.
 //
@@ -16,6 +16,7 @@
 
 #include "osgSlug/Font.hpp"
 
+#include <osgx/Environment.hpp>
 #include <osgx/Gizmos.hpp>
 
 #include <osg/TextureCubeMap>
@@ -39,26 +40,22 @@ static std::string makeChromeFrag() {
 #version 430 core
 #pragma osgSlug fragment,fragment_lib
 
-// 430, not 330: `#pragma osgx::light *` pulls in LIGHT_UNIFORMS, which declares the osgx_lights
-// SSBO (`buffer osgx_LightBuffer`) - SSBOs require GLSL 430+, matching osgSlug's own
-// SHADER_VERT/SHADER_FRAG (Atlas.shaders.cpp).
+// 430: the GLSL version osgx's and osgSlug's shader libraries require (explicit block and
+// sampler bindings), matching osgSlug's own SHADER_VERT/SHADER_FRAG (Atlas.shaders.cpp).
 const float PI = 3.14159265359;
 #pragma osgx::pbr *
 #pragma osgx::light *
+#pragma osgx::environment ENVIRONMENT_INPUTS, ENVIRONMENT_SAMPLE
 
 )GLSL";
 
 	src += R"GLSL(
-uniform samplerCube envMap; // unit 5 - GGX-prefiltered cubemap (osgx::loadPrefilterCubemap)
-uniform sampler2D brdfLUT; // unit 6 - split-sum LUT (osgx::makeBRDFLUTCamera)
 uniform mat4 osg_ViewMatrixInverse;
 uniform vec3 textNormalWorld;
-uniform float envMaxMip;
-uniform float iblIntensity;
 
 // Direct-light rig, animated per-frame by osgx::OrbitLightRig (osgx.hpp). osgx_lights
 // comes from LIGHT_UNIFORMS (already spliced in via `#pragma osgx::light *` above) --
-// the same SSBO-backed osgx::LightSet that OrbitLightRig writes position/intensity into
+// the same uniform-block-backed osgx::LightSet that OrbitLightRig writes position/intensity into
 // every frame, so this loop stays in sync with it instead of hand-copying a shadow uniform API.
 
 vec4 osgSlug_Fragment(osgSlug_FragmentData data) {
@@ -87,7 +84,9 @@ vec4 osgSlug_Fragment(osgSlug_FragmentData data) {
 
 	vec3 F0 = mix(vec3(0.04), data.layerColor.rgb, metallic);
 
-	vec3 spec = osgx_IBLSpecular(N, V, F0, baseRoughness, envMap, brdfLUT, envMaxMip);
+	vec3 spec = osgx_EnvironmentSpecular(reflect(-V, N), baseRoughness)
+		* osgx_F_MultiScatter(N, V, baseRoughness, F0, osgx_environmentBRDFLUT)
+	;
 
 	const float SPOT_ROUGHNESS_FLOOR = 0.25;
 	float lightRoughness = max(baseRoughness, SPOT_ROUGHNESS_FLOOR);
@@ -105,13 +104,13 @@ vec4 osgSlug_Fragment(osgSlug_FragmentData data) {
 	for(int i = 0; i < OSGX_MAX_LIGHTS; i++) {
 		if(osgx_lights[i].enabled == 0) continue;
 
-		vec3 L;
-		vec3 radiance = osgx_PointLightRadiance(osgx_lights[i].posIntensity, osgx_lights[i].color, P, L);
+		// osgx_SampleLight() dispatches on the light's type (point/directional/spot).
+		osgx_LightSample s = osgx_SampleLight(osgx_lights[i], P);
 
-		direct += osgx_DirectSpecular(N, V, L, NdotV, lightRoughness, F0) * radiance;
+		direct += osgx_DirectSpecular(N, V, s.L, NdotV, lightRoughness, F0) * s.radiance;
 	}
 
-	vec3 color = spec * iblIntensity + direct + data.layerColor.rgb * 0.02;
+	vec3 color = spec + direct + data.layerColor.rgb * 0.02;
 
 	color = osgx_TonemapPBRNeutral(color);
 	color = pow(color, vec3(1.0 / 2.2));
@@ -122,7 +121,7 @@ vec4 osgSlug_Fragment(osgSlug_FragmentData data) {
 
 	osgx::registerPBRShaderLibs();
 	osgx::registerLightShaderLibs();
-	osgx::registerIBLShaderLibs();
+	osgx::registerEnvironmentShaderLibs();
 
 	return osgx::resolveShaderLibs(src);
 }
@@ -133,6 +132,8 @@ vec4 osgSlug_Fragment(osgSlug_FragmentData data) {
 
 int main(int argc, char** argv) {
 	osg::ArgumentParser args(&argc, argv);
+	auto lib = osgSlug::initialize(args);
+
 	osgViewer::Viewer viewer(args);
 
 	if(!example::setupArguments(args, "Chrome text: IBL environment + animated GGX spot lights", {
@@ -177,16 +178,8 @@ int main(int argc, char** argv) {
 
 	if(!cubemap) return example::fail(args, 1, "failed to load --ktx2 " + ktx2Path);
 
-	float maxMip = 0.0f;
-
-	if(auto* img = cubemap->getImage(0)) {
-		maxMip = float(std::max(0, int(img->getNumMipmapLevels()) - 1));
-	}
-
-	else OSG_WARN << "osgslug-pbr-ibl-text: cubemap->getImage(0) returned null" << std::endl;
-
-	auto lut = osgx::make_ref<osg::Texture2D>();
-	auto bakeCam = osgx::makeBRDFLUTCamera(512, lut);
+	// Specular only: no diffuse map, and roughness 1.0 maps to the cubemap's last mip level.
+	auto environment = osgx::make_ref<osgx::Environment>(cubemap.get(), nullptr, -1.0f, 512);
 
 	// ---- Text shape: chrome material via effectData.w on every glyph layer ---- //
 
@@ -239,16 +232,7 @@ int main(int argc, char** argv) {
 
 	auto* ss = sd->getOrCreateStateSet();
 
-	// GL_TEXTURE_CUBE_MAP_SEAMLESS - avoids visible seams at cube edges, especially at the
-	// blurrier (high-roughness) mip levels.
-	ss->setMode(0x884F, osg::StateAttribute::ON);
-
-	ss->addUniform(new osg::Uniform("envMap", 5));
-	ss->setTextureAttributeAndModes(5, cubemap, osg::StateAttribute::ON);
-	ss->addUniform(new osg::Uniform("brdfLUT", 6));
-	ss->setTextureAttributeAndModes(6, lut, osg::StateAttribute::ON);
-	ss->addUniform(new osg::Uniform("envMaxMip", maxMip));
-	ss->addUniform(new osg::Uniform("iblIntensity", 1.0f));
+	ss->setAttributeAndModes(environment);
 	ss->addUniform(new osg::Uniform("textNormalWorld", osg::Vec3(0.0f, 0.0f, 1.0f)));
 
 	// ---- Direct-light rig ---- //
@@ -313,7 +297,8 @@ int main(int argc, char** argv) {
 
 	auto root = osgx::make_ref<osg::Group>();
 
-	root->addChild(bakeCam);
+	if(auto* bakeRoot = environment->getBakeRoot()) root->addChild(bakeRoot);
+
 	root->addChild(textXform);
 	root->addChild(gizmos->getOverlay());
 

@@ -37,6 +37,7 @@ static constexpr slug_t SWEEP_SPEED    = -0.65_cv; // CW, ~10 seconds/revolution
 
 int main(int argc, char** argv) {
 	osg::ArgumentParser args(&argc, argv);
+	auto lib = osgSlug::initialize(args);
 
 	osgViewer::Viewer viewer(args);
 

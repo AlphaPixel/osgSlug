@@ -38,6 +38,12 @@ endif()
 
 # ext_cli11()
 
+set(OSGRIVE_DIR "" CACHE PATH "Path to osgRive checkout (leave empty to skip Rive in examples)")
+
+if(OSGRIVE_DIR)
+	add_subdirectory("${OSGRIVE_DIR}" "ext/osgRive" EXCLUDE_FROM_ALL)
+endif()
+
 set(SKIA_DIR "" CACHE PATH "Path to Skia source tree (leave empty to skip Skia examples)")
 set(SKIA_BUILD_DIR "" CACHE PATH "Path to Skia build directory containing libskia.a")
 
@@ -109,6 +115,7 @@ add_library(osgSlug SHARED
 	"src/Drawable/PathDrawable.cpp"
 	"src/Drawable/ScanlineDrawable.cpp"
 	"src/Font.cpp"
+	"src/Library.cpp"
 	"src/Text.cpp"
 )
 set_target_properties(osgSlug PROPERTIES POSITION_INDEPENDENT_CODE ON)
@@ -182,6 +189,12 @@ if(OSGSLUG_BUILD_EXAMPLES)
 	osgslug_example(osgslug-clock SOURCES "examples/osgslug-clock.cpp")
 	osgslug_example(osgslug-hud SOURCES "examples/osgslug-hud.cpp")
 	osgslug_example(osgslug-rtt SOURCES "examples/osgslug-rtt.cpp")
+	osgslug_example(osgslug-compare SOURCES "examples/osgslug-compare.cpp")
+
+	if(OSGRIVE_DIR)
+		target_link_libraries(osgslug-compare PRIVATE osgRive)
+		target_compile_definitions(osgslug-compare PRIVATE OSGSLUG_WITH_OSGRIVE)
+	endif()
 	osgslug_example(osgslug-ammohud SOURCES "examples/osgslug-ammohud.cpp")
 	osgslug_example(osgslug-compute SOURCES "examples/osgslug-compute.cpp")
 	osgslug_example(osgslug-gradient-canvas SOURCES "examples/osgslug-gradient-canvas.cpp")

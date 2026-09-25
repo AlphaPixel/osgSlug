@@ -1,5 +1,7 @@
 #include "osgSlug/Drawable/PathDrawable.hpp"
 
+#include "Drawable/Util.hpp"
+
 OSGSLUG_DISABLE_WARNINGS
 
 #include <osg/BlendFunc>
@@ -76,7 +78,7 @@ static const std::string PATH_COMMON = R"GLSL(
 	uniform vec2 u_origin; // shape origin in em-space (Sluggit/Stamp); zero for Miter
 	uniform float osg_SimulationTime;
 
-	layout(std430, binding = 0) buffer PathData {
+	layout(std430, binding = @osgSlug::path.points@) buffer PathData {
 		vec4 points[];
 	};
 
@@ -404,12 +406,10 @@ static const char* PATH_STAMP_VERT = R"GLSL(
 // A separate shader from PATH_STAMP_VERT rather than a branch inside it: AtlasShapeData (the
 // Atlas's own shared per-shape SSBO) has no em-bounds field, so per-instance shape variety needs
 // its own table with a wider record (bandTransform/shapeData/originData/emCorners) that AtlasShapeData
-// doesn't have room for - see ai/context-todo-pathdrawable.md, "Future: Extract StampDrawable +
-// user-configurable SSBO bindings". Binding numbers below must match
-// PATH_POINTS_SSBO_BINDING/PATH_SHAPE_TABLE_SSBO_BINDING (PathDrawable.hpp).
+// doesn't have room for.
 static const char* PATH_STAMP_TABLE_VERT = R"GLSL(
 	// points[].w is the 0-based index into this table; PATH_COMMON declares the points SSBO
-	// itself (binding 0).
+	// itself.
 	struct osgSlug_ShapeTableData {
 		vec4 bandTransform;
 		vec4 shapeData;
@@ -417,7 +417,7 @@ static const char* PATH_STAMP_TABLE_VERT = R"GLSL(
 		vec4 emCorners; // x=emX0, y=emY0, z=emX1, w=emY1
 	};
 
-	layout(std430, binding = 1) readonly buffer ShapeTable {
+	layout(std430, binding = @osgSlug::path.shapes@) readonly buffer ShapeTable {
 		osgSlug_ShapeTableData shapes[];
 	};
 
@@ -602,8 +602,10 @@ void PathDrawable::compile() {
 	auto* ssbo = new osg::ShaderStorageBufferObject();
 	_points->setBufferObject(ssbo);
 
+	auto& slots = osgx::Library::instance().bindings();
+
 	_ssboBinding = new osg::ShaderStorageBufferBinding(
-		PATH_POINTS_SSBO_BINDING, _points, 0, _points->getTotalDataSize()
+		slots.get("osgSlug::path.points"), _points, 0, _points->getTotalDataSize()
 	);
 
 	// Stamp uses one instance per point; all other modes use one per segment (N-1).
@@ -679,7 +681,7 @@ void PathDrawable::compile() {
 			setCullCallback(new PathDrawableViewportCallback());
 		}
 
-		// createProgram() already bound osgSlug_MaskBlock to RENDER_MASK_UBO_BINDING, but this
+		// SHADER_FRAG declares osgSlug_MaskBlock at the "osgSlug::mask" slot, but this
 		// StateSet can be entirely standalone (PathDrawable also supports setAtlas() rather than
 		// atlas->addChild() - see Drawable::getAtlas()'s comment), so unlike ShapeDrawable it may
 		// NOT inherit the null-mask UBO binding from an Atlas ancestor's StateSet. Bind it
@@ -687,16 +689,22 @@ void PathDrawable::compile() {
 		// is undefined behavior the moment this shader links against SHADER_FRAG.
 		ss->setAttributeAndModes(atlas->getNullMask()->getBinding(), osg::StateAttribute::ON);
 
-		ss->setTextureAttributeAndModes(0, atlas->getCurveTexture(), osg::StateAttribute::ON);
-		ss->setTextureAttributeAndModes(1, atlas->getBandTexture(), osg::StateAttribute::ON);
+		ss->setTextureAttributeAndModes(
+			slots.get("osgSlug::atlas.curve"),
+			atlas->getCurveTexture(),
+			osg::StateAttribute::ON
+		);
+
+		ss->setTextureAttributeAndModes(
+			slots.get("osgSlug::atlas.band"),
+			atlas->getBandTexture(),
+			osg::StateAttribute::ON
+		);
 
 		ss->addUniform(new osg::Uniform("osgSlug_texWidth",
 			static_cast<int>(std::countr_zero(atlas->getTextureWidth()))
 		));
-		ss->addUniform(new osg::Uniform("osgSlug_curveTexture", 0));
-		ss->addUniform(new osg::Uniform("osgSlug_bandTexture", 1));
-		ss->addUniform(new osg::Uniform("osgSlug_effectTexture", 2));
-		ss->addUniform(new osg::Uniform("osgSlug_gradientTexture", 3));
+		addSamplerUniforms(ss);
 		ss->addUniform(new osg::Uniform("osgSlug_gradientCount", 0));
 		ss->addUniform(new osg::Uniform("osgSlug_debugMode", 0));
 		ss->addUniform(new osg::Uniform("osgSlug_textMode", false));
@@ -739,7 +747,7 @@ void PathDrawable::compile() {
 			shapeTable->setBufferObject(shapeTableSSBO);
 
 			_shapeTableBinding = new osg::ShaderStorageBufferBinding(
-				PATH_SHAPE_TABLE_SSBO_BINDING, shapeTable, 0, shapeTable->getTotalDataSize()
+				slots.get("osgSlug::path.shapes"), shapeTable, 0, shapeTable->getTotalDataSize()
 			);
 
 			ss->setAttributeAndModes(_shapeTableBinding, osg::StateAttribute::ON);

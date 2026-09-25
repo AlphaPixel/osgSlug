@@ -22,7 +22,22 @@ os.environ.setdefault("OSG_GL_CONTEXT_VERSION", "4.6")
 from OpenSceneGraph import osg, osgGA
 from OpenSceneGraph.GL import GL_MULTISAMPLE
 
+import osgSlug
 import osgx
+
+# The process's one osgSlug.Library (osgx's state plus osgSlug's shader-lib catalog), created when
+# an example imports this module and released at interpreter exit. Every example imports this
+# module before building its scene. It must be imported before anything that creates a plain
+# osgx.Library (e.g. OpenSceneGraph.py's pyosg_example, which OpenSceneGraph.examples modules
+# import), since only one Library can be alive and osgSlug needs its own.
+if osgx.Library.alive():
+	raise RuntimeError(
+		"pyosgslug_example: an osgx.Library already exists, so osgSlug.initialize() cannot create "
+		"osgSlug's; import pyosgslug_example before any module that calls osgx.initialize() "
+		"(e.g. OpenSceneGraph.examples.*, which imports pyosg_example)"
+	)
+
+LIBRARY = osgSlug.initialize()
 
 DEBUG_MODE_NAMES = (
 	"normal",

@@ -9,6 +9,7 @@
 #include "osgSlug/Drawable/PathDrawable.hpp"
 #include "osgSlug/Drawable/SphereDrawable.hpp"
 #include "osgSlug/Font.hpp"
+#include "osgSlug/Library.hpp"
 #include "osgSlug/Text.hpp"
 #include "osgSlug/Util.hpp"
 
@@ -219,6 +220,33 @@ PYBIND11_MODULE(osgSlug, m) {
 	// The `maybe_unused` thing is WEIRD, I know...
 	[[maybe_unused]] auto py_slughorn = py::module_::import("slughorn");
 	auto py_osg = py::module_::import("OpenSceneGraph");
+
+	py::class_<osgSlug::Library, std::unique_ptr<osgSlug::Library>>(
+		m,
+		"Library",
+		"osgSlug's osgx.Library subclass: osgx's process-wide state plus osgSlug's shader-lib "
+		"catalog. Create exactly one with osgSlug.initialize() (instead of osgx.initialize()) before "
+		"building any osgSlug scene, and keep a reference until the viewer is done."
+	)
+		.def(
+			"binding",
+			[](osgSlug::Library& self, const std::string& name) { return self.bindings().get(name); },
+			"name"_a,
+			"The index of the named binding slot (e.g. \"osgSlug::effect\"). The first lookup "
+			"freezes the slot table."
+		)
+	;
+
+	m.def(
+		"initialize",
+		[](const std::map<std::string, unsigned int>& bindings) {
+			return std::make_unique<osgSlug::Library>(nullptr, osgx::LibraryOptions{bindings, {}});
+		},
+		"bindings"_a=std::map<std::string, unsigned int>(),
+		"Creates the osgSlug.Library (which also initializes osgx). `bindings` pins slot indices by "
+		"name, e.g. {\"osgSlug::layers\": 3}. Raises if a Library is already alive, if two pinned "
+		"slots of one type share an index, or if a pin names an undeclared slot."
+	);
 
 	py::enum_<osgSlug::Atlas::State>(m, "AtlasState")
 		.value("Empty", osgSlug::Atlas::State::Empty)

@@ -12,11 +12,6 @@ OSGSLUG_ENABLE_WARNINGS
 
 namespace osgSlug {
 
-// UBO binding index used for osgSlug_mask. Independent namespace from the SSBO bindings used
-// elsewhere (atlas shape data = 0, layer data = 1 - see ShapeDrawable.cpp) since GL keeps
-// GL_UNIFORM_BUFFER and GL_SHADER_STORAGE_BUFFER binding points separate.
-constexpr unsigned RENDER_MASK_UBO_BINDING = 0;
-
 // Render-side wrapper around a slughorn::Mask. Owns the packed GPU-ready representation
 // (mirroring the std140 layout of osgSlug_MaskData in Atlas.shaders.cpp) plus the UBO it
 // lives in, and gives the mask reference-counted identity so RenderShape/RenderGroup can
@@ -34,8 +29,8 @@ public:
 	// Construction is deliberately Atlas-independent - callers need real identity (this
 	// object, not just its eventual data) before an Atlas is guaranteed resolvable (e.g.
 	// ShapeDrawable::addCompositeShape() may run before this drawable is parented under one).
-	// bindingPoint is the UBO binding index this mask will be bound to in apply(). The baked
-	// tile (the one thing that genuinely needs an Atlas - see repack()) is packed as "none"
+	// The UBO binds at the "osgSlug::mask" slot, looked up here, so a Library must be alive. The
+	// baked tile (the one thing that genuinely needs an Atlas - see repack()) is packed as "none"
 	// (zero-size rect) until repack() is called.
 	//
 	// No contentOrigin parameter: canvas-space origin is a per-LAYER property (each layer has
@@ -43,16 +38,16 @@ public:
 	// be correct for single-layer masked composites. The shader reads each fragment's own
 	// layer origin directly from the LayerBuffer SSBO (osgSlug_LayerData.transformData) via
 	// geom.layerIndex instead. See osgSlug_Mask_Evaluate() in SHADER_LIB_MASK.
-	RenderMask(const slughorn::Mask& mask, unsigned bindingPoint);
+	explicit RenderMask(const slughorn::Mask& mask);
 
 	// Always-valid "no mask" sentinel: packs type=-1, which every dispatcher (shader-side
 	// osgSlug_Mask_CoverageFor and friends) treats as "fully unmasked" - see
 	// ai/context-todo-mask.md, "null UBO" plan. Bind this (Atlas::getNullMask() owns one)
-	// wherever a RenderGroup has no real mask, instead of leaving RENDER_MASK_UBO_BINDING
+	// wherever a RenderGroup has no real mask, instead of leaving the "osgSlug::mask" slot
 	// unbound: reading an unbound uniform block is undefined behavior, and once
 	// osgSlug_FragmentMask() is called unconditionally by every fragment shader (not just
 	// mask-aware hooks), every draw call needs something valid bound here.
-	static osg::ref_ptr<RenderMask> createNull(unsigned bindingPoint);
+	static osg::ref_ptr<RenderMask> createNull();
 
 	const slughorn::Mask& mask() const { return _mask; }
 	slughorn::Mask& mask() { return _mask; }
@@ -72,7 +67,7 @@ public:
 	// changed; harmless to call unconditionally otherwise.
 	void repack(const Atlas& atlas);
 
-	// Binds this mask's UBO to the constructor's bindingPoint. See class comment: this is a
+	// Binds this mask's UBO at the "osgSlug::mask" slot. See class comment: this is a
 	// direct, StateSet-free StateAttribute::apply() call, not a scene-graph state change.
 	void apply(osg::State& state) const;
 

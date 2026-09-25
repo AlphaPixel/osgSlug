@@ -289,6 +289,7 @@ slughorn::CompositeShape buildTriangles(osgSlug::Atlas* atlas) {
 
 int main(int argc, char** argv) {
 	osg::ArgumentParser args(&argc, argv);
+	auto lib = osgSlug::initialize(args);
 
 	osgViewer::Viewer viewer(args);
 

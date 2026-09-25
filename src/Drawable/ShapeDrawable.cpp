@@ -79,7 +79,7 @@ static void applyBlendMode(osg::State& state, slughorn::BlendMode mode) {
 
 // mask is never null in practice (callers pass either a real RenderGroup mask or the Atlas's
 // own null sentinel) - every draw call must leave something valid bound at
-// RENDER_MASK_UBO_BINDING now that osgSlug_FragmentMask() reads it unconditionally, not just
+// the "osgSlug::mask" slot now that osgSlug_FragmentMask() reads it unconditionally, not just
 // when a mask-aware hook opts in. The guard only covers the (should-never-happen) case of a
 // drawable with no Atlas parent.
 static void applyMask(osg::State& state, const RenderMask* mask) {
@@ -112,7 +112,7 @@ void ShapeDrawable::addCompositeShape(const slughorn::CompositeShape& composite)
 	osg::ref_ptr<RenderMask> mask;
 
 	if(composite.mask && !composite.layers.empty()) {
-		mask = new RenderMask(*composite.mask, RENDER_MASK_UBO_BINDING);
+		mask = new RenderMask(*composite.mask);
 	}
 
 	for(const auto& layer : composite.layers) _layers.push_back({layer, nullptr, mask});
@@ -155,7 +155,7 @@ osg::BoundingBox ShapeDrawable::computeBoundingBox() const {
 void ShapeDrawable::drawImplementation(osg::RenderInfo& renderInfo) const {
 	// Fast path: single SrcOver, unmasked group - no state changes needed. The ambient default
 	// StateSet (Atlas::createDefaultStateSet()) already has SrcOver blend AND the Atlas's null
-	// mask bound at RENDER_MASK_UBO_BINDING, so this is still safe now that every fragment
+	// mask bound at the "osgSlug::mask" slot, so this is still safe now that every fragment
 	// shader reads osgSlug_mask unconditionally.
 	if(_groups.size() == 1 && _groups[0].blendMode == slughorn::BlendMode::SrcOver && !_groups[0].mask) {
 		osg::Geometry::drawImplementation(renderInfo);
@@ -177,7 +177,7 @@ void ShapeDrawable::drawImplementation(osg::RenderInfo& renderInfo) const {
 	drawVertexArraysImplementation(renderInfo);
 
 	// One draw call per group with the appropriate blend state and mask binding. Every group
-	// binds SOMETHING at RENDER_MASK_UBO_BINDING - the group's own mask, or the null sentinel --
+	// binds SOMETHING at the "osgSlug::mask" slot - the group's own mask, or the null sentinel --
 	// there is no more "leave it unbound" state.
 	for(const auto& g : _groups) {
 		applyBlendMode(state, g.blendMode);
@@ -241,7 +241,7 @@ void ShapeDrawable::compile() {
 			_groups.push_back({groupBlend, slughorn::DrawMode::Visible, groupIndices, groupMask});
 	};
 
-	// Layer SSBO (binding 1): one Vec4Array per _layers entry, each holding 7 vec4s.
+	// Layer SSBO (osgSlug::layers): one Vec4Array per _layers entry, each holding 7 vec4s.
 	// All arrays share a single ShaderStorageBufferObject so the GPU sees one contiguous buffer,
 	// but each array has its own modifiedCount, enabling per-layer dirty uploads.
 	//
@@ -346,7 +346,12 @@ void ShapeDrawable::compile() {
 	const auto totalSize = static_cast<GLsizeiptr>(_layers.size() * 7 * sizeof(Vec4));
 
 	getOrCreateStateSet()->setAttributeAndModes(
-		new osg::ShaderStorageBufferBinding(1, _layers[0].buffer, 0, totalSize),
+		new osg::ShaderStorageBufferBinding(
+			osgx::Library::instance().bindings().get("osgSlug::layers"),
+			_layers[0].buffer,
+			0,
+			totalSize
+		),
 		osg::StateAttribute::ON
 	);
 

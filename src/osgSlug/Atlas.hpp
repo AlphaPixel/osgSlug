@@ -56,7 +56,7 @@ public:
 
 	// Pack the raw TextureData buffers produced by build() into OSG texture objects, and set the
 	// Atlas Group's StateSet with the default shader program, all textures, uniforms, blend state,
-	// and SSBO binding 0. Must be called after build(). Texture packing is idempotent
+	// and the osgSlug::atlas.shapes SSBO. Must be called after build(). Texture packing is idempotent
 	// for the textures; the StateSet program is always refreshed.
 	// After packing, _state becomes Packed and any existing osgSlug::Drawable children are
 	// compiled automatically.
@@ -77,7 +77,7 @@ public:
 	// packTextures(); null when no shape requested a tile (Atlas::requestSDF()).
 	osg::Texture2D* getSDFTexture() const { return _sdfTexture.get(); }
 
-	// SDF-only tile table (SSBO binding 2): 2 vec4s per baked tile, {rect, frame} - see
+	// SDF-only tile table (the osgSlug::atlas.sdfTiles SSBO): 2 vec4s per baked tile, {rect, frame} - see
 	// SHADER_FRAG's osgSlug_SDFTile. Indexed by getSDFTileIndex(); null when there are no tiles.
 	// Valid after packTextures().
 	osgx::Vec4Array* getSDFTileBuffer() const { return _sdfTileBuffer.get(); }
@@ -86,7 +86,7 @@ public:
 	// every drawable stores in its layer's effectData.z).
 	int getSDFTileIndex(const slughorn::Key& key) const;
 
-	// Atlas-level shape SSBO (binding 0). Valid after packTextures().
+	// Atlas-level shape SSBO (the osgSlug::atlas.shapes slot). Valid after packTextures().
 	// Returns the 0-based index of key in the shape buffer, or throws if not found.
 	uint32_t getShapeIndex(const slughorn::Key& key) const;
 	osgx::Vec4Array* getShapeBuffer() const { return _shapeBuffer.get(); }
@@ -98,6 +98,10 @@ public:
 	// ai/context-todo-mask.md, "null UBO" plan.
 	RenderMask* getNullMask() const { return _nullMask.get(); }
 
+	// Shader sources. All are unexpanded GLSL: their #pragma lines are expanded by
+	// osgx::resolveShaderLibs() against the live osgSlug::Library's catalogs when a Program is
+	// built (createProgram() does this for every unit it links).
+	//
 	// Vertex hook no-op; osgSlug_Vertex() returns osgSlug_VertexDefault(data) - the TRUE
 	// authored pos/emCoord and the layer's baked em<->world frame, all unchanged.
 	static const std::string SHADER_NOOP_VERTEX_HOOK;
@@ -120,8 +124,8 @@ public:
 	// layout, which does not match DecalDrawable's own 7-vec4 osgSlug_DecalLayerData at the same
 	// SSBO binding. See SHADER_MASK_FRAGMENT_HOOK_DECAL's definition for the full reasoning.
 	static const std::string SHADER_MASK_FRAGMENT_HOOK_DECAL;
-	static const std::string SHADER_ATLAS_TYPES; // AtlasShapeData + binding 0 only
-	static const std::string SHADER_TYPES; // SHADER_ATLAS_TYPES + LayerData + binding 1
+	static const std::string SHADER_ATLAS_TYPES; // AtlasShapeData + the osgSlug::atlas.shapes SSBO only
+	static const std::string SHADER_TYPES; // SHADER_ATLAS_TYPES + LayerData + the osgSlug::layers SSBO
 	// #pragma osgSlug vertex - interface structs/blocks (osgSlug_VertexData/Result, geom/fx
 	// out-blocks) PLUS the osgSlug_VertexDefault prototype. Everyone pulls this - it's the whole
 	// contract a vertex hook needs to compile, no second pragma to remember. Body-free itself;
@@ -182,9 +186,9 @@ public:
 	static const std::string SHADER_LIB_COVERAGE;
 	static const std::string SHADER_VERT; // main SSBO vertex shader (embedded)
 	static const std::string SHADER_VERT_DECAL; // tangent-plane decal vertex shader (embedded)
-	static const std::string SHADER_FRAG; // main fragment shader (embedded, resolved)
+	static const std::string SHADER_FRAG; // main fragment shader (embedded)
 	static const std::string SHADER_SCANLINE_VERT; // ScanlineDrawable vertex shader
-	static const std::string SHADER_SCANLINE_FRAG; // ScanlineDrawable fragment shader (resolved)
+	static const std::string SHADER_SCANLINE_FRAG; // ScanlineDrawable fragment shader
 	// GPU object-ID pick fragment: calls osgSlug_CoverageFill() (coverage_lib) for the real
 	// Slug/mask coverage test - the SAME one SHADER_FRAG's main() uses - and on a coverage pass
 	// writes a packed pick ID (the `pickID` uniform's per-drawable base, plus this fragment's
@@ -212,9 +216,8 @@ public:
 
 		// The unit defining main() for the fragment stage, normally SHADER_FRAG. Empty links NO
 		// fragment stage at all: the caller adds its own private one to the returned Program, and
-		// the three fragment hook slots plus the osgSlug_MaskBlock binding are skipped, since a
-		// private fragment shader has no osgSlug_Fragment/FragmentExt/FragmentMask entry points to
-		// substitute.
+		// the three fragment hook slots are skipped, since a private fragment shader has no
+		// osgSlug_Fragment/FragmentExt/FragmentMask entry points to substitute.
 		std::string fragMain = {};
 
 		// Defaults for the FragmentHook and MaskHook slots when `hooks` doesn't override them.
@@ -307,10 +310,10 @@ private:
 
 	osg::ref_ptr<osg::Texture2D> _sdfTexture; // null when no shapes have a baked SDF/MSDF tile
 
-	osg::ref_ptr<osgx::Vec4Array> _sdfTileBuffer; // SDF tile table SSBO, binding 2 (null = no tiles)
+	osg::ref_ptr<osgx::Vec4Array> _sdfTileBuffer; // osgSlug::atlas.sdfTiles SSBO (null = no tiles)
 	std::unordered_map<slughorn::Key, int, slughorn::KeyHash> _sdfTileIndex;
 
-	osg::ref_ptr<osgx::Vec4Array> _shapeBuffer; // atlas shape SSBO, binding 0
+	osg::ref_ptr<osgx::Vec4Array> _shapeBuffer; // osgSlug::atlas.shapes SSBO
 	std::unordered_map<slughorn::Key, uint32_t, slughorn::KeyHash> _shapeIndex;
 
 	osg::ref_ptr<RenderMask> _nullMask; // see getNullMask()

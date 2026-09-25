@@ -10,16 +10,6 @@ enum class PathMode {
 	Stamp // one shape per point, rotated by points[i].z, Slug SDF pipeline (setShapeKey/setShapeKeys)
 };
 
-// Private SSBO binding points for Stamp mode's multi-shape path (setShapeKeys() below). These
-// have nothing to do with osgSlug::Atlas's AtlasShapeBuffer/LayerBuffer convention (bindings 0/1
-// in Atlas.shaders.cpp) - PathDrawable's Program never links those, so there is no cross-
-// convention collision. Named here only so PathDrawable.cpp's two SSBOs (points + shape table)
-// don't silently end up sharing a binding again as this class grows. See
-// ai/context-todo-pathdrawable.md, "Future: Extract StampDrawable + user-configurable SSBO
-// bindings" for the longer-term plan to generalize this.
-constexpr unsigned PATH_POINTS_SSBO_BINDING = 0;
-constexpr unsigned PATH_SHAPE_TABLE_SSBO_BINDING = 1;
-
 // PathDrawable - instanced per-segment quad stroke renderer driven by an SSBO of path points.
 //
 // Typical usage:
@@ -41,7 +31,7 @@ public:
 	// becomes a 0-based index into `keys`, so each instance can stamp a different shape - e.g.
 	// a random ASCII glyph per particle in a text-particle demo, or a mix of icon shapes along a
 	// route. Overrides setShapeKey() for Stamp; each key's em-space bounds are looked up once
-	// here (atlas->getShape()) and uploaded to a private SSBO at PATH_SHAPE_TABLE_SSBO_BINDING,
+	// here (atlas->getShape()) and uploaded to a private SSBO (the osgSlug::path.shapes slot),
 	// since AtlasShapeData has no room for per-shape em bounds. Triggers recompile, same as
 	// setShapeKey().
 	void setShapeKeys(std::vector<slughorn::Key> keys);

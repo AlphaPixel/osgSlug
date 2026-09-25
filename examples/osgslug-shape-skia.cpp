@@ -138,7 +138,7 @@ SkPath buildJigsawPiecePath() {
 // =============================================================================
 
 static const std::string FRAG_SHADER = R"(
-#version 330 core
+#version 430 core
 
 #pragma osgSlug fragment
 
@@ -171,6 +171,7 @@ vec4 osgSlug_Fragment(osgSlug_FragmentData data) {
 // =============================================================================
 int main(int argc, char** argv) {
 	osg::ArgumentParser args(&argc, argv);
+	auto lib = osgSlug::initialize(args);
 
 	osgViewer::Viewer viewer(args);
 

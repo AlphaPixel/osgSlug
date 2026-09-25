@@ -81,7 +81,7 @@ struct LayerData {
 	vec4 axisY;
 };
 
-layout(std430, binding = 1) buffer LayerBuffer {
+layout(std430, binding = @osgSlug::layers@) buffer LayerBuffer {
 	LayerData layers[];
 };
 
@@ -114,6 +114,7 @@ struct LayerBarrierCallback: public osg::Drawable::DrawCallback {
 
 int main(int argc, char** argv) {
 	osg::ArgumentParser args(&argc, argv);
+	auto lib = osgSlug::initialize(args);
 
 	osgViewer::Viewer viewer(args);
 
@@ -164,7 +165,7 @@ int main(int argc, char** argv) {
 	);
 	auto computeProgram = osgx::make_ref<osg::Program>();
 
-	computeProgram->addShader(new osg::Shader(osg::Shader::COMPUTE, COMPUTE_SHADER));
+	computeProgram->addShader(new osg::Shader(osg::Shader::COMPUTE, osgx::resolveShaderLibs(COMPUTE_SHADER)));
 
 	// One workgroup of one thread - animates the pentagon (layer 1).
 	auto dispatch = osgx::make_ref<osg::DispatchCompute>(1, 1, 1);
@@ -172,14 +173,19 @@ int main(int argc, char** argv) {
 
 	dss->setAttributeAndModes(computeProgram, osg::StateAttribute::ON);
 	dss->setAttributeAndModes(
-		new osg::ShaderStorageBufferBinding(1, layerBuf, 0, layerTotalSize),
+		new osg::ShaderStorageBufferBinding(
+			lib.bindings().get("osgSlug::layers"),
+			layerBuf,
+			0,
+			layerTotalSize
+		),
 		osg::StateAttribute::ON
 	);
 
 	// Render bin 0 < 1 ensures dispatch precedes the geometry draw.
 	dss->setRenderBinDetails(0, "RenderBin");
 
-	// Barrier: compute writes must be visible before the vertex shader reads binding 1.
+	// Barrier: compute writes must be visible before the vertex shader reads the layer SSBO.
 	sd->setDrawCallback(new LayerBarrierCallback());
 
 	auto scene = osgx::make_ref<osg::Group>();

@@ -1,66 +1,21 @@
 #include "osgSlug/Drawable.hpp"
 
+#include "Drawable/Util.hpp"
+
 OSGSLUG_DISABLE_WARNINGS
 
 #include <osg/BlendFunc>
 #include <osg/Shader>
-#include <osgx/Picking.hpp>
-#include <osgx/SDF.hpp>
 
 OSGSLUG_ENABLE_WARNINGS
 
 namespace {
 
-// SHADER_LIB_VERTEX and SHADER_LIB_FRAGMENT are initialized before the first call to
-// resolveShaderLibs() below. The later scanline/mask catalogs register immediately after their
-// source strings are initialized, before any shader asks to expand them.
-void registerOsgSlugCoreShaderLibs() {
-	static const bool registered = [] {
-		// "fragment_emcoord" is struct/interface content only (osgSlug_FragmentData, geom/fx
-		// blocks, etc.) - it MUST stay body-free, since SHADER_FRAG, both
-		// SHADER_MASK_FRAGMENT_HOOK* units, SHADER_NOOP_FRAGMENT_EXT_HOOK, and whichever
-		// FragmentHook is active all pull it in and get linked into the same Program; GLSL only
-		// allows ONE of several linked shader objects to provide a given function's body.
-		// "fragment" (interface + a real default osgSlug_FragmentEmCoord body) is therefore reserved
-		// for exactly one of those - the active FragmentHook - to ever pull in. Same story for
-		// vertex: "vertex" is interface-only (safe everywhere), "vertex_main" carries real
-		// osgSlug_VertexDefault/_Rotate/_Scale bodies and is pulled only by the two main vertex
-		// units (SHADER_VERT/SHADER_VERT_DECAL), never a hook. See Atlas.hpp's declaration
-		// comments for the full per-pragma safety reasoning.
-		const osgx::ShaderLib libs[] = {
-			{"vertex", {}, osgSlug::Atlas::SHADER_VERTEX},
-			{"vertex_lib", {}, osgSlug::Atlas::SHADER_LIB_VERTEX},
-			{"vertex_main", {}, osgSlug::Atlas::SHADER_VERTEX_MAIN},
-			{"fragment_emcoord", {}, osgSlug::Atlas::SHADER_FRAGMENT_EMCOORD},
-			{"fragment", {}, osgSlug::Atlas::SHADER_FRAGMENT},
-			{"fragment_lib", {}, osgSlug::Atlas::SHADER_LIB_FRAGMENT},
-			{"coverage_lib", {}, osgSlug::Atlas::SHADER_LIB_COVERAGE}
-		};
-
-		osgx::registerShaderLibs("osgSlug", libs);
-
-		return true;
-	}();
-
-	// TODO: THIS IS HEINOUS! I _hate_ static data that can't be explicitly constructed/destroyed!
-	static_cast<void>(registered);
-}
-
-// Resolves both osgSlug's registered hook libraries and osgx's PBR/IBL/picking/SDF catalogs.
-std::string resolveShaderLibs(std::string src) {
-	registerOsgSlugCoreShaderLibs();
-	osgx::registerPBRShaderLibs();
-	osgx::registerLightShaderLibs();
-	osgx::registerIBLShaderLibs();
-	osgx::registerPickShaderLibs();
-	osgx::registerSDFShaderLibs();
-
-	return osgx::resolveShaderLibs(std::move(src));
-}
-
-// Prepend `types` immediately after the #version directive in `src`, then resolve libs.
-osg::Shader* makeVertShader(const std::string& src, const std::string& types) {
-	const std::string resolved = resolveShaderLibs(src);
+// Prepend `types` immediately after the #version directive in `src`; both are resolved, since
+// `types` carries @slot@ tokens of its own.
+osg::Shader* makeVertShader(const std::string& src, const std::string& rawTypes) {
+	const std::string resolved = osgx::resolveShaderLibs(src);
+	const std::string types = osgx::resolveShaderLibs(rawTypes);
 	const auto vp = resolved.find("#version");
 	const auto nl = (vp != std::string::npos) ? resolved.find('\n', vp) : std::string::npos;
 
@@ -87,7 +42,7 @@ struct osgSlug_AtlasShapeData {
 	vec4 originData; // xy = originX/Y, zw = unused
 };
 
-layout(std430, binding = 0) readonly buffer AtlasShapeBuffer {
+layout(std430, binding = @osgSlug::atlas.shapes@) readonly buffer AtlasShapeBuffer {
 	osgSlug_AtlasShapeData atlasShapes[];
 };
 )";
@@ -105,7 +60,7 @@ struct osgSlug_LayerData {
 	vec4 axisY; // xyz = model-space direction of +1 em along the quad's Y axis, w = worldPerEm rate
 };
 
-layout(std430, binding = 1) buffer LayerBuffer {
+layout(std430, binding = @osgSlug::layers@) buffer LayerBuffer {
 	osgSlug_LayerData layers[];
 };
 )";
@@ -284,7 +239,13 @@ struct osgSlug_FragmentExtData {
 	vec2 emsPerPixel; // fwidth(emCoord) - em-space per screen pixel
 };
 
-// Effect texture (unit 4). Bind any osg::Texture2D to unit 4 in the StateSet.
+// Effect texture. Bind any osg::Texture2D to the osgSlug::effect unit in the StateSet.
+//
+// osgSlug samplers take their unit from a uniform (addSamplerUniforms()), not layout(binding):
+// every osgSlug program links these libs into several shader objects, so each sampler is declared
+// more than once per program, and NVIDIA's linker rejects identical layout(binding) sampler
+// redeclarations whose objects declare other bound samplers in a different order (valid GLSL -
+// glslangValidator links it).
 uniform sampler2D osgSlug_effectTexture;
 
 // Mask descriptor - populated by osgSlug::RenderMask, bound via RenderGroup/applyMask() at
@@ -296,10 +257,10 @@ uniform sampler2D osgSlug_effectTexture;
 // params2: SDF overflow [4,5]; Arc: angle_end; ArcBand: angle_end + stroke_hw.
 // sdfRect/sdfFrame/debug are SDFTile-only fields (sdfRect/sdfFrame mirror osgSlug_SDFTile's);
 // sdfRect.zw == 0 means the key has no baked tile. Ignored for analytical types.
-// SDFTile sampling reuses osgSlug_sdfTexture (unit 3, always bound by the Atlas's own default
-// StateSet) - a mask's tile lives in the same texture every glyph/shape already samples, so
-// SHADER_LIB_MASK re-declares that uniform rather than binding a second texture unit to the same
-// data (see SHADER_LIB_MASK's LayerBuffer re-declaration for why re-declaring instead of
+// SDFTile sampling reuses osgSlug_sdfTexture (osgSlug::atlas.sdf, always bound by the Atlas's own
+// default StateSet) - a mask's tile lives in the same texture every glyph/shape already samples,
+// so SHADER_LIB_MASK re-declares that uniform rather than binding a second texture unit to the
+// same data (see SHADER_LIB_MASK's LayerBuffer re-declaration for why re-declaring instead of
 // importing is the normal, required pattern for a separately-linked shader object).
 //
 // NOTE: no contentOrigin field here (deliberately removed) - it was a per-MASK value shared
@@ -319,12 +280,10 @@ struct osgSlug_MaskData {
 	bool debug;
 };
 
-// No inline layout(binding=N): inline UBO binding syntax is illegal pre-4.20. Bound instead via
-// Program::addBindUniformBlock() - every Program that links SHADER_FRAG does this now (see
-// Atlas::createProgram()), since
-// osgSlug_FragmentMask() below reads this block unconditionally, not just when a mask-aware
-// hook opts in.
-layout(std140) uniform osgSlug_MaskBlock {
+// osgSlug_FragmentMask() below reads this block unconditionally, not just when a mask-aware hook
+// opts in, so every Program linking SHADER_FRAG needs a RenderMask bound at this slot (the
+// Atlas's null mask by default).
+layout(std140, binding = @osgSlug::mask@) uniform osgSlug_MaskBlock {
 	osgSlug_MaskData osgSlug_mask;
 };
 )";
@@ -389,18 +348,6 @@ vec3 osgSlug_SDF_BevelNormal(
 // Prerequisites (the consuming shader must already have, BEFORE this pragma): #pragma osgSlug
 // fragment_emcoord (geom/fx blocks + osgSlug_FragmentMaskData), `uniform float
 // osg_SimulationTime;`, `uniform bool osgSlug_textMode;`.
-//
-// MUST be defined (in file order) before Atlas::SHADER_FRAG below: SHADER_FRAG's own static
-// initializer is what first calls resolveShaderLibs() at process static-init time (see
-// registerOsgSlugCoreShaderLibs()'s own comment at the top of this file), and its raw text
-// contains `#pragma osgSlug coverage_lib` - this must already be registered (i.e. THIS string
-// already constructed) by the time that runs, or the pragma silently expands to nothing instead
-// of throwing (registerShaderLibs() hasn't seen "coverage_lib" yet at that point, so
-// resolveShaderLibs() just leaves an unrecognized-namespace pragma... except "osgSlug" itself IS
-// a recognized namespace by then, just missing this one entry - see resolveShaderLibs()'s own
-// unknown-lib-name error path, which DOES catch this case and throw. Still: keep this above
-// SHADER_FRAG, not after, and this whole class of bug stays a compile-time throw instead of a
-// silent no-op).
 const std::string Atlas::SHADER_LIB_COVERAGE = R"(
 
 // Forward declarations only (safe to repeat across shader objects linked into one Program,
@@ -839,7 +786,7 @@ struct osgSlug_DecalLayerData {
 	vec4 tangentNorth;
 };
 
-layout(std430, binding = 1) buffer DecalLayerBuffer {
+layout(std430, binding = @osgSlug::layers@) buffer DecalLayerBuffer {
 	osgSlug_DecalLayerData decalLayers[];
 };
 
@@ -903,14 +850,12 @@ void main() {
 }
 )";
 
-// Main fragment shader. Stored pre-resolved so PathDrawable.cpp can use it directly.
-// The #pragma osgSlug fragment_emcoord is expanded at static init time - SHADER_FRAG always
-// contains the fully substituted SHADER_FRAGMENT_EMCOORD content (struct defs). Interface-only,
-// never the body-bearing `fragment` - this is one of the always-linked units that must never
+// Main fragment shader. Unexpanded; createProgram() expands its pragmas. Pulls in
+// `fragment_emcoord` (struct defs), interface-only, never the body-bearing `fragment` - this is one of the always-linked units that must never
 // collide with whichever FragmentHook is active (see Atlas.hpp's SHADER_FRAGMENT_EMCOORD
 // comment). The effect-helper bodies below don't need `fragment_lib` pulled in for themselves -
 // they're defined, not called, here; hook units pull fragment_lib to get their prototypes.
-const std::string Atlas::SHADER_FRAG = resolveShaderLibs(R"(
+const std::string Atlas::SHADER_FRAG = R"(
 #version 430 core
 
 #pragma osgSlug fragment_emcoord
@@ -1004,7 +949,7 @@ uniform sampler2D osgSlug_gradientTexture;
 uniform sampler2D osgSlug_sdfTexture;
 uniform int osgSlug_sdfType; // 0 = SDF (read .r), 1 = MSDF (median of .rgb)
 
-// The SDF-only tile table (binding 2), one entry per baked tile; a layer's effectData.z holds its
+// The SDF-only tile table (osgSlug::atlas.sdfTiles), one entry per baked tile; a layer's effectData.z holds its
 // index, which reaches here as fx.sdfTile. Deliberately its own buffer - the shape record
 // (osgSlug_AtlasShapeData) and layer record stay SDF-free. rect = (x, y, w, h) in texels; frame =
 // (emOriginX, emOriginY, texelsPerEm, range): texel = rect.xy + (em - frame.xy) * frame.z.
@@ -1013,7 +958,7 @@ struct osgSlug_SDFTile {
 	vec4 frame;
 };
 
-layout(std430, binding = 2) readonly buffer SDFTileBuffer {
+layout(std430, binding = @osgSlug::atlas.sdfTiles@) readonly buffer SDFTileBuffer {
 	osgSlug_SDFTile sdfTiles[];
 };
 uniform int osgSlug_gradientCount;
@@ -1501,13 +1446,13 @@ void main() {
 		color = vec4(outPremul * osgSlug_maskFill, outAlpha * osgSlug_maskFill);
 	}
 }
-)");
+)";
 
 // See Atlas.hpp's own declaration comment. Layer-mask discard matches SHADER_FRAG's main() (a
 // layer hidden via osgSlug_layerMask shouldn't be pickable either); the coverage/discard decision
 // itself is entirely osgSlug_CoverageFill() (coverage_lib) - this shader adds nothing to that
 // logic, only the ID lookup/packing on top of a coverage pass.
-const std::string Atlas::SHADER_PICK_FRAG = resolveShaderLibs(R"(
+const std::string Atlas::SHADER_PICK_FRAG = R"(
 #version 430 core
 
 #pragma osgSlug fragment_emcoord
@@ -1544,7 +1489,7 @@ struct osgSlug_LayerData {
 	vec4 axisY; // layout) - see the expand-removal / GPU-live margin work
 };
 
-layout(std430, binding = 1) readonly buffer LayerBuffer {
+layout(std430, binding = @osgSlug::layers@) readonly buffer LayerBuffer {
 	osgSlug_LayerData layers[];
 };
 
@@ -1565,9 +1510,9 @@ void main() {
 
 	fragColor = osgx_encodePickID(pickID);
 }
-)");
+)";
 
-const std::string Atlas::SHADER_NOOP_VERTEX_HOOK = resolveShaderLibs(R"(
+const std::string Atlas::SHADER_NOOP_VERTEX_HOOK = R"(
 #version 430 core
 
 #pragma osgSlug vertex
@@ -1575,12 +1520,12 @@ const std::string Atlas::SHADER_NOOP_VERTEX_HOOK = resolveShaderLibs(R"(
 osgSlug_VertexResult osgSlug_Vertex(osgSlug_VertexData data) {
 	return osgSlug_VertexDefault(data);
 }
-)");
+)";
 
 // The active FragmentHook - this default included - is the ONE unit per Program allowed to pull
 // the body-bearing `fragment` pragma; its old hand-written identity osgSlug_FragmentEmCoord is now
 // exactly what `fragment`'s merged default already provides, so it's gone rather than duplicated.
-const std::string Atlas::SHADER_NOOP_FRAGMENT_HOOK = resolveShaderLibs(R"(
+const std::string Atlas::SHADER_NOOP_FRAGMENT_HOOK = R"(
 #version 430 core
 
 #pragma osgSlug fragment
@@ -1588,12 +1533,12 @@ const std::string Atlas::SHADER_NOOP_FRAGMENT_HOOK = resolveShaderLibs(R"(
 vec4 osgSlug_Fragment(osgSlug_FragmentData data) {
 	return vec4(data.layerColor.rgb, data.fill * data.layerColor.a);
 }
-)");
+)";
 
 // FragmentExtHook is always linked as its own shader unit alongside whichever FragmentHook is
 // active (see Atlas.hpp) - it must use the interface-only `fragment_emcoord`, never the
 // body-bearing `fragment`, or it collides with that FragmentHook's own osgSlug_FragmentEmCoord.
-const std::string Atlas::SHADER_NOOP_FRAGMENT_EXT_HOOK = resolveShaderLibs(R"(
+const std::string Atlas::SHADER_NOOP_FRAGMENT_EXT_HOOK = R"(
 #version 430 core
 
 #pragma osgSlug fragment_emcoord
@@ -1603,7 +1548,7 @@ vec4 osgSlug_FragmentExt(osgSlug_FragmentExtData data, out int blendMode) {
 
 	return vec4(0.0);
 }
-)");
+)";
 
 // ================================================================================================
 // Scanline Sweeper library + shaders
@@ -1762,18 +1707,8 @@ void main() {
 }
 )";
 
-const bool REGISTER_SCANLINE_SHADER_LIB = [] {
-	const osgx::ShaderLib libs[] = {
-		{"scanline_lib", {}, Atlas::SHADER_LIB_SCANLINE}
-	};
-
-	osgx::registerShaderLibs("osgSlug", libs);
-
-	return true;
-}();
-
-// Pre-resolved at static-init time so ScanlineDrawable can use it without re-resolving.
-const std::string Atlas::SHADER_SCANLINE_FRAG = resolveShaderLibs(R"(
+// Unexpanded; ScanlineDrawable expands its pragmas when it builds its Program.
+const std::string Atlas::SHADER_SCANLINE_FRAG = R"(
 #version 430 core
 
 #pragma osgSlug scanline_lib
@@ -1814,7 +1749,7 @@ void main() {
 	float alpha = clamp(coverage / winArea, 0.0, 1.0);
 	fragColor = vec4(v_layerColor.rgb, v_layerColor.a * alpha);
 }
-)");
+)";
 
 // osgx_SDF_* (via #pragma osgx::sdf SHAPES, see osgx/SDF.hpp) - closed-form signed distance
 // functions (negative = inside). Used to live here as osgSlug_SDF_* - extracted to osgx
@@ -1829,13 +1764,9 @@ void main() {
 // Requires #version 430: the LayerBuffer re-declaration below is a `buffer` (SSBO) block,
 // illegal pre-4.30 - something any hook using mask_lib must declare correctly.
 //
-// Wrapped in this file's own resolveShaderLibs() (not a raw R"(...)" literal, unlike before this
-// extraction) so the #pragma osgx::sdf SHAPES line below is already expanded into real GLSL by
-// the time THIS string itself gets registered as the "mask_lib" library entry - resolveShaderLibs()
-// only does one pass over whatever source it's handed (see Shader.hpp's own comment), so a
-// registered library's OWN source must already be fully resolved, not left for some future
-// caller's pass to expand a second time.
-const std::string Atlas::SHADER_LIB_MASK = resolveShaderLibs(R"(
+// Its own #pragma osgx::sdf line below is expanded wherever "mask_lib" is pulled in (library
+// sources are expanded recursively).
+const std::string Atlas::SHADER_LIB_MASK = R"(
 
 // Private re-declaration of LayerBuffer (see SHADER_TYPES): needed here because this fragment
 // hook's shader object never gets SHADER_TYPES prepended (that only happens for the vertex
@@ -1854,7 +1785,7 @@ struct osgSlug_LayerData {
 	vec4 axisY; // layout) - see the expand-removal / GPU-live margin work
 };
 
-layout(std430, binding = 1) readonly buffer LayerBuffer {
+layout(std430, binding = @osgSlug::layers@) readonly buffer LayerBuffer {
 	osgSlug_LayerData layers[];
 };
 
@@ -1886,8 +1817,7 @@ float osgSlug_SDF_TileSample(vec4 sdfRect, vec4 sdfFrame, vec2 emCoord);
 // baked-tile branch of osgSlug_Mask_CoverageFor uses CoverageFromDistance (Median is not needed:
 // osgSlug_SDF_TileSample already reduces the tile's texel to one scalar for either SDF type, and
 // ScreenPixelRange is unused: this file already has an em-space screen scale, emsPerPixel). See
-// osgx/SDF.hpp. Resolved by THIS file's own resolveShaderLibs() wrapper (see its own comment above),
-// which registers osgx::registerSDFShaderLibs() before delegating to osgx::resolveShaderLibs().
+// osgx/SDF.hpp.
 //
 // The DEFINITIONS (SAMPLING) live in SHADER_FRAG, the always-linked unit: GLSL rejects one function
 // defined twice across the shader objects of one Program, so every other library/hook that needs
@@ -2079,7 +2009,7 @@ float osgSlug_Mask_CoverageFor(vec2 canvasCoord, vec2 emsPerPixel) {
 
 	return maskFill;
 }
-)");
+)";
 
 // Default (always-linked, NOT opt-in) implementation of the osgSlug_FragmentMask early hook --
 // see main()'s call site in SHADER_FRAG and osgSlug_FragmentMaskData's comment. Unlike
@@ -2091,20 +2021,10 @@ float osgSlug_Mask_CoverageFor(vec2 canvasCoord, vec2 emsPerPixel) {
 // Requires #version 430: mask_lib's private LayerBuffer redeclaration is a `buffer` (SSBO)
 // block, illegal pre-4.30. (All other fragment-stage shader strings in this file are also
 // 430 now, post-GL3-removal, but this is the one that actually needs it.)
-const bool REGISTER_MASK_SHADER_LIB = [] {
-	const osgx::ShaderLib libs[] = {
-		{"mask_lib", {}, Atlas::SHADER_LIB_MASK}
-	};
-
-	osgx::registerShaderLibs("osgSlug", libs);
-
-	return true;
-}();
-
 // MaskHook is always linked as its own shader unit alongside whichever FragmentHook is active -
 // interface-only `fragment_emcoord`, never the body-bearing `fragment` (same reasoning as
 // SHADER_NOOP_FRAGMENT_EXT_HOOK above).
-const std::string Atlas::SHADER_MASK_FRAGMENT_HOOK = resolveShaderLibs(R"(
+const std::string Atlas::SHADER_MASK_FRAGMENT_HOOK = R"(
 #version 430 core
 
 #pragma osgSlug fragment_emcoord
@@ -2120,14 +2040,14 @@ float osgSlug_FragmentMask(osgSlug_FragmentMaskData data) {
 
 	return osgSlug_Mask_CoverageFor(canvasCoord, data.emsPerPixel);
 }
-)");
+)";
 
 // createDecalProgram()'s default MaskHook (see Atlas.hpp's declaration comment for the full
 // LayerBuffer/DecalLayerBuffer mismatch reasoning). data.uv is the decal quad's own [0,1]
 // tangent-plane position (see SHADER_VERT_DECAL/geom.uv) - centering it to match the vertex
 // shader's own lu-0.5/lv-0.5 convention gives exactly the coordinate space a face-outline mask
 // (built via Canvas::mask() in that same centered [-0.5,0.5] space) should be authored in.
-const std::string Atlas::SHADER_MASK_FRAGMENT_HOOK_DECAL = resolveShaderLibs(R"(
+const std::string Atlas::SHADER_MASK_FRAGMENT_HOOK_DECAL = R"(
 #version 430 core
 
 #pragma osgSlug fragment_emcoord
@@ -2136,7 +2056,7 @@ const std::string Atlas::SHADER_MASK_FRAGMENT_HOOK_DECAL = resolveShaderLibs(R"(
 float osgSlug_FragmentMask(osgSlug_FragmentMaskData data) {
 	return osgSlug_Mask_CoverageFor(data.uv - vec2(0.5), data.emsPerPixel);
 }
-)");
+)";
 
 // ================================================================================================
 // State-set builders
@@ -2165,16 +2085,12 @@ osg::Program* Atlas::createProgram(const ProgramSpec& spec, const HookList& hook
 
 	// An empty fragMain means the caller links its own private fragment stage (PathDrawable's
 	// Miter mode) - it has no osgSlug_Fragment/FragmentExt/FragmentMask entry points to substitute
-	// and no osgSlug_MaskBlock to bind, so none of the fragment machinery below applies.
+	// and reads no osgSlug_MaskBlock, so none of the fragment machinery below applies.
 	if(!spec.fragMain.empty()) {
-		program->addShader(osgx::cachedShader(osg::Shader::FRAGMENT, spec.fragMain));
-		program->addShader(osgx::cachedShader(osg::Shader::FRAGMENT, resolveShaderLibs(*fragEffects)));
-		program->addShader(osgx::cachedShader(osg::Shader::FRAGMENT, resolveShaderLibs(*fragExt)));
-		program->addShader(osgx::cachedShader(osg::Shader::FRAGMENT, resolveShaderLibs(*maskHook)));
-
-		// osgSlug_MaskBlock has no inline layout(binding=N) (illegal pre-GL4.20); bound instead via
-		// glUniformBlockBinding here, matching where RenderMask::apply() binds at draw time.
-		program->addBindUniformBlock("osgSlug_MaskBlock", RENDER_MASK_UBO_BINDING);
+		program->addShader(osgx::cachedShader(osg::Shader::FRAGMENT, osgx::resolveShaderLibs(spec.fragMain)));
+		program->addShader(osgx::cachedShader(osg::Shader::FRAGMENT, osgx::resolveShaderLibs(*fragEffects)));
+		program->addShader(osgx::cachedShader(osg::Shader::FRAGMENT, osgx::resolveShaderLibs(*fragExt)));
+		program->addShader(osgx::cachedShader(osg::Shader::FRAGMENT, osgx::resolveShaderLibs(*maskHook)));
 	}
 
 	return program;
@@ -2200,16 +2116,15 @@ osg::StateSet* Atlas::createDefaultStateSet(HookList hooks) const {
 	// that never touch masking at all (the fast path, DecalDrawable, etc.) still have something
 	// valid bound via ordinary StateSet inheritance.
 	ss->setAttributeAndModes(getNullMask()->getBinding(), osg::StateAttribute::ON);
-	ss->addUniform(new osg::Uniform("osgSlug_curveTexture", 0));
-	ss->addUniform(new osg::Uniform("osgSlug_bandTexture", 1));
-	ss->addUniform(new osg::Uniform("osgSlug_gradientTexture", 2));
-	ss->addUniform(new osg::Uniform("osgSlug_sdfTexture", 3));
+	addSamplerUniforms(ss);
+
+	auto& slots = osgx::Library::instance().bindings();
+
 	// One SDF type per Atlas (slughorn::Atlas::SDF::Config::type): 0 = SDF (read .r), 1 = MSDF (median).
 	ss->addUniform(new osg::Uniform(
 		"osgSlug_sdfType",
 		getSDF().config.type == slughorn::Atlas::SDF::Type::MSDF ? 1 : 0
 	));
-	ss->addUniform(new osg::Uniform("osgSlug_effectTexture", 4));
 	ss->addUniform(new osg::Uniform(
 		"osgSlug_gradientCount",
 		static_cast<int>(getGradients().size())
@@ -2222,17 +2137,26 @@ osg::StateSet* Atlas::createDefaultStateSet(HookList hooks) const {
 	// Pre-first-cull fallback only; kept live per-frame by Atlas's ViewportUniformCallback
 	// (see Atlas::packTextures()). SHADER_VERT's pixel-denominated AA margin reads this.
 	ss->addUniform(new osg::Uniform("osgSlug_viewport", osg::Vec2(1280.0f, 720.0f)));
-	ss->setTextureAttributeAndModes(0, _curveTexture, osg::StateAttribute::ON);
-	ss->setTextureAttributeAndModes(1, _bandTexture, osg::StateAttribute::ON);
+	ss->setTextureAttributeAndModes(
+		slots.get("osgSlug::atlas.curve"),
+		_curveTexture,
+		osg::StateAttribute::ON
+	);
+
+	ss->setTextureAttributeAndModes(
+		slots.get("osgSlug::atlas.band"),
+		_bandTexture,
+		osg::StateAttribute::ON
+	);
 
 	if(_gradientTexture.valid()) ss->setTextureAttributeAndModes(
-		2,
+		slots.get("osgSlug::atlas.gradient"),
 		_gradientTexture,
 		osg::StateAttribute::ON
 	);
 
 	if(_sdfTexture.valid()) ss->setTextureAttributeAndModes(
-		3,
+		slots.get("osgSlug::atlas.sdf"),
 		_sdfTexture,
 		osg::StateAttribute::ON
 	);
@@ -2240,7 +2164,7 @@ osg::StateSet* Atlas::createDefaultStateSet(HookList hooks) const {
 	if(_shapeBuffer.valid() && _shapeBuffer->getTotalDataSize() > 0) {
 		ss->setAttributeAndModes(
 			new osg::ShaderStorageBufferBinding(
-				0,
+				slots.get("osgSlug::atlas.shapes"),
 				_shapeBuffer,
 				0,
 				_shapeBuffer->getTotalDataSize()
@@ -2254,7 +2178,7 @@ osg::StateSet* Atlas::createDefaultStateSet(HookList hooks) const {
 	if(_sdfTileBuffer.valid() && _sdfTileBuffer->getTotalDataSize() > 0) {
 		ss->setAttributeAndModes(
 			new osg::ShaderStorageBufferBinding(
-				2,
+				slots.get("osgSlug::atlas.sdfTiles"),
 				_sdfTileBuffer,
 				0,
 				_sdfTileBuffer->getTotalDataSize()
@@ -2281,8 +2205,8 @@ osg::StateSet* Atlas::createDefaultStateSet(HookList hooks) const {
 }
 
 osg::Program* Atlas::createDecalProgram(HookList hooks) const {
-	// Inject only SHADER_ATLAS_TYPES (binding 0); the decal shader defines osgSlug_DecalLayerData
-	// and binding 1 itself, avoiding conflict with the standard osgSlug_LayerData / binding 1.
+	// Inject only SHADER_ATLAS_TYPES; the decal shader declares osgSlug_DecalLayerData at the
+	// osgSlug::layers slot itself, in place of the standard osgSlug_LayerData.
 	return createProgram(
 		{
 			.vertMain = SHADER_VERT_DECAL,

@@ -11,6 +11,7 @@
 
 int main(int argc, char** argv) {
 	osg::ArgumentParser args(&argc, argv);
+	auto lib = osgSlug::initialize(args);
 
 	osgViewer::Viewer viewer(args);
 

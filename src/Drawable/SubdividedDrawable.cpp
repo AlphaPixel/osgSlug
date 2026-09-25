@@ -266,7 +266,12 @@ void SubdividedDrawable::compile() {
 	const auto totalSize = static_cast<GLsizeiptr>(_layers.size() * 7 * sizeof(Vec4));
 
 	getOrCreateStateSet()->setAttributeAndModes(
-		new osg::ShaderStorageBufferBinding(1, _layers[0].buffer, 0, totalSize),
+		new osg::ShaderStorageBufferBinding(
+			osgx::Library::instance().bindings().get("osgSlug::layers"),
+			_layers[0].buffer,
+			0,
+			totalSize
+		),
 		osg::StateAttribute::ON
 	);
 

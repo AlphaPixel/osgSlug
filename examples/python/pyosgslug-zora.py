@@ -11,6 +11,8 @@ import time
 import os
 import random
 
+lib = osgSlug.initialize()
+
 W, H = 800, 600
 
 os.environ.update({

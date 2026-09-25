@@ -23,6 +23,8 @@ import time
 import sys
 import os
 
+lib = osgSlug.initialize()
+
 W, H = 800, 600
 HUD_EFFECTS = False
 

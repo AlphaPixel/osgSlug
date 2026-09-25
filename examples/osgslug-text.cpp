@@ -57,6 +57,7 @@ osg::Camera* createOrthoCamera(slug_t width, slug_t height) {
 
 int main(int argc, char** argv) {
 	osg::ArgumentParser args(&argc, argv);
+	auto lib = osgSlug::initialize(args);
 
 	osgViewer::Viewer viewer(args);
 

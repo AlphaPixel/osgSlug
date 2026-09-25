@@ -2,7 +2,7 @@
 
 namespace osgSlug {
 
-RenderMask::RenderMask(const slughorn::Mask& mask, unsigned bindingPoint):
+RenderMask::RenderMask(const slughorn::Mask& mask):
 _mask(mask) {
 	_data = new osg::UByteArray(sizeof(PackedData));
 
@@ -10,11 +10,16 @@ _mask(mask) {
 
 	pack(nullptr);
 
-	_binding = new osg::UniformBufferBinding(bindingPoint, _data.get(), 0, sizeof(PackedData));
+	_binding = new osg::UniformBufferBinding(
+		osgx::Library::instance().bindings().get("osgSlug::mask"),
+		_data.get(),
+		0,
+		sizeof(PackedData)
+	);
 }
 
-osg::ref_ptr<RenderMask> RenderMask::createNull(unsigned bindingPoint) {
-	osg::ref_ptr<RenderMask> mask = new RenderMask(slughorn::Mask{}, bindingPoint);
+osg::ref_ptr<RenderMask> RenderMask::createNull() {
+	osg::ref_ptr<RenderMask> mask = new RenderMask(slughorn::Mask{});
 
 	mask->_null = true;
 	mask->pack(nullptr);

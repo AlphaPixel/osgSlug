@@ -1,6 +1,7 @@
 #pragma once
 
 #include "osgSlug/Atlas.hpp"
+#include "osgSlug/Library.hpp"
 #include "osgSlug/Drawable/ShapeDrawable.hpp"
 #include "osgSlug/Drawable/SubdividedDrawable.hpp"
 

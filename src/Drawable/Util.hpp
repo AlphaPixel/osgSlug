@@ -8,8 +8,27 @@
 #include <cmath>
 #include <cstdint>
 #include <cstring>
+#include <utility>
 
 namespace osgSlug {
+
+// Sets each osgSlug sampler uniform to the unit of the osgx::Bindings slot it reads (see
+// SHADER_FRAGMENT_EMCOORD's osgSlug_effectTexture comment for why these aren't layout(binding)).
+inline void addSamplerUniforms(osg::StateSet* ss) {
+	static constexpr std::pair<const char*, const char*> SAMPLERS[] = {
+		{"osgSlug_curveTexture", "osgSlug::atlas.curve"},
+		{"osgSlug_bandTexture", "osgSlug::atlas.band"},
+		{"osgSlug_gradientTexture", "osgSlug::atlas.gradient"},
+		{"osgSlug_sdfTexture", "osgSlug::atlas.sdf"},
+		{"osgSlug_effectTexture", "osgSlug::effect"}
+	};
+
+	auto& slots = osgx::Library::instance().bindings();
+
+	for(const auto& [uniform, slot] : SAMPLERS) {
+		ss->addUniform(new osg::Uniform(uniform, static_cast<int>(slots.get(slot))));
+	}
+}
 
 struct GradientData {
 	Vec4 meta {0.0f, 0.0f, 0.0f, 0.0f};

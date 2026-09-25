@@ -26,6 +26,7 @@ osgSlug_VertexResult osgSlug_Vertex(osgSlug_VertexData data) {
 
 int main(int argc, char** argv) {
 	osg::ArgumentParser args(&argc, argv);
+	auto lib = osgSlug::initialize(args);
 
 	osgViewer::Viewer viewer(args);
 

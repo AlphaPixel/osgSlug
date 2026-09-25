@@ -256,7 +256,7 @@ slughorn::CompositeShape buildPixelLogo(osgSlug::Atlas* atlas) {
 // =============================================================================
 
 static const std::string FRAG_SHADER = R"(
-#version 330 core
+#version 430 core
 
 #pragma osgSlug fragment
 
@@ -310,6 +310,7 @@ vec4 osgSlug_Fragment(osgSlug_FragmentData data) {
 
 int main(int argc, char** argv) {
 	osg::ArgumentParser args(&argc, argv);
+	auto lib = osgSlug::initialize(args);
 
 	osgViewer::Viewer viewer(args);
 
@@ -332,7 +333,7 @@ int main(int argc, char** argv) {
 	// sd->addCompositeShape(logo, { 0.0f, 0.0f }, 300.0f);
 	sd->addCompositeShape(logo);
 
-	// Load an image and bind it to unit 4 (osgSlug_effectTexture)
+	// Load an image and bind it to the osgSlug::effect unit (osgSlug_effectTexture)
 	osg::ref_ptr<osg::Image> img = osgDB::readImageFile("steel_128.png");
 
 	auto tex = osgx::make_ref<osg::Texture2D>(img);
@@ -342,10 +343,14 @@ int main(int argc, char** argv) {
 	tex->setFilter(osg::Texture::MIN_FILTER, osg::Texture::LINEAR);
 	tex->setFilter(osg::Texture::MAG_FILTER, osg::Texture::LINEAR);
 
-	// Hooked program + per-drawable effect texture (unit 4); atlas textures inherited from parent.
+	// Hooked program + per-drawable effect texture; atlas textures inherited from parent.
 	sd->setHooks({{osgSlug::Atlas::FragmentHook, FRAG_SHADER}});
 
-	sd->getOrCreateStateSet()->setTextureAttributeAndModes(4, tex, osg::StateAttribute::ON);
+	sd->getOrCreateStateSet()->setTextureAttributeAndModes(
+		lib.bindings().get("osgSlug::effect"),
+		tex,
+		osg::StateAttribute::ON
+	);
 
 	atlas->addChild(sd);
 

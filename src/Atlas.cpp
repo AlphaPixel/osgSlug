@@ -76,11 +76,11 @@ struct ViewportUniformCallback: public osg::NodeCallback {
 
 Atlas::Atlas(uint32_t texWidth):
 slughorn::Atlas(texWidth),
-_nullMask(RenderMask::createNull(RENDER_MASK_UBO_BINDING)) {
+_nullMask(RenderMask::createNull()) {
 }
 
 Atlas::Atlas(const slughorn::Atlas& src):
-_nullMask(RenderMask::createNull(RENDER_MASK_UBO_BINDING)) {
+_nullMask(RenderMask::createNull()) {
 	static_cast<slughorn::Atlas&>(*this) = src;
 
 	packTextures();
@@ -159,7 +159,7 @@ void Atlas::packTextures() {
 			}
 		}
 
-		// Build the atlas-level shape SSBO (binding 0). One entry per unique shape;
+		// Build the atlas-level shape SSBO (osgSlug::atlas.shapes). One entry per unique shape;
 		// 3 vec4s = 48 bytes per entry: bandTransform, shapeData, originData.
 		_shapeBuffer = osgx::make_ref<osgx::Vec4Array>();
 
@@ -187,8 +187,8 @@ void Atlas::packTextures() {
 
 		_shapeBuffer->setBufferObject(new osg::ShaderStorageBufferObject());
 
-		// The SDF-only tile table (binding 2), kept OUT of the shape record above on purpose: only
-		// shapes with a baked tile get an entry, in shape order. Layers reach it through the index
+		// The SDF-only tile table (osgSlug::atlas.sdfTiles), kept OUT of the shape record above on
+		// purpose: only shapes with a baked tile get an entry, in shape order. Layers reach it through the index
 		// each drawable stores in effectData.z. Per tile: rect = (x, y, w, h) in texels;
 		// frame = (emOriginX, emOriginY, texelsPerEm, range), so texel = rect.xy + (em - frame.xy) *
 		// frame.z.

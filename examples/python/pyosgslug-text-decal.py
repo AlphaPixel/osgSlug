@@ -45,13 +45,14 @@ import os
 from OpenSceneGraph import *
 from OpenSceneGraph.GL import *
 
+# Before polyhaven: it imports pyosg_example, which creates a plain osgx.Library otherwise.
+from pyosgslug_example import make_trackball, window_size
+
 from OpenSceneGraph.examples import polyhaven
 
 import osgSlug
 import slughorn
 import osgx
-
-from pyosgslug_example import make_trackball, window_size
 
 FONT_PATH = "font/Silkscreen-Bold.ttf"
 

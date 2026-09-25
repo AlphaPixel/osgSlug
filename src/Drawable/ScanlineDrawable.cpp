@@ -107,13 +107,15 @@ void ScanlineDrawable::compile() {
 	auto* prog = new osg::Program();
 
 	prog->addShader(new osg::Shader(osg::Shader::VERTEX, Atlas::SHADER_SCANLINE_VERT));
-	prog->addShader(new osg::Shader(osg::Shader::FRAGMENT, Atlas::SHADER_SCANLINE_FRAG));
+	prog->addShader(new osg::Shader(osg::Shader::FRAGMENT, osgx::resolveShaderLibs(Atlas::SHADER_SCANLINE_FRAG)));
 
 	auto* ss = new osg::StateSet();
 
 	ss->setAttributeAndModes(prog, osg::StateAttribute::ON);
-	ss->setTextureAttributeAndModes(0, scanlineTex, osg::StateAttribute::ON);
-	ss->addUniform(new osg::Uniform("u_scanlineTex", 0));
+	const auto unit = osgx::Library::instance().bindings().get("osgSlug::scanline");
+
+	ss->setTextureAttributeAndModes(unit, scanlineTex, osg::StateAttribute::ON);
+	ss->addUniform(new osg::Uniform("u_scanlineTex", static_cast<int>(unit)));
 	ss->addUniform(new osg::Uniform("u_texWidth", static_cast<int>(atlas->getTextureWidth())));
 	ss->setAttributeAndModes(new osg::BlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA));
 	ss->setMode(GL_BLEND, osg::StateAttribute::ON);

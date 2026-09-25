@@ -251,7 +251,12 @@ public:
 		const auto totalSize = static_cast<GLsizeiptr>(_layerBuffers.size() * 5 * sizeof(Vec4));
 
 		getOrCreateStateSet()->setAttributeAndModes(
-			new osg::ShaderStorageBufferBinding(1, _layerBuffers[0], 0, totalSize),
+			new osg::ShaderStorageBufferBinding(
+				osgx::Library::instance().bindings().get("osgSlug::layers"),
+				_layerBuffers[0],
+				0,
+				totalSize
+			),
 			osg::StateAttribute::ON
 		);
 	}
@@ -395,6 +400,7 @@ void buildRoundedRectPath(cairo_t* cr) {
 // =============================================================================
 int main(int argc, char** argv) {
 	osg::ArgumentParser args(&argc, argv);
+	auto lib = osgSlug::initialize(args);
 
 	osgViewer::Viewer viewer(args);
 

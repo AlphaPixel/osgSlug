@@ -99,6 +99,8 @@ static slughorn::Mask::Type maskTypeFromString(const std::string& s) {
 
 int main(int argc, char** argv) {
 	osg::ArgumentParser args(&argc, argv);
+	auto lib = osgSlug::initialize(args);
+
 	osgViewer::Viewer viewer(args);
 
 	if(!example::setupArguments(args, "Demonstrates masking", {
