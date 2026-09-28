@@ -65,6 +65,7 @@ MESH_FRAGMENT_SHADER = """
 #version 430 core
 
 const float PI = 3.14159265359;
+#pragma osgx::light SPHERE_LIGHT_SPECULAR
 #pragma osgx::pbr *
 #pragma osgx::environment ENVIRONMENT_INPUTS, ENVIRONMENT_SAMPLE
 
@@ -98,6 +99,7 @@ def make_lit_icon_fragment_shader():
 #version 430 core
 
 const float PI = 3.14159265359;
+#pragma osgx::light SPHERE_LIGHT_SPECULAR
 #pragma osgx::pbr *
 #pragma osgx::environment ENVIRONMENT_INPUTS, ENVIRONMENT_SAMPLE
 #pragma osgSlug fragment
@@ -206,7 +208,7 @@ def parse_args():
 	parser = argparse.ArgumentParser(description=__doc__)
 	environment_group = parser.add_mutually_exclusive_group(required=True)
 
-	environment_group.add_argument("--env", metavar="MANIFEST", help="pre-baked osgx_pbribl environment manifest")
+	environment_group.add_argument("--env", metavar="MANIFEST", help="pre-baked osgx_environment manifest")
 	environment_group.add_argument("--hdr", metavar="PATH", help="HDR environment to bake at startup")
 	parser.add_argument("--roughness", type=float, default=0.35, help="mesh-row roughness (default: %(default)s)")
 	parser.add_argument("--metallic", type=float, default=0.15, help="mesh-row metallic (default: %(default)s)")
@@ -224,11 +226,11 @@ def parse_args():
 def build_scene(w, h):
 	args = parse_args()
 	if args.env:
-		environment = osgx.gltf.pbribl.loadEnvironment(args.env)
+		environment = osgx.gltf.loadEnvironment(args.env)
 
 	else:
 		environment = osgx.Environment(osgDB.readImageFile(args.hdr))
-		environment.rotation = osgx.gltf.pbribl.KHRONOS_ENVIRONMENT_ROTATION
+		environment.rotation = osgx.gltf.KHRONOS_ENVIRONMENT_ROTATION
 
 	if environment is None:
 		raise RuntimeError("Failed to prepare PBR/IBL environment")

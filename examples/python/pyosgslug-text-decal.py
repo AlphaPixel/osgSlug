@@ -54,7 +54,7 @@ import osgSlug
 import slughorn
 import osgx
 
-FONT_PATH = "font/Silkscreen-Bold.ttf"
+FONT_PATH = "font/UbuntuMono-R.ttf"
 
 # Em-space SDF spread for the text's baked tiles - effectId 4's chip erosion (DECAL_FRAGMENT_HOOK
 # below) is tile-gated (concentrates at the glyph boundary, per data.sd), so this needs to be
@@ -170,7 +170,7 @@ vec2 smoothNoise2(vec2 p) {
 	vec2 f = fract(p);
 	vec2 u = f * f * (3.0 - 2.0 * f);
 
-	vec2 a = hash2(i),                  b = hash2(i + vec2(1.0, 0.0));
+	vec2 a = hash2(i), b = hash2(i + vec2(1.0, 0.0));
 	vec2 c = hash2(i + vec2(0.0, 1.0)), d = hash2(i + vec2(1.0, 1.0));
 
 	return mix(mix(a, b, u.x), mix(c, d, u.x), u.y);
@@ -468,7 +468,7 @@ def parse_args():
 		help="canvas em-size, ignored for --emoji - a COLR glyph's own layers are left at their "
 		"natural transform/scale, same as pyosgslug-template.py's create_scene_emoji() "
 		"(default: %(default)s)")
-	parser.add_argument("--texture", default="worn_brick_wall",
+	parser.add_argument("--texture", default="blue_metal_plate",
 		help="Polyhaven slug, URL, or local .gltf for the wall material (default: %(default)s)")
 	parser.add_argument("--res", default="2k", help="Polyhaven download resolution (default: %(default)s)")
 	# "overlay" is the user-confirmed winner (2026-09-09) - the wall's own brick highlights/mortar

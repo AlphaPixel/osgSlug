@@ -43,8 +43,8 @@ static std::string makeChromeFrag() {
 // 430: the GLSL version osgx's and osgSlug's shader libraries require (explicit block and
 // sampler bindings), matching osgSlug's own SHADER_VERT/SHADER_FRAG (Atlas.shaders.cpp).
 const float PI = 3.14159265359;
-#pragma osgx::pbr *
-#pragma osgx::light *
+#pragma osgx::pbr D_GGX, G_SCHLICK, G_SMITH, F_SCHLICK, DIRECT_SPECULAR, F_MULTISCATTER, TONEMAP_PBR_NEUTRAL
+#pragma osgx::light POINT_LIGHT_RADIANCE, LIGHT_UNIFORMS, DIRECTIONAL_LIGHT_RADIANCE, SPOT_LIGHT_RADIANCE, LIGHT_SAMPLE
 #pragma osgx::environment ENVIRONMENT_INPUTS, ENVIRONMENT_SAMPLE
 
 )GLSL";
@@ -54,7 +54,7 @@ uniform mat4 osg_ViewMatrixInverse;
 uniform vec3 textNormalWorld;
 
 // Direct-light rig, animated per-frame by osgx::OrbitLightRig (osgx.hpp). osgx_lights
-// comes from LIGHT_UNIFORMS (already spliced in via `#pragma osgx::light *` above) --
+// comes from LIGHT_UNIFORMS (spliced in via `#pragma osgx::light` above) --
 // the same uniform-block-backed osgx::LightSet that OrbitLightRig writes position/intensity into
 // every frame, so this loop stays in sync with it instead of hand-copying a shadow uniform API.
 
@@ -98,9 +98,7 @@ vec4 osgSlug_Fragment(osgSlug_FragmentData data) {
 	vec3 direct = vec3(0.0);
 
 	// Loop the compile-time OSGX_MAX_LIGHTS, gated by each light's own `enabled` flag - the same
-	// pattern osgx_DirectLighting() uses. LightSet no longer pushes an osgx_lightCount uniform
-	// (it stays 0), so a loop bounded by it never runs; LightSet::setCount() now just disables
-	// the slots past the count instead.
+	// pattern osgx_DirectLighting() uses.
 	for(int i = 0; i < OSGX_MAX_LIGHTS; i++) {
 		if(osgx_lights[i].enabled == 0) continue;
 
@@ -118,10 +116,6 @@ vec4 osgSlug_Fragment(osgSlug_FragmentData data) {
 	return vec4(color, data.fill * data.layerColor.a);
 }
 )GLSL";
-
-	osgx::registerPBRShaderLibs();
-	osgx::registerLightShaderLibs();
-	osgx::registerEnvironmentShaderLibs();
 
 	return osgx::resolveShaderLibs(src);
 }
@@ -246,7 +240,6 @@ int main(int argc, char** argv) {
 	lights->setPoint(0, osg::Vec3(0.0f, 0.0f, 1.0f), osg::Vec3(1.00f, 0.95f, 0.80f), 0.0f);
 	lights->setPoint(1, osg::Vec3(0.0f, 0.0f, 1.0f), osg::Vec3(0.55f, 0.70f, 1.00f), 0.0f);
 	lights->setPoint(2, osg::Vec3(0.0f, 0.0f, 1.0f), osg::Vec3(1.00f, 0.45f, 0.70f), 0.0f);
-	lights->setCount(3);
 
 	atlas->addChild(sd);
 

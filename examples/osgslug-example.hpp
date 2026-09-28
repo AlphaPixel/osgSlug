@@ -8,6 +8,7 @@
 #include "slughorn/serial.hpp"
 
 #include "osgx/Debug.hpp"
+#include "osgx/Headless.hpp"
 #include "osgx/ImGui.hpp"
 
 OSGSLUG_DISABLE_WARNINGS
@@ -544,6 +545,7 @@ inline auto run(
 	osg::ArgumentParser& args,
 	osg::ref_ptr<osg::Node> sceneData
 ) {
+	auto headless = osgx::headless::readArguments(args);
 	auto b = sceneData->getBound();
 
 	OSG_NOTICE << "Bounds: center=" << b.center() << " radius=" << b.radius() << std::endl;
@@ -626,7 +628,7 @@ inline auto run(
 	viewer.addEventHandler(new DebugModeHandler(viewer.getCamera()->getOrCreateStateSet()));
 	viewer.addEventHandler(new ManipulatorToggleHandler(grid2D));
 	viewer.addEventHandler(new CameraDumpHandler());
-	viewer.setUpViewInWindow(50, 50, 800, 600);
+	if(!headless.enabled) viewer.setUpViewInWindow(50, 50, 800, 600);
 
 	// Grab all the atlases in the scene.
 	AtlasVisitor visitor;
@@ -656,7 +658,7 @@ inline auto run(
 		}
 	}
 
-	return viewer.run();
+	return osgx::headless::run(viewer, headless);
 }
 
 /* void getKeys(slughorn::Atlas& atlas, std::ostream& out=osg::notify(osg::NOTICE)) {

@@ -10,6 +10,7 @@
 
 import argparse
 import os
+import sys
 
 # setdefault(), not update() - an example that already set its own OSG_WINDOW/OSG_THREADING/
 # etc. before importing this keeps what it set; this only fills in whatever it didn't.
@@ -61,6 +62,21 @@ def window_size(default=(800, 600)):
 	x, y, w, h = spec.split()
 
 	return int(w), int(h)
+
+# --headless [egl|native] (or PYOSG_HEADLESS=egl|native|1): every osgViewer.Viewer the example
+# creates renders into a window_size() pbuffer instead of a window, writes its last frame to a PNG
+# and ends the example's frame loop - OpenSceneGraph.py's pyosg_headless, installed the same way
+# its own pyosg_example does. The options are removed from sys.argv here, before the example
+# parses its own arguments.
+from OpenSceneGraph.examples import pyosg_headless
+
+_headless, _backend, _frames, _out = pyosg_headless.parse_argv(sys.argv)
+
+if _headless:
+	pyosg_headless.install(_backend, _frames, _out, window_size())
+
+# True when every osgViewer.Viewer renders offscreen.
+HEADLESS = pyosg_headless.installed()
 
 # Parses the shared command-line switches supported by the Python examples. Individual examples
 # with their own arguments should add them to this parser rather than building a second parser.
