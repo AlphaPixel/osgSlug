@@ -198,8 +198,7 @@ in osgSlug_FxBlock {
 // slug_Render - only geom.emCoord and its screen-space derivative exist yet; no fill, no
 // sd, no layerColor. This is deliberate: osgSlug_FragmentMask's whole point is to let
 // main() discard before paying for slug_Render's curve-band loop on fragments the mask has
-// already excluded, so it cannot depend on anything slug_Render produces. See
-// ai/context-todo-mask.md, "osgSlug_FragmentMask() early hook."
+// already excluded, so it cannot depend on anything slug_Render produces.
 struct osgSlug_FragmentMaskData {
 	vec2 emCoord; // em-space coordinate (geom.emCoord, raw/untiled)
 	vec2 uv; // normalized [0,1] UV (geom.uv) - the decal mask hook reads this instead, since a
@@ -307,17 +306,16 @@ float osgSlug_Fragment_FadeOut(float time, float fadeBegin, float fadeEnd);
 // whatever the Atlas baked - a single-channel SDF or a multi-channel MSDF - and hand back the same
 // scalar either way.
 //
-// osgSlug_SDF_Sample: signed distance at an ARBITRARY em-space coordinate -- same tile mapping as
+// osgSlug_SDF_Sample: signed distance at an ARBITRARY em-space coordinate - same tile mapping as
 // the sd the hooks already receive (0.5=edge, >0.5=interior); returns -1.0 if this shape has no
 // baked tile.
 //
 // osgSlug_SDF_Gradient: em-space gradient of the field (d(sd)/d(em), points toward the interior),
-// by central differences one tile texel wide; vec2(0.0) if no tile. Use THIS -- never
-// dFdx/dFdy(sd) -- when a hook needs the field's direction: screen-space derivatives are constant
-// per 2x2 hardware quad, so anything built from them (a bevel normal, a reflection vector) is
-// quantized into pixel-scale blocks that sharp downstream lookups amplify into crunchy edges (see
-// BUG.md, 2026-07-06). The tile texture is float, so a texel-baseline difference of it is smooth
-// per pixel.
+// by central differences one tile texel wide; vec2(0.0) if no tile. Use THIS - never dFdx/dFdy(sd)
+// - when a hook needs the field's direction: screen-space derivatives are constant per 2x2
+// hardware quad, so anything built from them (a bevel normal, a reflection vector) is quantized
+// into pixel-scale blocks that sharp downstream lookups amplify into crunchy edges. The tile
+// texture is float, so a texel-baseline difference of it is smooth per pixel.
 float osgSlug_SDF_Sample(vec2 emCoord);
 vec2 osgSlug_SDF_Gradient(vec2 emCoord);
 
@@ -343,8 +341,7 @@ vec3 osgSlug_SDF_BevelNormal(
 // main() (SHADER_FRAG) itself uses. Always linked into SHADER_FRAG via #pragma osgSlug
 // coverage_lib (see its own pull-in comment there) - factored out into its own catalog entry, not
 // just left inline, so osgSlug's pick fragment shader can pull in the SAME functions and get
-// byte-identical coverage decisions instead of re-deriving Slug's own math a second time. See
-// slughorn/ai/context-todo-picking.md.
+// byte-identical coverage decisions instead of re-deriving Slug's own math a second time.
 // Prerequisites (the consuming shader must already have, BEFORE this pragma): #pragma osgSlug
 // fragment_emcoord (geom/fx blocks + osgSlug_FragmentMaskData), `uniform float
 // osg_SimulationTime;`, `uniform bool osgSlug_textMode;`.
@@ -502,8 +499,7 @@ float slug_Render(
 		// per-curve row alignment. Adds a handful of ALU ops per curve iteration; negligible
 		// next to the texture fetch and sqrt-based polynomial solve already in this loop.
 		// Shipped as the default (no opt-in flag) - lossless, and verified bit-identical
-		// against the pre-sharing renderer at real CJK-atlas scale (see slughorn's
-		// slughorn-test-render.cpp and NEXT_SESSION.md history).
+		// against the pre-sharing renderer at real CJK-atlas scale.
 		vec2 p3 = texelFetch(osgSlug_curveTexture, slug_CalcCurveLoc(curveLoc, 1), 0).xy - renderCoord;
 
 		if(max(max(p12.x, p12.z), p3.x) * pixelsPerEm.x < -0.5) break;
@@ -528,7 +524,11 @@ float slug_Render(
 	float ycov = 0.0;
 	float ywgt = 0.0;
 
-	uvec2 vbandData = texelFetch(osgSlug_bandTexture, ivec2(glyphLoc.x + 2 * SLUG_INDIRECTION_SIZE + bandMax.y + 1 + bandX, glyphLoc.y), 0).xy;
+	uvec2 vbandData = texelFetch(
+		osgSlug_bandTexture,
+		ivec2(glyphLoc.x + 2 * SLUG_INDIRECTION_SIZE + bandMax.y + 1 + bandX, glyphLoc.y),
+		0
+	).xy;
 
 	for(curveIndex = 0; curveIndex < int(vbandData.x); curveIndex++) {
 		iters++;
@@ -612,9 +612,9 @@ float slug_RenderText(
 // never returns from this call at all, same as before.
 //
 // Deliberately excludes osgSlug_FragmentExt (glow/halo effects can make a fragment visible even
-// where Slug's own fill is exactly 0 - out of scope here, see ai/context-todo-picking.md) and the
-// text-mode stem-darkening/gamma reshaping main() applies afterward (an AA-only cosmetic
-// adjustment on values already inside (0,1); immaterial to a covered/not-covered decision).
+// where Slug's own fill is exactly 0) and the text-mode stem-darkening/gamma reshaping main()
+// applies afterward (an AA-only cosmetic adjustment on values already inside (0,1); immaterial to a
+// covered/not-covered decision).
 //
 // out maskFill: the same mask-coverage value main() folds into its final alpha later - callers
 // that don't need it (a pick fragment shader) can still just declare a throwaway local for it.
@@ -718,9 +718,11 @@ void main() {
 	vData.effectParam = ld.effectData.w;
 	vData.time = osg_SimulationTime;
 	vData.bleed = ld.transformData.z;
+
 #ifdef OSGSLUG_AXIS_PER_VERTEX
 	vData.axisX = a_axisX;
 	vData.axisY = a_axisY;
+
 #else
 	vData.axisX = ld.axisX;
 	vData.axisY = ld.axisY;
@@ -744,19 +746,21 @@ void main() {
 	geom.uv = a_emCoord.zw;
 	geom.layerIndex = a_position.w;
 	geom.color = ld.color;
+	geom.gradientMeta = ld.gradientMeta;
+	geom.gradientTransform = ld.gradientTransform;
+
 	fx.bandTransform = sd.bandTransform;
 	fx.shapeData = sd.shapeData;
 	fx.effectId = effectId;
 	fx.sdfTile = ld.effectData.z < 0.0 ? -1 : int(ld.effectData.z + 0.5);
 	fx.effectParam = ld.effectData.w;
 	fx.gradientId = int(ld.gradientMeta.x + 0.5);
-	geom.gradientMeta = ld.gradientMeta;
-	geom.gradientTransform = ld.gradientTransform;
 
 	gl_Position = osg_ModelViewProjectionMatrix * vec4(pos, 1.0);
 }
 )";
 
+// TODO: SO MUCH of this is the exact same as `SHADER_VERT` above! Make a common helper?
 const std::string Atlas::SHADER_VERT_DECAL = R"(
 #version 430 core
 
@@ -837,14 +841,15 @@ void main() {
 	geom.uv = a_emCoord.zw;
 	geom.layerIndex = a_position.w;
 	geom.color = ld.color;
+	geom.gradientMeta = ld.gradientMeta;
+	geom.gradientTransform = ld.gradientTransform;
+
 	fx.bandTransform = sd.bandTransform;
 	fx.shapeData = sd.shapeData;
 	fx.effectId = effectId;
 	fx.gradientId = int(ld.gradientMeta.x + 0.5);
 	fx.sdfTile = ld.effectData.z < 0.0 ? -1 : int(ld.effectData.z + 0.5);
 	fx.effectParam = ld.effectData.w;
-	geom.gradientMeta = ld.gradientMeta;
-	geom.gradientTransform = ld.gradientTransform;
 
 	gl_Position = osg_ModelViewProjectionMatrix * vec4(pos, 1.0);
 }
@@ -970,11 +975,11 @@ uniform float osgSlug_gamma; // 1.0 = off, 2.2 = dark-on-light, ~0.454 = light-o
 // 0 (default) = all layers visible. Non-zero = apply filter; discard if bit (1 << layerIndex) is clear.
 uniform int osgSlug_layerMask;
 
-// Set by ShapeDrawable's applyBlendMode() per RenderGroup (see ai/todo-compositing.md, Cause 3).
-// Six Porter-Duff modes (Src, SrcIn, SrcOut, Clear, DstIn, DstAtop) can't be expressed correctly
-// with coverage folded into alpha - main() writes osgSlug_blendFactor.a for exactly those, and
-// applyBlendMode() points GL_SRC1_ALPHA/GL_ONE_MINUS_SRC1_ALPHA at it only for those modes; every
-// other mode's blend func never reads it.
+// Set by ShapeDrawable's applyBlendMode() per RenderGroup. Six Porter-Duff modes (Src, SrcIn,
+// SrcOut, Clear, DstIn, DstAtop) can't be expressed correctly with coverage folded into alpha -
+// main() writes osgSlug_blendFactor.a for exactly those, and applyBlendMode() points
+// GL_SRC1_ALPHA/GL_ONE_MINUS_SRC1_ALPHA at it only for those modes; every other mode's blend func
+// never reads it.
 uniform int osgSlug_blendMode;
 
 layout(location = 0, index = 0) out vec4 color;
@@ -1276,13 +1281,12 @@ void main() {
 	// coverage never depends on Slug's own fill, so it can (and now does) run first. Fragments
 	// on the mask's AA boundary survive here (maskFill > 0 but < 1) and still need slug_Render's
 	// real coverage - osgSlug_maskFill is folded into the final alpha further down, once
-	// osgSlug_Fragment/osgSlug_FragmentExt have run. See ai/context-todo-mask.md.
+	// osgSlug_Fragment/osgSlug_FragmentExt have run.
 	//
 	// osgSlug_CoverageFill() (coverage_lib) does exactly this early-mask-then-Slug-fill sequence
 	// - including the discard above if the mask rejects this fragment outright - and returns the
 	// same `fill` main() used to compute inline here. Factored out so a pick fragment shader can
-	// call the identical function instead of re-deriving Slug's own analytic coverage test; see
-	// ai/context-todo-picking.md.
+	// call the identical function instead of re-deriving Slug's own analytic coverage test.
 	float osgSlug_maskFill;
 	int iterations;
 	float fill = osgSlug_CoverageFill(osgSlug_maskFill, iterations);
@@ -1427,11 +1431,10 @@ void main() {
 		// See the debug-mode-3 branch above for why this always premultiplies.
 		color.a *= osgSlug_maskFill;
 
-		// Dual-source coverage output (see ai/todo-compositing.md, Cause 3). At this point
-		// color.a == c*a (coverage times the hook's own alpha, straight, pre-premultiply) - exactly
-		// what the DstIn/DstAtop formula needs before color.rgb *= color.a below changes it.
-		// osgSlug_blendMode values: Src=1, SrcIn=3, SrcOut=5, DstIn=4, DstAtop=8, Clear=10 - see
-		// slughorn::BlendMode.
+		// Dual-source coverage output. At this point color.a == c*a (coverage times the hook's own
+		// alpha, straight, pre-premultiply) - exactly what the DstIn/DstAtop formula needs before
+		// color.rgb *= color.a below changes it. osgSlug_blendMode values: Src=1, SrcIn=3,
+		// SrcOut=5, DstIn=4, DstAtop=8, Clear=10 - see slughorn::BlendMode.
 		float osgSlug_coverage = fill * osgSlug_maskFill;
 
 		if(
@@ -1670,25 +1673,24 @@ float scanline_sweep(vec2 size, vec2 offset, vec2 p0, vec2 p1, vec2 p2) {
 	// Components depend on the horizontal direction of travel.
 	vec4 h_check = delta.x > 0.0
 		? vec4(p0.x, p2.x, 0.0, 0.0)
-		: vec4(p2.x, p0.x, size.x, 1.0);
+		: vec4(p2.x, p0.x, size.x, 1.0)
+	;
 
-	if (h_check.x >= h_check.z) {
-		h_min_t = h_check.w;
-	} else if (h_check.y <= h_check.z) {
-		h_min_t = 1.0 - h_check.w;
-	} else {
-		h_min_t = scanline_intersect_monotonic(qa, p0.x, p1.x, p2.x, h_check.z);
-	}
+	// TODO: This (and the block below) need some love. This is ghetto.
+	if (h_check.x >= h_check.z) h_min_t = h_check.w;
+
+	else if (h_check.y <= h_check.z) h_min_t = 1.0 - h_check.w;
+
+	else h_min_t = scanline_intersect_monotonic(qa, p0.x, p1.x, p2.x, h_check.z);
 
 	h_check.z = size.x - h_check.z;
 
-	if (h_check.x >= h_check.z) {
-		h_max_t = h_check.w;
-	} else if (h_check.y <= h_check.z) {
-		h_max_t = 1.0 - h_check.w;
-	} else {
-		h_max_t = scanline_intersect_monotonic(qa, p0.x, p1.x, p2.x, h_check.z);
-	}
+	// TODO: This (and the block above) need some love. This is ghetto.
+	if (h_check.x >= h_check.z) h_max_t = h_check.w;
+
+	else if (h_check.y <= h_check.z) h_max_t = 1.0 - h_check.w;
+
+	else h_max_t = scanline_intersect_monotonic(qa, p0.x, p1.x, p2.x, h_check.z);
 
 	// Combined t-range clipped to [0, 1].
 	float min_t = clamp(max(v_min_t, h_min_t), 0.0, 1.0);
@@ -1704,7 +1706,8 @@ float scanline_sweep(vec2 size, vec2 offset, vec2 p0, vec2 p1, vec2 p2) {
 		// Curve enters from the left edge: integrate the left rectangle below entry.
 		float h = delta.y > 0.0
 			? q0.y - max(0.0, p0.y)
-			: min(size.y, p0.y) - q0.y;
+			: min(size.y, p0.y) - q0.y
+		;
 		coverage = sign(delta.y) * h * size.x;
 	}
 
@@ -1712,7 +1715,8 @@ float scanline_sweep(vec2 size, vec2 offset, vec2 p0, vec2 p1, vec2 p2) {
 		// Curve exits on the left edge: integrate the left rectangle above exit.
 		float h = delta.y > 0.0
 			? min(size.y, p2.y) - q1.y
-			: q1.y - max(0.0, p2.y);
+			: q1.y - max(0.0, p2.y)
+		;
 		coverage += sign(delta.y) * h * size.x;
 	}
 
@@ -1798,9 +1802,12 @@ void main() {
 // osgSlug_SDF_Box -> osgx_SDF_Rect, osgSlug_SDF_Pie -> osgx_SDF_Arc.
 // osgSlug_Mask_* - coverage helpers + full osgSlug_mask dispatcher (genuinely osgSlug-specific -
 // stayed here).
+//
 // Opt-in via: #pragma osgSlug mask_lib
+//
 // Prerequisites: #pragma osgSlug fragment_emcoord (or fragment) - for osgSlug_MaskData /
 // osgSlug_FragmentData.
+//
 // Requires #version 430: the LayerBuffer re-declaration below is a `buffer` (SSBO) block,
 // illegal pre-4.30 - something any hook using mask_lib must declare correctly.
 //
