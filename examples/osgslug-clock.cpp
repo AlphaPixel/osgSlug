@@ -7,6 +7,7 @@
 
 #include <chrono>
 #include <ctime>
+#include <numbers>
 
 static const std::string VERT_SHADER = R"(
 #version 430 core
@@ -50,7 +51,7 @@ struct ClockCallback: public osg::NodeCallback {
 		const float min = static_cast<float>(tm->tm_min) + sec / 60.0f;
 		const float hour = static_cast<float>(tm->tm_hour % 12) + min / 60.0f;
 
-		static constexpr float TWO_PI = 2.0f * static_cast<float>(M_PI);
+		static constexpr float TWO_PI = 2.0f * std::numbers::pi_v<float>;
 
 		_secondAngle->set((sec / 60.0f) * TWO_PI);
 		_minuteAngle->set((min / 60.0f) * TWO_PI);
@@ -138,7 +139,7 @@ int main(int argc, char** argv) {
 	if(!font->load()) return 1;
 
 	for(int i = 1; i <= 12; i++) {
-		const double angle = (i % 12) / 12.0 * 2.0 * M_PI;
+		const double angle = (i % 12) / 12.0 * 2.0 * std::numbers::pi_v<double>;
 		const slug_t nx = CX + cv(std::sin(angle)) * NUM_R;
 		const slug_t ny = CY + cv(std::cos(angle)) * NUM_R;
 

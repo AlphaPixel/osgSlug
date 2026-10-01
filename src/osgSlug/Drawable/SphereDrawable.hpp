@@ -3,6 +3,7 @@
 #include "osgSlug/Drawable/SubdividedDrawable.hpp"
 
 #include <cmath>
+#include <numbers>
 
 namespace osgSlug {
 
@@ -17,7 +18,7 @@ public:
 		_stepsV = stacks;
 
 		setPositionCallback([radius](slug_t u, slug_t v) -> Vec3 {
-			const slug_t PI = M_PIf;
+			const slug_t PI = std::numbers::pi_v<slug_t>;
 			const slug_t TAU = 2_cv * PI;
 			const slug_t lat = PI * v - PI * 0.5_cv;
 			const slug_t lon = TAU * u;

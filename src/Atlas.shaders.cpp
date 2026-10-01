@@ -970,7 +970,21 @@ uniform float osgSlug_gamma; // 1.0 = off, 2.2 = dark-on-light, ~0.454 = light-o
 // 0 (default) = all layers visible. Non-zero = apply filter; discard if bit (1 << layerIndex) is clear.
 uniform int osgSlug_layerMask;
 
-out vec4 color;
+// Set by ShapeDrawable's applyBlendMode() per RenderGroup (see ai/todo-compositing.md, Cause 3).
+// Six Porter-Duff modes (Src, SrcIn, SrcOut, Clear, DstIn, DstAtop) can't be expressed correctly
+// with coverage folded into alpha - main() writes osgSlug_blendFactor.a for exactly those, and
+// applyBlendMode() points GL_SRC1_ALPHA/GL_ONE_MINUS_SRC1_ALPHA at it only for those modes; every
+// other mode's blend func never reads it.
+uniform int osgSlug_blendMode;
+
+layout(location = 0, index = 0) out vec4 color;
+// Dual-source blend input (GL_ARB_blend_func_extended). Only .a is ever meaningful, and it is
+// NOT one consistent quantity - it's raw coverage `c` for Src/SrcIn/SrcOut/Clear, but a
+// coverage-weighted "how much of dst survives" factor (c*a + 1-c) for DstIn/DstAtop. The two
+// formulas share nothing but their GL role: whatever the active mode's blend func needs in place
+// of dst_alpha/src_alpha when coverage can't be safely folded into `color.a` (see Cause 3's
+// Fb(c*a) != c*Fb(a) + (1-c) derivation). .rgb is unused filler.
+layout(location = 0, index = 1) out vec4 osgSlug_blendFactor;
 
 // Provides osgSlug_curveTexture/osgSlug_bandTexture/osgSlug_texWidth, SLUG_INDIRECTION_SIZE, and
 // osgSlug_CoverageFill() (Slug's own analytic fill test, factored out so a pick fragment shader
@@ -1231,6 +1245,11 @@ void main() {
 	// Below this, fill/alpha/coverage values are treated as fully transparent.
 	const float COVERAGE_EPSILON = 0.001;
 
+	// Only the six dual-source blend modes below ever read this (GL_SRC1_ALPHA/
+	// GL_ONE_MINUS_SRC1_ALPHA); every other mode's blend func ignores it, so a harmless default
+	// keeps every code path (including early discards/returns) a well-defined output.
+	osgSlug_blendFactor = vec4(0.0);
+
 	// Layer mask: 0 = all visible (default). Non-zero: discard if the layer's bit is clear.
 	if(osgSlug_layerMask != 0 && (osgSlug_layerMask & (1 << int(geom.layerIndex + 0.5))) == 0) discard;
 
@@ -1407,7 +1426,28 @@ void main() {
 
 		// See the debug-mode-3 branch above for why this always premultiplies.
 		color.a *= osgSlug_maskFill;
+
+		// Dual-source coverage output (see ai/todo-compositing.md, Cause 3). At this point
+		// color.a == c*a (coverage times the hook's own alpha, straight, pre-premultiply) - exactly
+		// what the DstIn/DstAtop formula needs before color.rgb *= color.a below changes it.
+		// osgSlug_blendMode values: Src=1, SrcIn=3, SrcOut=5, DstIn=4, DstAtop=8, Clear=10 - see
+		// slughorn::BlendMode.
+		float osgSlug_coverage = fill * osgSlug_maskFill;
+
+		if(
+			osgSlug_blendMode == 1 || osgSlug_blendMode == 3 ||
+			osgSlug_blendMode == 5 || osgSlug_blendMode == 10
+		) osgSlug_blendFactor.a = osgSlug_coverage;
+
+		else if(osgSlug_blendMode == 4 || osgSlug_blendMode == 8) {
+			osgSlug_blendFactor.a = color.a + (1.0 - osgSlug_coverage);
+		}
+
 		color.rgb *= color.a;
+
+		// Clear's out0 must be 0 regardless of the hook's color - only out1.a (coverage) carries
+		// any information forward, via GL_ONE_MINUS_SRC1_ALPHA on the dst factor.
+		if(osgSlug_blendMode == 10) color = vec4(0.0);
 	}
 
 	else {

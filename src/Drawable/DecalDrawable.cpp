@@ -8,6 +8,7 @@
 #include <stdexcept>
 #include <limits>
 #include <cmath>
+#include <numbers>
 
 namespace osgSlug {
 
@@ -23,8 +24,8 @@ void computeDecalTangentFrame(
 	Vec4& tangentEast,
 	Vec4& tangentNorth
 ) {
-	const slug_t lat = latDeg * M_PIf / 180.f;
-	const slug_t lon = lonDeg * M_PIf / 180.f;
+	const slug_t lat = latDeg * std::numbers::pi_v<slug_t> / 180_cv;
+	const slug_t lon = lonDeg * std::numbers::pi_v<slug_t> / 180_cv;
 	const slug_t cx = std::cos(lat) * std::cos(lon);
 	const slug_t cy = std::sin(lat);
 	const slug_t cz = std::cos(lat) * std::sin(lon);
@@ -40,8 +41,8 @@ void computeDecalTangentFrame(
 
 	// Scale: lu ? [-0.5, 0.5] -> arc = radius x halfDeg_rad at edge
 	// so fullScale = 2 x radius x halfDeg_rad
-	const slug_t scaleW = 2.f * radius * halfWidthDeg * M_PIf / 180.f;
-	const slug_t scaleH = 2.f * radius * halfHeightDeg * M_PIf / 180.f;
+	const slug_t scaleW = 2_cv * radius * halfWidthDeg * std::numbers::pi_v<slug_t> / 180_cv;
+	const slug_t scaleH = 2_cv * radius * halfHeightDeg * std::numbers::pi_v<slug_t> / 180_cv;
 
 	center = Vec4(cx, cy, cz, radius);
 	tangentEast = Vec4(ex * scaleW, 0.f, ez * scaleW, 0.f);

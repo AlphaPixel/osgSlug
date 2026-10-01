@@ -11,6 +11,11 @@ namespace osgSlug {
 
 namespace {
 
+// Dual-source blend factors (GL_ARB_blend_func_extended, core since GL 3.3) - hardcoded like the
+// KHR enums below since no osg/GL header declares them.
+static constexpr GLenum GL_SRC1_ALPHA_ = 0x8589;
+static constexpr GLenum GL_ONE_MINUS_SRC1_ALPHA_ = 0x88FB;
+
 static void applyBlendMode(osg::State& state, slughorn::BlendMode mode) {
 	using BM = slughorn::BlendMode;
 
@@ -22,20 +27,31 @@ static void applyBlendMode(osg::State& state, slughorn::BlendMode mode) {
 		ext->glBlendFuncSeparate(src, dst, src, dst);
 	};
 
+	// Tells the fragment shader which mode is active, so it can emit the dual-source coverage
+	// output (see the modes below using GL_SRC1_ALPHA_/GL_ONE_MINUS_SRC1_ALPHA_) the six broken
+	// modes need. See ai/todo-compositing.md, Cause 3 - coverage-as-alpha (blend(c*S, D)) is only
+	// correct for Fb(a) in {1-a, 1}; these six have Fb in {0, a} and need the true coverage `c`
+	// kept separate from color, which only a second fragment output can carry.
+	if(GLint loc = state.getUniformLocation("osgSlug_blendMode"); loc >= 0) {
+		ext->glUniform1i(loc, static_cast<int>(mode));
+	}
+
 	switch(mode) {
 		// Premultiplied SrcOver: out = src + (1-src_alpha)*dst.
 		// Requires fragment shader output to be premultiplied (rgb*a, a).
 		case BM::SrcOver: bf(GL_ONE, GL_ONE_MINUS_SRC_ALPHA); return;
-		case BM::Src: bf(GL_ONE, GL_ZERO); return;
+		// Dual-source: dst factor reads out1.a (= coverage `c`) instead of dst_alpha, so an AA
+		// edge fragment lerps toward dst instead of erasing it. See SHADER_FRAG's main() tail.
+		case BM::Src: bf(GL_ONE, GL_ONE_MINUS_SRC1_ALPHA_); return;
 		case BM::Dst: bf(GL_ZERO, GL_ONE); return;
-		case BM::SrcIn: bf(GL_DST_ALPHA, GL_ZERO); return;
-		case BM::DstIn: bf(GL_ZERO, GL_SRC_ALPHA); return;
-		case BM::SrcOut: bf(GL_ONE_MINUS_DST_ALPHA, GL_ZERO); return;
+		case BM::SrcIn: bf(GL_DST_ALPHA, GL_ONE_MINUS_SRC1_ALPHA_); return;
+		case BM::DstIn: bf(GL_ZERO, GL_SRC1_ALPHA_); return;
+		case BM::SrcOut: bf(GL_ONE_MINUS_DST_ALPHA, GL_ONE_MINUS_SRC1_ALPHA_); return;
 		case BM::DstOut: bf(GL_ZERO, GL_ONE_MINUS_SRC_ALPHA); return;
 		case BM::SrcAtop: bf(GL_DST_ALPHA, GL_ONE_MINUS_SRC_ALPHA); return;
-		case BM::DstAtop: bf(GL_ONE_MINUS_DST_ALPHA, GL_SRC_ALPHA); return;
+		case BM::DstAtop: bf(GL_ONE_MINUS_DST_ALPHA, GL_SRC1_ALPHA_); return;
 		case BM::Xor: bf(GL_ONE_MINUS_DST_ALPHA, GL_ONE_MINUS_SRC_ALPHA); return;
-		case BM::Clear: bf(GL_ZERO, GL_ZERO); return;
+		case BM::Clear: bf(GL_ZERO, GL_ONE_MINUS_SRC1_ALPHA_); return;
 		case BM::DstOver: bf(GL_ONE_MINUS_DST_ALPHA, GL_ONE); return;
 		default: break;
 	}
