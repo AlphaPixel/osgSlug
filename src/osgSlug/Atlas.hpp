@@ -194,7 +194,11 @@ public:
 	// osgSlug state, and was extracted there 2026-10-12 (see its own history comment). Factored
 	// out so SHADER_FRAG and SHADER_PICK_FRAG (which has no SHADER_FRAG unit of its own) can never
 	// drift into different tile-sampling answers, same reasoning as SHADER_LIB_COVERAGE. Opt-in
-	// via #pragma osgSlug sdf_lib.
+	// via #pragma osgSlug sdf_lib - always pulled unconditionally by SHADER_FRAG/SHADER_PICK_FRAG,
+	// but its BODY is itself gated on the OSGSLUG_WITH_SDF StateSet define (set only when
+	// Atlas::createDefaultStateSet() finds a valid _sdfTexture): an Atlas that never baked a tile
+	// gets trivial no-op bodies instead of real uniforms/SSBO/osgx::sdf TILE, so SDF support costs
+	// nothing when unused. SHADER_LIB_MASK is gated the same way.
 	static const std::string SHADER_LIB_SDF;
 	static const std::string SHADER_VERT; // main SSBO vertex shader (embedded)
 	static const std::string SHADER_VERT_DECAL; // tangent-plane decal vertex shader (embedded)

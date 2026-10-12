@@ -858,9 +858,9 @@ void main() {
 }
 )";
 
-// osgSlug_SDF_Sample/Gradient/BevelNormal: osgSlug's own "em coord" API over a baked tile,
-// delegating the actual sample/reconstruct/gradient/bevel math to osgx::sdf's TILE entry (see
-// osgx/SDF.hpp's catalog comment and its own extraction-history note - osgx_SDF_TileTexel/
+// osgSlug_SDF_Sample/Gradient/BevelNormal/TileRange: osgSlug's own "em coord" API over a baked
+// tile, delegating the actual sample/reconstruct/gradient/bevel math to osgx::sdf's TILE entry
+// (see osgx/SDF.hpp's catalog comment and its own extraction-history note - osgx_SDF_TileTexel/
 // TileSample/TileGradient/BevelNormal used to live here as osgSlug_SDF_TileTexel/TileSample,
 // extracted 2026-10-12 since they were already pure math with zero osgSlug state beyond an
 // explicit texture/rect/frame/coord). What stays HERE, and is genuinely osgSlug-specific: the
@@ -869,8 +869,18 @@ void main() {
 // no opinion on what `coord` means. Pulled into SHADER_FRAG and SHADER_PICK_FRAG alike via
 // #pragma osgSlug sdf_lib, so the two Programs can never compute a different answer for the same
 // tile. Prerequisite (the consuming shader must already have, BEFORE this pragma): #pragma
-// osgSlug fragment_emcoord (for fx.sdfTile, read by Sample/Gradient).
+// osgSlug fragment_emcoord (for fx.sdfTile, read by Sample/Gradient/TileRange).
+//
+// OSGSLUG_WITH_SDF (Atlas::createDefaultStateSet(), set only when _sdfTexture.valid()): an Atlas
+// that never baked a single SDF/MSDF tile shouldn't compile the tile-sampling uniforms/SSBO/osgx
+// pull at all, not just leave them declared-but-unbound - see the #else branch below, which keeps
+// every entry point present (so SHADER_FRAG's main() and any fragment_lib-consuming hook still
+// link) but makes each one a trivial "no tile" no-op instead.
 const std::string Atlas::SHADER_LIB_SDF = R"(
+#pragma import_defines ( OSGSLUG_WITH_SDF )
+
+#ifdef OSGSLUG_WITH_SDF
+
 uniform sampler2D osgSlug_sdfTexture;
 uniform int osgSlug_sdfType; // 0 = SDF (read .r), 1 = MSDF (median of .rgb)
 
@@ -937,6 +947,35 @@ vec3 osgSlug_SDF_BevelNormal(
 		osgSlug_SDF_Gradient(emCoord), sd, flatNormal, tangentU, tangentV, bevelWidth, bevelStrength
 	);
 }
+
+// The tile's distance range (frame.w, em-space half-bandwidth), or 0.0 for no tile - feeds
+// osgSlug_FragmentExtData.sdfRange (SHADER_FRAG's main()). Kept here, as a function, instead of
+// main() indexing sdfTiles[] inline, so main() calls one name either way and needs no #ifdef
+// of its own - the #else branch below is the actual gate.
+float osgSlug_SDF_TileRange(int sdfTile) {
+	return sdfTile >= 0 ? sdfTiles[sdfTile].frame.w : 0.0;
+}
+
+#else // !OSGSLUG_WITH_SDF: this Atlas never baked a tile - every entry point is a harmless no-op.
+
+float osgSlug_SDF_Sample(vec2 emCoord) { return -1.0; }
+vec2 osgSlug_SDF_Gradient(vec2 emCoord) { return vec2(0.0); }
+
+vec3 osgSlug_SDF_BevelNormal(
+	vec2 emCoord,
+	float sd,
+	vec3 flatNormal,
+	vec3 tangentU,
+	vec3 tangentV,
+	float bevelWidth,
+	float bevelStrength
+) {
+	return flatNormal;
+}
+
+float osgSlug_SDF_TileRange(int sdfTile) { return 0.0; }
+
+#endif
 )";
 
 // Main fragment shader. Unexpanded; createProgram() expands its pragmas. Pulls in
@@ -1393,7 +1432,7 @@ void main() {
 
 	feData.fill = fill;
 	feData.sd = sd;
-	feData.sdfRange = fx.sdfTile >= 0 ? sdfTiles[fx.sdfTile].frame.w : 0.0;
+	feData.sdfRange = osgSlug_SDF_TileRange(fx.sdfTile);
 	feData.emCoord = geom.emCoord;
 	feData.uv = geom.uv;
 	feData.layerColor = effectiveColor;
@@ -1868,8 +1907,17 @@ vec2 osgSlug_Mask_LayerOrigin() {
 // requirement as LayerBuffer's own redeclaration above - so this shader object redeclares both
 // here rather than relying on sdf_lib's copy. rect/frame are the tile's osgSlug_AtlasShapeData
 // fields, mirrored into osgSlug_mask (see osgSlug_MaskData).
+//
+// Gated the same as sdf_lib (OSGSLUG_WITH_SDF, see its own comment) - a mask of type SDFTile can't
+// exist at all on an Atlas with no baked tiles, so osgSlug_Mask_CoverageFor's SDFTile branch and
+// osgSlug_Mask_DebugTile below fall back to trivial "no tile" bodies instead, needing neither the
+// uniforms nor TILE_DECL.
+#pragma import_defines ( OSGSLUG_WITH_SDF )
+
+#ifdef OSGSLUG_WITH_SDF
 uniform sampler2D osgSlug_sdfTexture;
 uniform int osgSlug_sdfType; // 0 = SDF (read .r), 1 = MSDF (median of .rgb)
+#endif
 //
 // SHAPES: osgx_SDF_Circle/Rect/Capsule/Arc/ArcBand/Rotate/Hexagon/Octagon/Star.
 // SAMPLING_DECL: declarations of osgx_SDF_Median/ScreenPixelRange/CoverageFromDistance - the
@@ -1877,13 +1925,19 @@ uniform int osgSlug_sdfType; // 0 = SDF (read .r), 1 = MSDF (median of .rgb)
 // osgx_SDF_TileSample already reduces the tile's texel to one scalar for either SDF type, and
 // ScreenPixelRange is unused: this file already has an em-space screen scale, emsPerPixel).
 // TILE_DECL: declarations of osgx_SDF_TileTexel/TileSample/TileGradient/BevelNormal (only the
-// first two are actually called below; the rest cost nothing unused). See osgx/SDF.hpp.
+// first two are actually called below; the rest cost nothing unused). Pulled only under
+// OSGSLUG_WITH_SDF - without a baked tile there's nothing for TILE_DECL's bodies to be defined
+// against (sdf_lib's own #else branch declares no osgx::sdf TILE content at all). See osgx/SDF.hpp.
 //
 // The DEFINITIONS (SAMPLING,TILE) live in SHADER_LIB_SDF (sdf_lib), pulled into whichever
 // Program's always-linked main fragment unit needs them (SHADER_FRAG or SHADER_PICK_FRAG): GLSL
 // rejects one function defined twice across the shader objects of one Program, so every other
 // library/hook that needs these functions pulls in the _DECL twins instead.
+#ifdef OSGSLUG_WITH_SDF
 #pragma osgx::sdf SHAPES,SAMPLING_DECL,TILE_DECL
+#else
+#pragma osgx::sdf SHAPES,SAMPLING_DECL
+#endif
 
 // --- Mask helpers ---
 
@@ -1925,6 +1979,7 @@ bool osgSlug_Mask_InsideTile(vec2 tileEm) {
 // GLSL rejects the same function being defined twice across shader objects linked into one
 // Program. See osgslug-mask.cpp's HOOK_DEBUG_TILE for the working pattern.
 vec3 osgSlug_Mask_DebugTile(vec2 canvasCoord) {
+#ifdef OSGSLUG_WITH_SDF
 	if(osgSlug_mask.type != 0 || osgSlug_mask.sdfRect.z <= 0.0) return vec3(-1.0);
 
 	vec2 tileEm = osgSlug_Mask_TileEm(canvasCoord);
@@ -1932,6 +1987,9 @@ vec3 osgSlug_Mask_DebugTile(vec2 canvasCoord) {
 	if(!osgSlug_Mask_InsideTile(tileEm)) return vec3(-1.0);
 
 	return osgx_SDF_TileTexel(osgSlug_sdfTexture, osgSlug_mask.sdfRect, osgSlug_mask.sdfFrame, tileEm);
+#else
+	return vec3(-1.0);
+#endif
 }
 
 // Coverage-only mask evaluation: reads osgSlug_mask, returns maskFill in [0,1] (invert already
@@ -1949,6 +2007,7 @@ float osgSlug_Mask_CoverageFor(vec2 canvasCoord, vec2 emsPerPixel) {
 	float maskFill;
 
 	if(osgSlug_mask.type == 0) { // SDFTile - baked tile sample
+#ifdef OSGSLUG_WITH_SDF
 		// No tile baked at all, or canvasCoord outside the tile's extent: no distance data exists
 		// there, but the tile is padded by its range beyond the shape's true bounds, so "outside"
 		// reliably means "outside the shape." Treated as maskFill = 0.0, NOT a discard: an
@@ -1975,6 +2034,12 @@ float osgSlug_Mask_CoverageFor(vec2 canvasCoord, vec2 emsPerPixel) {
 			);
 			maskFill = osgx_SDF_CoverageFromDistance(maskSd, screenPixelRange);
 		}
+#else
+		// This Atlas never baked an SDF/MSDF tile at all - a mask of type SDFTile can't
+		// legitimately exist here (see Atlas::requestSDF()/createDefaultStateSet()), so there's no
+		// real case to fall back on other than "fully masked away."
+		maskFill = 0.0;
+#endif
 	}
 
 	else if(osgSlug_mask.type == 1) { // Circle
@@ -2218,11 +2283,21 @@ osg::StateSet* Atlas::createDefaultStateSet(HookList hooks) const {
 		osg::StateAttribute::ON
 	);
 
-	if(_sdfTexture.valid()) ss->setTextureAttributeAndModes(
-		slots.get("osgSlug::atlas.sdf"),
-		_sdfTexture,
-		osg::StateAttribute::ON
-	);
+	if(_sdfTexture.valid()) {
+		ss->setTextureAttributeAndModes(
+			slots.get("osgSlug::atlas.sdf"),
+			_sdfTexture,
+			osg::StateAttribute::ON
+		);
+
+		// Opt-in gate for every #ifdef OSGSLUG_WITH_SDF block in sdf_lib/mask_lib (Atlas.shaders.cpp) -
+		// an Atlas that never baked a single SDF/MSDF tile shouldn't pay for the tile-sampling
+		// uniforms/SSBO/branches at all, not just have them declared-but-unused. #pragma
+		// import_defines(OSGSLUG_WITH_SDF) in each shader object pulls this in from whatever
+		// StateSet ends up bound (inherited down the scene graph like any other StateSet
+		// attribute - the pick Program's own StateSet, layered on top of this one, gets it too).
+		ss->setDefine("OSGSLUG_WITH_SDF");
+	}
 
 	if(_shapeBuffer.valid() && _shapeBuffer->getTotalDataSize() > 0) {
 		ss->setAttributeAndModes(
