@@ -478,7 +478,7 @@ def parse_args():
 		help="how the paint composites against the wall's already-rendered pixels (default: %(default)s)")
 	parser.add_argument("--erosion", type=float, default=0.12,
 		help="0=pristine paint, 1=heavily eroded, worn.cpp's own effectParam convention (default: %(default)s)")
-	parser.add_argument("--ink", default="0.30,0.15,0.65,1.0", help="R,G,B,A paint color (default: %(default)s)")
+	parser.add_argument("--ink", default="0.0,0.0,0.0,1.0", help="R,G,B,A paint color (default: %(default)s)")
 
 	args = parser.parse_args()
 	args.text = " ".join(args.text)
@@ -520,6 +520,7 @@ def make_panel_fn(args, decal, base_colors):
 	state = {
 		"blend_mode": args.blend_mode,
 		"erosion": 0.0 if args.emoji else args.erosion,
+		"ink": (args.ink.r, args.ink.g, args.ink.b),
 		"alpha": args.ink.a,
 	}
 
@@ -550,6 +551,19 @@ def make_panel_fn(args, decal, base_colors):
 
 				for i in range(len(decal.layers)):
 					decal.layers[i].effectParam = erosion
+
+		# --ink was build-time-only (args.ink, set once in build_decal_atlas()); --emoji has no
+		# single "ink" to edit (each layer keeps its own authored palette color, same reason
+		# Erosion is disabled above), so this only applies to --text.
+		if not args.emoji:
+			changed, r, g, b = osgx.imgui.color_edit3("Ink Color", *state["ink"])
+
+			if changed:
+				state["ink"] = (r, g, b)
+
+				for i in range(len(decal.layers)):
+					base_colors[i] = (r, g, b)
+					decal.layers[i].color = slughorn.Color(r, g, b, state["alpha"])
 
 		changed, alpha = osgx.imgui.slider_float("Alpha", state["alpha"], 0.0, 1.0)
 

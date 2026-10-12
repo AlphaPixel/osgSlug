@@ -185,13 +185,16 @@ public:
 	// SHADER_FRAG's own #pragma osgSlug coverage_lib pull-in comment and
 	// slughorn/ai/context-todo-picking.md.
 	static const std::string SHADER_LIB_COVERAGE;
-	// osgSlug_SDF_TileTexel/TileSample/Sample/Gradient/BevelNormal (+ their osgSlug_sdfTexture/
-	// osgSlug_sdfType uniforms, the osgSlug_SDFTile/sdfTiles SSBO, and osgx::sdf SAMPLING, all
-	// folded in): the complete baked-tile SDF/MSDF field API, pure math with zero
-	// osgSlug_Fragment-specific state - see SHADER_LIB_FRAGMENT's prototypes for the per-function
-	// contract. Factored out so SHADER_FRAG and SHADER_PICK_FRAG (which has no SHADER_FRAG unit of
-	// its own) can never drift into different tile-sampling answers, same reasoning as
-	// SHADER_LIB_COVERAGE. Opt-in via #pragma osgSlug sdf_lib.
+	// osgSlug_SDF_Sample/Gradient/BevelNormal, osgSlug's "em coord" API over a baked tile - see
+	// SHADER_LIB_FRAGMENT's prototypes for the per-function contract. Also owns
+	// osgSlug_sdfTexture/osgSlug_sdfType and the osgSlug_SDFTile/sdfTiles SSBO (the "many tiles in
+	// one shared atlas, indexed per-fragment" scheme, genuinely osgSlug-specific), and pulls in
+	// osgx::sdf's SAMPLING,TILE (osgx_SDF_TileTexel/TileSample/TileGradient/BevelNormal, osgx/
+	// SDF.hpp) for the actual sample/reconstruct/gradient/bevel math - that part is pure, with zero
+	// osgSlug state, and was extracted there 2026-10-12 (see its own history comment). Factored
+	// out so SHADER_FRAG and SHADER_PICK_FRAG (which has no SHADER_FRAG unit of its own) can never
+	// drift into different tile-sampling answers, same reasoning as SHADER_LIB_COVERAGE. Opt-in
+	// via #pragma osgSlug sdf_lib.
 	static const std::string SHADER_LIB_SDF;
 	static const std::string SHADER_VERT; // main SSBO vertex shader (embedded)
 	static const std::string SHADER_VERT_DECAL; // tangent-plane decal vertex shader (embedded)

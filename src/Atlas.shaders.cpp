@@ -303,9 +303,11 @@ vec4 osgSlug_Effect_GlowSDF(float sd, float sdfRange, vec4 layerColor, float eff
 float osgSlug_Fragment_FadeOut(float time, float fadeBegin, float fadeEnd);
 
 // SDF field helpers (implementations live in SHADER_LIB_SDF, #pragma osgSlug sdf_lib - pulled
-// into whichever Program's main fragment unit needs them, SHADER_FRAG or SHADER_PICK_FRAG). They
-// work on whatever the Atlas baked - a single-channel SDF or a multi-channel MSDF - and hand back
-// the same scalar either way.
+// into whichever Program's main fragment unit needs them, SHADER_FRAG or SHADER_PICK_FRAG). Thin
+// em-coord wrappers over osgx::sdf's TILE entry (osgx_SDF_TileSample/TileGradient/BevelNormal,
+// osgx/SDF.hpp), which does the actual sample/reconstruct/gradient/bevel math. They work on
+// whatever the Atlas baked - a single-channel SDF or a multi-channel MSDF - and hand back the
+// same scalar either way.
 //
 // osgSlug_SDF_Sample: signed distance at an ARBITRARY em-space coordinate - same tile mapping as
 // the sd the hooks already receive (0.5=edge, >0.5=interior); returns -1.0 if this shape has no
@@ -856,10 +858,15 @@ void main() {
 }
 )";
 
-// osgSlug_SDF_TileTexel/TileSample/Sample/Gradient/BevelNormal: the complete baked-tile SDF/MSDF
-// field API (see Atlas.hpp's SHADER_LIB_SDF comment and SHADER_LIB_FRAGMENT's prototypes for the
-// per-function contract). Pure math over the shared atlas.sdf texture + sdfTiles SSBO, zero
-// osgSlug_Fragment-specific state - pulled into SHADER_FRAG and SHADER_PICK_FRAG alike via
+// osgSlug_SDF_Sample/Gradient/BevelNormal: osgSlug's own "em coord" API over a baked tile,
+// delegating the actual sample/reconstruct/gradient/bevel math to osgx::sdf's TILE entry (see
+// osgx/SDF.hpp's catalog comment and its own extraction-history note - osgx_SDF_TileTexel/
+// TileSample/TileGradient/BevelNormal used to live here as osgSlug_SDF_TileTexel/TileSample,
+// extracted 2026-10-12 since they were already pure math with zero osgSlug state beyond an
+// explicit texture/rect/frame/coord). What stays HERE, and is genuinely osgSlug-specific: the
+// "many tiles in one shared atlas, indexed per-fragment" scheme (osgSlug_sdfTexture/sdfType +
+// the sdfTiles SSBO + fx.sdfTile), and the "em coord" framing itself - osgx's TILE functions have
+// no opinion on what `coord` means. Pulled into SHADER_FRAG and SHADER_PICK_FRAG alike via
 // #pragma osgSlug sdf_lib, so the two Programs can never compute a different answer for the same
 // tile. Prerequisite (the consuming shader must already have, BEFORE this pragma): #pragma
 // osgSlug fragment_emcoord (for fx.sdfTile, read by Sample/Gradient).
@@ -870,7 +877,8 @@ uniform int osgSlug_sdfType; // 0 = SDF (read .r), 1 = MSDF (median of .rgb)
 // The SDF-only tile table (osgSlug::atlas.sdfTiles), one entry per baked tile; a layer's effectData.z holds its
 // index, which reaches here as fx.sdfTile. Deliberately its own buffer - the shape record
 // (osgSlug_AtlasShapeData) and layer record stay SDF-free. rect = (x, y, w, h) in texels; frame =
-// (emOriginX, emOriginY, texelsPerEm, range): texel = rect.xy + (em - frame.xy) * frame.z.
+// (emOriginX, emOriginY, texelsPerEm, range): texel = rect.xy + (em - frame.xy) * frame.z (see
+// osgx_SDF_TileTexel, osgx/SDF.hpp, for the shared math this feeds).
 struct osgSlug_SDFTile {
 	vec4 rect;
 	vec4 frame;
@@ -880,35 +888,12 @@ layout(std430, binding = @osgSlug::atlas.sdfTiles@) readonly buffer SDFTileBuffe
 	osgSlug_SDFTile sdfTiles[];
 };
 
-// osgx_SDF_Median/ScreenPixelRange/CoverageFromDistance (osgx/SDF.hpp). DEFINED here - the one
-// place SHADER_LIB_SDF is pulled into any given Program - and only DECLARED (SAMPLING_DECL) by
-// SHADER_LIB_MASK, since GLSL rejects one function defined twice across a Program's shader
-// objects.
-#pragma osgx::sdf SAMPLING
-
-// Raw texel of a baked tile at an em-space coordinate. rect/frame are the tile's
-// osgSlug_AtlasShapeData fields: texel = rect.xy + (em - frame.xy) * frame.z. Clamped to the
-// tile's own texels so bilinear filtering can never read a neighbouring tile (the tile's exterior
-// edge is deep-outside distance anyway, so clamping is what the old per-layer CLAMP_TO_EDGE did).
-// Also forward-declared by SHADER_LIB_MASK.
-vec3 osgSlug_SDF_TileTexel(vec4 sdfRect, vec4 sdfFrame, vec2 emCoord) {
-	vec2 texel = clamp(
-		sdfRect.xy + (emCoord - sdfFrame.xy) * sdfFrame.z,
-		sdfRect.xy + 0.5,
-		sdfRect.xy + sdfRect.zw - 0.5
-	);
-
-	return texture(osgSlug_sdfTexture, texel / vec2(textureSize(osgSlug_sdfTexture, 0))).rgb;
-}
-
-// The scalar every consumer wants, whatever the tile's SDF type: 0.5 = edge, >0.5 = inside.
-float osgSlug_SDF_TileSample(vec4 sdfRect, vec4 sdfFrame, vec2 emCoord) {
-	vec3 t = osgSlug_SDF_TileTexel(sdfRect, sdfFrame, emCoord);
-
-	if(osgSlug_sdfType == 0) return t.r;
-
-	return osgx_SDF_Median(t);
-}
+// osgx_SDF_TileTexel/TileSample/TileGradient/BevelNormal (osgx/SDF.hpp), plus their SAMPLING
+// dependency (osgx_SDF_Median). DEFINED here - the one place SHADER_LIB_SDF is pulled into any
+// given Program - and only DECLARED (SAMPLING_DECL,TILE_DECL) by SHADER_LIB_MASK, since GLSL
+// rejects one function defined twice across a Program's shader objects. SAMPLING must precede
+// TILE (osgx_SDF_TileSample calls osgx_SDF_Median) - see osgx/SDF.hpp's own TILE comment.
+#pragma osgx::sdf SAMPLING,TILE
 
 // osgSlug_SDF_Sample: signed distance at an ARBITRARY em-space coordinate - same tile mapping as
 // the sd the hooks already receive (0.5=edge, >0.5=interior); returns -1.0 if this shape has no
@@ -918,25 +903,18 @@ float osgSlug_SDF_Sample(vec2 emCoord) {
 
 	osgSlug_SDFTile tile = sdfTiles[fx.sdfTile];
 
-	return osgSlug_SDF_TileSample(tile.rect, tile.frame, emCoord);
+	return osgx_SDF_TileSample(osgSlug_sdfTexture, tile.rect, tile.frame, emCoord, osgSlug_sdfType);
 }
 
-// osgSlug_SDF_Gradient: em-space gradient of the field (d(sd)/d(em), points toward the interior),
-// by central differences one tile texel wide; vec2(0.0) if no tile. Use THIS - never dFdx/dFdy(sd)
-// - when a hook needs the field's direction: screen-space derivatives are constant per 2x2
-// hardware quad, so anything built from them (a bevel normal, a reflection vector) is quantized
-// into pixel-scale blocks that sharp downstream lookups amplify into crunchy edges. The tile
-// texture is float, so a texel-baseline difference of it is smooth per pixel.
+// osgSlug_SDF_Gradient: em-space gradient of the field (d(sd)/d(em), points toward the interior);
+// vec2(0.0) if no tile. See osgx_SDF_TileGradient's own comment for why central differences, not
+// dFdx/dFdy(sd).
 vec2 osgSlug_SDF_Gradient(vec2 emCoord) {
 	if(fx.sdfTile < 0) return vec2(0.0);
 
-	// One tile texel expressed in em units (tiles keep the shape's aspect: one uniform scale).
-	float dEm = 1.0 / sdfTiles[fx.sdfTile].frame.z;
+	osgSlug_SDFTile tile = sdfTiles[fx.sdfTile];
 
-	return vec2(
-		osgSlug_SDF_Sample(emCoord + vec2(dEm, 0.0)) - osgSlug_SDF_Sample(emCoord - vec2(dEm, 0.0)),
-		osgSlug_SDF_Sample(emCoord + vec2(0.0, dEm)) - osgSlug_SDF_Sample(emCoord - vec2(0.0, dEm))
-	) / (2.0 * dEm);
+	return osgx_SDF_TileGradient(osgSlug_sdfTexture, tile.rect, tile.frame, emCoord, osgSlug_sdfType);
 }
 
 // osgSlug_SDF_BevelNormal: tilts flatNormal toward the shape's edge as sd approaches 0.5, giving a
@@ -944,7 +922,8 @@ vec2 osgSlug_SDF_Gradient(vec2 emCoord) {
 // of a flat facet. tangentU/tangentV are the world-space axes the em-space gradient's x/y map onto
 // (e.g. camRight/camUp for a camera-facing, un-tilted shape). bevelWidth is in sd units
 // (0.5=edge..1.0=deep interior); bevelStrength scales how far the normal tilts at the rim.
-// Returns flatNormal unchanged where there's no tile or no bevel.
+// Returns flatNormal unchanged where there's no tile or no bevel. Thin em-coord wrapper over
+// osgx_SDF_BevelNormal, which takes an already-resolved gradient instead of a coord.
 vec3 osgSlug_SDF_BevelNormal(
 	vec2 emCoord,
 	float sd,
@@ -954,23 +933,9 @@ vec3 osgSlug_SDF_BevelNormal(
 	float bevelWidth,
 	float bevelStrength
 ) {
-	const float EPSILON = 0.0001;
-
-	if(sd < 0.0) return flatNormal;
-
-	float bevel = 1.0 - clamp((sd - 0.5) / bevelWidth, 0.0, 1.0);
-
-	if(bevel <= EPSILON) return flatNormal;
-
-	// Gradient points toward the interior; the bevel wants interior->edge, hence the negation.
-	vec2 grad = -osgSlug_SDF_Gradient(emCoord);
-	float gradLen = length(grad);
-
-	if(gradLen <= EPSILON) return flatNormal;
-
-	vec2 edgeDir = grad / gradLen;
-
-	return normalize(flatNormal + (tangentU * edgeDir.x + tangentV * edgeDir.y) * bevel * bevelStrength);
+	return osgx_SDF_BevelNormal(
+		osgSlug_SDF_Gradient(emCoord), sd, flatNormal, tangentU, tangentV, bevelWidth, bevelStrength
+	);
 }
 )";
 
@@ -1101,11 +1066,11 @@ layout(location = 0, index = 1) out vec4 osgSlug_blendFactor;
 // the SDF helpers just below, which also need SLUG_INDIRECTION_SIZE.
 #pragma osgSlug coverage_lib
 
-// osgSlug_SDF_TileTexel/TileSample/Sample/Gradient/BevelNormal (+ osgSlug_sdfTexture/sdfType,
-// the sdfTiles SSBO, and osgx::sdf SAMPLING) - DEFINED here via sdf_lib, since SHADER_FRAG is the
-// one always-linked fragment unit; only DECLARED (SAMPLING_DECL, plus its own forward-declares of
-// TileTexel/TileSample) by SHADER_LIB_MASK, since GLSL rejects one function defined twice across
-// a Program's shader objects. See Atlas.hpp's SHADER_LIB_SDF comment.
+// osgSlug_SDF_Sample/Gradient/BevelNormal (+ osgSlug_sdfTexture/sdfType, the sdfTiles SSBO, and
+// osgx::sdf SAMPLING,TILE - osgx_SDF_TileTexel/TileSample/TileGradient/BevelNormal) - DEFINED here
+// via sdf_lib, since SHADER_FRAG is the one always-linked fragment unit; only DECLARED
+// (SAMPLING_DECL,TILE_DECL) by SHADER_LIB_MASK, since GLSL rejects one function defined twice
+// across a Program's shader objects. See Atlas.hpp's SHADER_LIB_SDF comment.
 #pragma osgSlug sdf_lib
 
 // slug_CalcRootCode/slug_SolveHorizPoly/slug_SolveVertPoly/slug_CalcBandLoc/slug_CalcCurveLoc/
@@ -1542,14 +1507,15 @@ uniform bool osgSlug_textMode;
 #pragma osgx::picking encode
 
 // osgSlug_FragmentMask() (SHADER_LIB_MASK, always linked as the Program's MaskHook unit - see
-// Atlas::createProgram()) only forward-declares osgSlug_SDF_TileSample/osgx_SDF_CoverageFromDistance,
-// same as SHADER_FRAG's own comment explains: exactly one shader object per Program supplies the
-// real bodies. For the default Program that's SHADER_FRAG (via sdf_lib); this pick Program has no
-// SHADER_FRAG unit at all, so it pulls sdf_lib itself instead - otherwise linking fails with
-// "undefined function" (osgSlug_SDF_TileSample/osgx_SDF_CoverageFromDistance), which is exactly
-// the symptom this fixes. fragment_emcoord above already satisfies sdf_lib's fx.sdfTile
-// prerequisite; the Sample/Gradient/BevelNormal bodies it also brings in go unused here, same as
-// SHADER_FRAG carries effect helpers not every drawable uses.
+// Atlas::createProgram()) only forward-declares (SAMPLING_DECL,TILE_DECL) osgx_SDF_TileSample/
+// osgx_SDF_CoverageFromDistance, same as SHADER_FRAG's own comment explains: exactly one shader
+// object per Program supplies the real bodies. For the default Program that's SHADER_FRAG (via
+// sdf_lib); this pick Program has no SHADER_FRAG unit at all, so it pulls sdf_lib itself instead -
+// otherwise linking fails with "undefined function" (osgx_SDF_TileSample/
+// osgx_SDF_CoverageFromDistance), which is exactly the symptom this fixes. fragment_emcoord above
+// already satisfies sdf_lib's fx.sdfTile prerequisite; the Sample/Gradient/BevelNormal bodies it
+// also brings in go unused here, same as SHADER_FRAG carries effect helpers not every drawable
+// uses.
 #pragma osgSlug sdf_lib
 
 // Bitmask controlling which layers are visible - same uniform/semantics as SHADER_FRAG's
@@ -1890,30 +1856,34 @@ vec2 osgSlug_Mask_LayerOrigin() {
 	return layers[int(geom.layerIndex + 0.5) - 1].transformData.xy;
 }
 
-// Forward declarations of the tile sampling helpers, DEFINED in SHADER_LIB_SDF (sdf_lib, which
-// owns osgSlug_sdfTexture/osgSlug_sdfType) - pulled into whichever Program's always-linked main
-// fragment unit this MaskHook ends up linked alongside (SHADER_FRAG or SHADER_PICK_FRAG): a
-// mask's baked tile lives in the very same atlas texture every glyph/shape already samples, so
-// this shader object needs neither a second texture unit nor its own copy of the SDF-type branch.
-// rect/frame are the tile's osgSlug_AtlasShapeData fields, mirrored into osgSlug_mask (see
-// osgSlug_MaskData).
-vec3 osgSlug_SDF_TileTexel(vec4 sdfRect, vec4 sdfFrame, vec2 emCoord);
-float osgSlug_SDF_TileSample(vec4 sdfRect, vec4 sdfFrame, vec2 emCoord);
-
-// --- Signed distance primitives ---
+// osgx_SDF_TileTexel/TileSample (osgx/SDF.hpp), DECLARED here (TILE_DECL) since their real
+// bodies live in SHADER_LIB_SDF (sdf_lib, which also owns osgSlug_sdfTexture/osgSlug_sdfType) -
+// pulled into whichever Program's always-linked main fragment unit this MaskHook ends up linked
+// alongside (SHADER_FRAG or SHADER_PICK_FRAG). A mask's baked tile lives in the very same atlas
+// texture every glyph/shape already samples, so this shader object needs neither a second texture
+// unit nor its own copy of the SDF-type branch - just osgSlug_sdfTexture/sdfType, passed through
+// explicitly (TILE's functions own no uniforms of their own, unlike the old osgSlug_SDF_TileTexel/
+// TileSample which hid texture access inside their own bodies). Unlike a function body, a uniform
+// declaration must repeat verbatim in every shader object that directly references it - same
+// requirement as LayerBuffer's own redeclaration above - so this shader object redeclares both
+// here rather than relying on sdf_lib's copy. rect/frame are the tile's osgSlug_AtlasShapeData
+// fields, mirrored into osgSlug_mask (see osgSlug_MaskData).
+uniform sampler2D osgSlug_sdfTexture;
+uniform int osgSlug_sdfType; // 0 = SDF (read .r), 1 = MSDF (median of .rgb)
 //
 // SHAPES: osgx_SDF_Circle/Rect/Capsule/Arc/ArcBand/Rotate/Hexagon/Octagon/Star.
 // SAMPLING_DECL: declarations of osgx_SDF_Median/ScreenPixelRange/CoverageFromDistance - the
 // baked-tile branch of osgSlug_Mask_CoverageFor uses CoverageFromDistance (Median is not needed:
-// osgSlug_SDF_TileSample already reduces the tile's texel to one scalar for either SDF type, and
-// ScreenPixelRange is unused: this file already has an em-space screen scale, emsPerPixel). See
-// osgx/SDF.hpp.
+// osgx_SDF_TileSample already reduces the tile's texel to one scalar for either SDF type, and
+// ScreenPixelRange is unused: this file already has an em-space screen scale, emsPerPixel).
+// TILE_DECL: declarations of osgx_SDF_TileTexel/TileSample/TileGradient/BevelNormal (only the
+// first two are actually called below; the rest cost nothing unused). See osgx/SDF.hpp.
 //
-// The DEFINITIONS (SAMPLING) live in SHADER_LIB_SDF (sdf_lib), pulled into whichever Program's
-// always-linked main fragment unit needs them (SHADER_FRAG or SHADER_PICK_FRAG): GLSL rejects one
-// function defined twice across the shader objects of one Program, so every other library/hook
-// that needs these functions pulls in SAMPLING_DECL instead of SAMPLING.
-#pragma osgx::sdf SHAPES,SAMPLING_DECL
+// The DEFINITIONS (SAMPLING,TILE) live in SHADER_LIB_SDF (sdf_lib), pulled into whichever
+// Program's always-linked main fragment unit needs them (SHADER_FRAG or SHADER_PICK_FRAG): GLSL
+// rejects one function defined twice across the shader objects of one Program, so every other
+// library/hook that needs these functions pulls in the _DECL twins instead.
+#pragma osgx::sdf SHAPES,SAMPLING_DECL,TILE_DECL
 
 // --- Mask helpers ---
 
@@ -1961,7 +1931,7 @@ vec3 osgSlug_Mask_DebugTile(vec2 canvasCoord) {
 
 	if(!osgSlug_Mask_InsideTile(tileEm)) return vec3(-1.0);
 
-	return osgSlug_SDF_TileTexel(osgSlug_mask.sdfRect, osgSlug_mask.sdfFrame, tileEm);
+	return osgx_SDF_TileTexel(osgSlug_sdfTexture, osgSlug_mask.sdfRect, osgSlug_mask.sdfFrame, tileEm);
 }
 
 // Coverage-only mask evaluation: reads osgSlug_mask, returns maskFill in [0,1] (invert already
@@ -1992,7 +1962,9 @@ float osgSlug_Mask_CoverageFor(vec2 canvasCoord, vec2 emsPerPixel) {
 			maskFill = 0.0;
 		}
 		else {
-			float maskSd = osgSlug_SDF_TileSample(osgSlug_mask.sdfRect, osgSlug_mask.sdfFrame, tileEm);
+			float maskSd = osgx_SDF_TileSample(
+				osgSlug_sdfTexture, osgSlug_mask.sdfRect, osgSlug_mask.sdfFrame, tileEm, osgSlug_sdfType
+			);
 			// The tile's distance range is 2 * range em wide (sdfFrame.w = range) - times the mask's
 			// scale, in canvas units - so this is how many SCREEN pixels it spans at this fragment:
 			// the same quantity osgx_SDF_ScreenPixelRange() derives from texture-space derivatives,
