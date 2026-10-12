@@ -44,7 +44,8 @@ osgx::Library(arguments, options) {
 		{"fragment_lib", {}, Atlas::SHADER_LIB_FRAGMENT},
 		{"coverage_lib", {}, Atlas::SHADER_LIB_COVERAGE},
 		{"scanline_lib", {}, Atlas::SHADER_LIB_SCANLINE},
-		{"mask_lib", {}, Atlas::SHADER_LIB_MASK}
+		{"mask_lib", {}, Atlas::SHADER_LIB_MASK},
+		{"sdf_lib", {}, Atlas::SHADER_LIB_SDF}
 	};
 
 	osgx::registerShaderLibs("osgSlug", libs);

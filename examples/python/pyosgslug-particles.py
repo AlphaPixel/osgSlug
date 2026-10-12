@@ -38,7 +38,8 @@ FONT_PATH = "font/UbuntuMono-R.ttf"
 
 PARTICLE_COUNT = 300
 FIELD_RADIUS = 380.0 # particles respawn once they drift this far from the origin
-SPEED_RANGE = (60.0, 220.0) # world units/sec
+# SPEED_RANGE = (60.0, 220.0) # world units/sec
+SPEED_RANGE = (1.0, 5.0) # world units/sec
 GLYPH_HALF_WIDTH = 22.0 # PathDrawable.setHalfWidth() - shared quad size for every particle
 GLYPH_COLOR = osg.Vec4(1.0, 0.65, 0.15, 1.0) # amber - Stamp mode has one color for all instances
 

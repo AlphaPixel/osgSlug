@@ -169,8 +169,9 @@ public:
 	// above, which is what those always use instead).
 	static const std::string SHADER_FRAGMENT;
 	// #pragma osgSlug fragment_lib - osgSlug_Effect_*/osgSlug_Fragment_FadeOut/osgSlug_SDF_*
-	// helper prototypes ONLY (their bodies live inline in SHADER_FRAG, the one always-linked
-	// main fragment unit, same as before). Separate from SHADER_FRAGMENT(_EMCOORD) purely by
+	// helper prototypes ONLY. The osgSlug_SDF_* bodies live in SHADER_LIB_SDF (#pragma osgSlug
+	// sdf_lib) now, not inline here; osgSlug_Effect_*/osgSlug_Fragment_FadeOut still live inline in
+	// SHADER_FRAG, the one always-linked main fragment unit. Separate from SHADER_FRAGMENT(_EMCOORD) purely by
 	// convention, matching vertex_lib/mask_lib/scanline_lib: these are genuinely optional extra
 	// helpers, not part of the base hook contract, so they stay an opt-in a hook pulls
 	// additionally (`#pragma osgSlug fragment,fragment_lib`) rather than being bundled in.
@@ -184,6 +185,14 @@ public:
 	// SHADER_FRAG's own #pragma osgSlug coverage_lib pull-in comment and
 	// slughorn/ai/context-todo-picking.md.
 	static const std::string SHADER_LIB_COVERAGE;
+	// osgSlug_SDF_TileTexel/TileSample/Sample/Gradient/BevelNormal (+ their osgSlug_sdfTexture/
+	// osgSlug_sdfType uniforms, the osgSlug_SDFTile/sdfTiles SSBO, and osgx::sdf SAMPLING, all
+	// folded in): the complete baked-tile SDF/MSDF field API, pure math with zero
+	// osgSlug_Fragment-specific state - see SHADER_LIB_FRAGMENT's prototypes for the per-function
+	// contract. Factored out so SHADER_FRAG and SHADER_PICK_FRAG (which has no SHADER_FRAG unit of
+	// its own) can never drift into different tile-sampling answers, same reasoning as
+	// SHADER_LIB_COVERAGE. Opt-in via #pragma osgSlug sdf_lib.
+	static const std::string SHADER_LIB_SDF;
 	static const std::string SHADER_VERT; // main SSBO vertex shader (embedded)
 	static const std::string SHADER_VERT_DECAL; // tangent-plane decal vertex shader (embedded)
 	static const std::string SHADER_FRAG; // main fragment shader (embedded)
