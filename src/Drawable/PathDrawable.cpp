@@ -348,9 +348,58 @@ static const char* PATH_SLUGGIT_FRAG_HOOK = R"GLSL(
 	}
 )GLSL";
 
+// Shared by both Stamp vertex variants (PATH_STAMP_VERT/PATH_STAMP_TABLE_VERT): live viewport
+// size (same per-cull-updated pattern PATH_SLUGGIT_MAIN uses - see PathDrawable::compile()'s
+// cull callback) plus an analytic, anisotropic em-per-pixel rate.
+//
+// Why this exists: Stamp's emCoord varies fully over BOTH axes of the quad (unlike Sluggit,
+// which pins emX to the midpoint specifically to dodge this problem - see PATH_SLUGGIT_MAIN's
+// header comment). Left to the shared fragment pipeline's default `emsPerPixel =
+// fwidth(geom.emCoord)` (Atlas.shaders.cpp), that's a 2x2-pixel screen-space derivative: when
+// neighboring pixels in that block belong to a DIFFERENT Stamp instance - routine with many
+// small, dense, overlapping particle/glyph quads - the GPU differences across two unrelated
+// interpolations instead of a true per-instance derivative, corrupting the AA coverage ramp
+// right at quad edges (dark rims/crisp outlines around glyphs). pathStampEmsPerPixel() below
+// computes the rate analytically from the MVP's local projection scale instead, the same
+// quotient-rule technique pathSluggitEmsPerPixel() uses, generalized to two independent axes
+// since (unlike Sluggit) neither of Stamp's axes is pinned.
+static const std::string PATH_STAMP_EM_SCALE = R"GLSL(
+	uniform vec2 osgSlug_viewport;
+
+	// Em-per-pixel rate at `pos` along world-space direction `dir` (unit length), given
+	// `worldPerEm` world units per em along that same direction - the directional derivative of
+	// NDC position w.r.t. a 1-world-unit step along `dir`, converted to screen pixels and
+	// inverted. Matches PATH_SLUGGIT_MAIN's pathSluggitEmsPerPixel() exactly; duplicated rather
+	// than shared because that one is scalar/isotropic by design (Sluggit's pinned emX has no
+	// rate of its own) while this is called once per axis.
+	float pathStampAxisEmsPerPixel(vec2 pos, vec2 dir, float worldPerEm) {
+		vec4 c = gl_ModelViewProjectionMatrix * vec4(pos, 0.0, 1.0);
+		vec4 d = gl_ModelViewProjectionMatrix * vec4(dir, 0.0, 0.0);
+		float cw2 = max(c.w * c.w, 1e-12);
+		vec2 ndcPerWorld = (d.xy * c.w - c.xy * d.w) / cw2;
+		float pixelsPerWorld = length(ndcPerWorld * osgSlug_viewport * 0.5);
+		float worldPerPixel = 1.0 / max(pixelsPerWorld, 1e-8);
+
+		return worldPerPixel / max(worldPerEm, 1e-8);
+	}
+
+	// axisX/axisY: the hook RESULT's post-hook frame (osgSlug_VertexResult.axisX/axisY - xyz unit
+	// direction, w = worldPerEm rate), evaluated post-hook for the same reason PATH_SLUGGIT_MAIN
+	// does: a hook that displaces or reorients the stamp changes its screen-space footprint, and
+	// using the pre-hook frame would silently mis-tune the AA under any hook that moves something
+	// (see DEPTH_DRIFT_HOOK in pyosgslug-particles.py for exactly this case).
+	vec2 pathStampEmsPerPixel(vec2 pos, vec4 axisX, vec4 axisY) {
+		return vec2(
+			pathStampAxisEmsPerPixel(pos, axisX.xy, axisX.w),
+			pathStampAxisEmsPerPixel(pos, axisY.xy, axisY.w)
+		);
+	}
+)GLSL";
+
 // Stamp mode: one instanced quad per point, centered at points[i].xy and rotated by points[i].z.
-// Uses the full Slug SDF pipeline against a caller-defined shape (setShapeKey).
-// emCoords vary fully over both axes - unlike Sluggit, which pins emX to the midpoint.
+// Uses the full Slug SDF pipeline against a caller-defined shape (setShapeKey). emCoords vary
+// fully over both axes - see PATH_STAMP_EM_SCALE's header comment for why that needs the
+// analytic emsPerPixel below rather than fwidth(geom.emCoord).
 static const char* PATH_STAMP_VERT = R"GLSL(
 	uniform vec4 u_emCorners; // x=emX0, y=emY0, z=emX1, w=emY1
 	uniform vec4 u_bandTransform;
@@ -359,6 +408,10 @@ static const char* PATH_STAMP_VERT = R"GLSL(
 	const vec2 CORNERS[4] = vec2[4](
 		vec2(0.0, 0.0), vec2(1.0, 0.0), vec2(1.0, 1.0), vec2(0.0, 1.0)
 	);
+
+	out osgSlug_PathStampEmScaleBlock {
+		flat vec2 emsPerPixel;
+	} pathStampEmScale;
 
 	void main() {
 		vec2 center = points[gl_InstanceID].xy;
@@ -396,6 +449,8 @@ static const char* PATH_STAMP_VERT = R"GLSL(
 		fx.sdfTile = -1;
 		fx.effectParam = u_effectParam;
 
+		pathStampEmScale.emsPerPixel = pathStampEmsPerPixel(r.pos.xy, r.axisX, r.axisY);
+
 		gl_Position = gl_ModelViewProjectionMatrix * vec4(r.pos, 1.0);
 	}
 )GLSL";
@@ -424,6 +479,10 @@ static const char* PATH_STAMP_TABLE_VERT = R"GLSL(
 	const vec2 CORNERS[4] = vec2[4](
 		vec2(0.0, 0.0), vec2(1.0, 0.0), vec2(1.0, 1.0), vec2(0.0, 1.0)
 	);
+
+	out osgSlug_PathStampEmScaleBlock {
+		flat vec2 emsPerPixel;
+	} pathStampEmScale;
 
 	void main() {
 		vec4 pt = points[gl_InstanceID];
@@ -473,7 +532,39 @@ static const char* PATH_STAMP_TABLE_VERT = R"GLSL(
 		fx.sdfTile = -1;
 		fx.effectParam = u_effectParam;
 
+		pathStampEmScale.emsPerPixel = pathStampEmsPerPixel(r.pos.xy, r.axisX, r.axisY);
+
 		gl_Position = gl_ModelViewProjectionMatrix * vec4(r.pos, 1.0);
+	}
+)GLSL";
+
+// Stamp-only fragment hook: overrides osgSlug_FragmentEmCoord's emsPerPixel with the analytic,
+// per-instance value PATH_STAMP_VERT/PATH_STAMP_TABLE_VERT computed (pathStampEmScale), instead
+// of the unreliable fwidth(geom.emCoord) Atlas.shaders.cpp main() computes by default - see
+// PATH_STAMP_EM_SCALE's header comment. Mirrors PATH_SLUGGIT_FRAG_HOOK exactly except it is
+// anisotropic (vec2, not broadcast from a scalar) since neither of Stamp's axes is pinned.
+//
+// This is Stamp's per-FLAVOR default for the FragmentHook slot (Atlas::ProgramSpec::fragHook),
+// not a user hook: a caller's own FragmentHook still substitutes it, and in doing so gives up the
+// analytic emsPerPixel. A Stamp FragmentHook that cares about AA quality should define its own
+// osgSlug_FragmentEmCoord the same way this one does.
+static const char* PATH_STAMP_FRAG_HOOK = R"GLSL(
+	#version 430 core
+
+	#pragma osgSlug fragment_emcoord
+
+	in osgSlug_PathStampEmScaleBlock {
+		flat vec2 emsPerPixel;
+	} pathStampEmScale;
+
+	vec2 osgSlug_FragmentEmCoord(vec2 emCoord, inout vec2 emsPerPixel, int effectId, float time) {
+		emsPerPixel = pathStampEmScale.emsPerPixel;
+
+		return emCoord;
+	}
+
+	vec4 osgSlug_Fragment(osgSlug_FragmentData data) {
+		return vec4(data.layerColor.rgb, data.fill * data.layerColor.a);
 	}
 )GLSL";
 
@@ -650,10 +741,14 @@ void PathDrawable::compile() {
 		}
 
 		if(_mode == PathMode::Stamp) {
+			// PATH_STAMP_FRAG_HOOK is this mode's DEFAULT for the FragmentHook slot, not a user
+			// hook - a caller's own FragmentHook still wins. See the string's own comment.
 			prog = Atlas::createProgram(
 				{
-					.vertMain = PATH_COMMON + (multiShape ? PATH_STAMP_TABLE_VERT : PATH_STAMP_VERT),
-					.fragMain = Atlas::SHADER_FRAG
+					.vertMain = PATH_COMMON + PATH_STAMP_EM_SCALE +
+						(multiShape ? PATH_STAMP_TABLE_VERT : PATH_STAMP_VERT),
+					.fragMain = Atlas::SHADER_FRAG,
+					.fragHook = PATH_STAMP_FRAG_HOOK
 				},
 				_hooks
 			);
@@ -672,14 +767,15 @@ void PathDrawable::compile() {
 			);
 
 			ss->addUniform(new osg::Uniform("u_N", static_cast<int>(N)));
-
-			// Live viewport size for pathSluggitEmsPerPixel()'s analytic scale (see
-			// PATH_SLUGGIT_MAIN) - kept in sync per-cull the same way Atlas::ViewportUniformCallback
-			// does for the shared osgSlug_viewport uniform (Atlas.cpp), since PathDrawable's
-			// StateSet is standalone and doesn't inherit an Atlas ancestor's copy.
-			ss->addUniform(new osg::Uniform("osgSlug_viewport", osg::Vec2(1280.0f, 720.0f)));
-			setCullCallback(new PathDrawableViewportCallback());
 		}
+
+		// Live viewport size for pathSluggitEmsPerPixel()/pathStampEmsPerPixel()'s analytic scale
+		// (see PATH_SLUGGIT_MAIN/PATH_STAMP_EM_SCALE) - kept in sync per-cull the same way
+		// Atlas::ViewportUniformCallback does for the shared osgSlug_viewport uniform (Atlas.cpp),
+		// since PathDrawable's StateSet is standalone and doesn't inherit an Atlas ancestor's copy.
+		// Both Stamp and Sluggit need this now; Miter doesn't reach this branch at all.
+		ss->addUniform(new osg::Uniform("osgSlug_viewport", osg::Vec2(1280.0f, 720.0f)));
+		setCullCallback(new PathDrawableViewportCallback());
 
 		// SHADER_FRAG declares osgSlug_MaskBlock at the "osgSlug::mask" slot, but this
 		// StateSet can be entirely standalone (PathDrawable also supports setAtlas() rather than
@@ -706,7 +802,14 @@ void PathDrawable::compile() {
 		));
 		addSamplerUniforms(ss);
 		ss->addUniform(new osg::Uniform("osgSlug_gradientCount", 0));
-		ss->addUniform(new osg::Uniform("osgSlug_debugMode", 0));
+
+		// Deliberately NOT setting a local osgSlug_debugMode uniform here (unlike every uniform
+		// around it): DebugModeHandler (pyosgslug_example.py) sets this on the camera's own
+		// StateSet, and a local copy here - even a "just a default" 0 - shadows that ancestor
+		// value per ordinary OSG StateSet inheritance, permanently disabling F1-F7 debug modes
+		// for anything drawn through PathDrawable. Atlas::createDefaultStateSet() only adds its
+		// own copy conditionally (gated on the DEBUG env var) for exactly this reason - mirror
+		// that by adding none at all rather than an unconditional dead 0.
 		ss->addUniform(new osg::Uniform("osgSlug_textMode", false));
 		ss->addUniform(new osg::Uniform("osgSlug_stemDarken", false));
 		ss->addUniform(new osg::Uniform("osgSlug_gamma", 1.0f));
@@ -732,10 +835,19 @@ void PathDrawable::compile() {
 				table.emplace_back(shape->bandScaleX, shape->bandScaleY, shape->bandOffsetX, shape->bandOffsetY);
 				table.emplace_back(cv(shape->bandTexX), cv(shape->bandTexY), cv(shape->bandMaxX), cv(shape->bandMaxY));
 				table.emplace_back(shape->originX, shape->originY, 0_cv, 0_cv);
+
+				// PATH_EXPAND pushes every edge OUTWARD by the same amount, symmetric on both
+				// axes - NOT the inward-on-X/outward-on-Y split an earlier version of this had.
+				// That split came from copying Sluggit's emCorners math unchanged: Sluggit pins
+				// emX to (emCorners.x + emCorners.z) * 0.5, so a symmetric shift on X never
+				// changes that average and the inward/outward distinction was invisible there.
+				// Stamp has no such pin - X is a real rendered extent - so the inward push was
+				// silently shaving PATH_EXPAND off the glyph's own left/right edges, visible as
+				// clipped corners on wide/flat glyphs (e.g. the feet of a capital A).
 				table.emplace_back(
-					shape->bearingX + PATH_EXPAND,
+					shape->bearingX - PATH_EXPAND,
 					(shape->bearingY - shape->height) - PATH_EXPAND,
-					(shape->bearingX + shape->width) - PATH_EXPAND,
+					(shape->bearingX + shape->width) + PATH_EXPAND,
 					shape->bearingY + PATH_EXPAND
 				);
 			}
@@ -762,9 +874,11 @@ void PathDrawable::compile() {
 				return;
 			}
 
-			const slug_t emX0 = shape->bearingX + PATH_EXPAND;
+			// See the multiShape branch above for why this is a symmetric outward push on both
+			// axes, not the inward-on-X/outward-on-Y split this used to have.
+			const slug_t emX0 = shape->bearingX - PATH_EXPAND;
 			const slug_t emY0 = (shape->bearingY - shape->height) - PATH_EXPAND;
-			const slug_t emX1 = (shape->bearingX + shape->width) - PATH_EXPAND;
+			const slug_t emX1 = (shape->bearingX + shape->width) + PATH_EXPAND;
 			const slug_t emY1 = shape->bearingY + PATH_EXPAND;
 
 			// The hook contract's data.origin. Uploaded per-shape in the multiShape branch above
@@ -802,10 +916,24 @@ void PathDrawable::compile() {
 	ss->addUniform(new osg::Uniform("u_effectParam", _effectParam));
 	ss->setAttributeAndModes(prog, osg::StateAttribute::ON);
 	ss->setAttributeAndModes(_ssboBinding, osg::StateAttribute::ON);
-	ss->setAttributeAndModes(new osg::BlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA));
+	// Matches Atlas::createDefaultStateSet() (ShapeDrawable's setup): the shared fragment main()
+	// (Atlas.shaders.cpp) unconditionally premultiplies osgSlug_Fragment's straight-alpha return
+	// value (color.rgb *= color.a) before every draw call, PathDrawable included - GL_SRC_ALPHA
+	// here double-multiplied that already-premultiplied color by alpha again, darkening every
+	// partial-coverage AA pixel (alpha^2 instead of alpha). Invisible blending toward a plain
+	// background, but a visible dark seam wherever that AA ramp overlapped already-opaque content.
+	ss->setAttributeAndModes(new osg::BlendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA));
 	ss->setMode(GL_BLEND, osg::StateAttribute::ON);
 	ss->setMode(GL_CULL_FACE, osg::StateAttribute::OFF);
 	ss->setAttributeAndModes(new osg::Depth(osg::Depth::LESS, 0.0, 1.0, false));
+
+	// Matches Atlas::createDefaultStateSet() (ShapeDrawable's setup): depth TEST off (not just
+	// depth WRITE, set above) and the transparent bin, not the default opaque one. PathDrawable's
+	// StateSet is standalone and never went through createDefaultStateSet(), so it never picked
+	// either of these up - no confirmed link to the overlap-seam artifact yet, but this closes a
+	// real, confirmed gap from the known-correct setup regardless.
+	ss->setMode(GL_DEPTH_TEST, osg::StateAttribute::OFF);
+	ss->setRenderingHint(osg::StateSet::TRANSPARENT_BIN);
 
 	_compiled = true;
 }
