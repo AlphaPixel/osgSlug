@@ -14,13 +14,15 @@ OSGSLUG_ENABLE_WARNINGS
 
 #include "slughorn/canvas.hpp"
 
+#include <algorithm>
+
 #include <bit>
 
 namespace osgSlug {
 
 namespace {
 
-// Per-cull update of PATH_SLUGGIT_MAIN's osgSlug_viewport uniform - same pattern as
+// Per-cull update of PATH_EM_SCALE's osgSlug_viewport uniform - same pattern as
 // Atlas.cpp's ViewportUniformCallback, duplicated here since PathDrawable's StateSet is
 // standalone (setAtlas(), not atlas->addChild() - see Drawable::getAtlas()'s comment) and
 // doesn't inherit an Atlas ancestor's copy of the uniform.
@@ -123,6 +125,14 @@ static const std::string PATH_MITER_GEOM = R"GLSL(
 
 	vec2 perpOf(vec2 dir) { return vec2(-dir.y, dir.x); }
 
+	// Subpath topology of this instance's segment, from points[].w (see computeQuad()'s comment).
+	// pathIsGap(): the instance spans two different subpaths and is not a real segment.
+	// pathHasPrev()/pathHasNext(): the segment's start/end joins a neighbor segment of the same
+	// subpath; when false, that end is a cap.
+	bool pathIsGap() { return points[gl_InstanceID].w != points[gl_InstanceID + 1].w; }
+	bool pathHasPrev() { return gl_InstanceID > 0 && points[gl_InstanceID - 1].w == points[gl_InstanceID].w; }
+	bool pathHasNext() { return gl_InstanceID < u_N - 2 && points[gl_InstanceID + 2].w == points[gl_InstanceID + 1].w; }
+
 	vec2 miterOffset(vec2 perp_in, vec2 perp_out, float side) {
 		vec2 m = normalize(perp_in + perp_out);
 		float scale = u_halfWidth / max(dot(m, perp_in), 1.0 / MAX_MITER);
@@ -139,8 +149,8 @@ static const std::string PATH_MITER_GEOM = R"GLSL(
 	// this is a complete no-op unless setPaths() was actually used to build a multi-id buffer.
 	//
 	// perp (out): unit segment-perpendicular direction, exposed so PATH_SLUGGIT_MAIN can
-	// derive an analytic screen-space scale in the width direction (see its
-	// pathSluggitEmsPerPixel()) instead of trusting fwidth() on the pinned emCoord varying.
+	// derive its em<->world frame and analytic screen-space scale (PATH_EM_SCALE's
+	// pathEmsPerPixel()) instead of trusting fwidth() on the emCoord varying.
 	vec2 computeQuad(out vec2 base, out vec2 offset, out vec2 perp) {
 		vec4 pt0 = points[gl_InstanceID ];
 		vec4 pt1 = points[gl_InstanceID + 1];
@@ -156,7 +166,7 @@ static const std::string PATH_MITER_GEOM = R"GLSL(
 		// This instance straddles two different subpaths - it isn't a real segment, it's the
 		// gap between one path's last point and the next path's first. Degenerate to a
 		// zero-area quad instead of drawing a spurious connecting segment.
-		if(pt0.w != pt1.w) {
+		if(pathIsGap()) {
 			base = p0;
 			offset = vec2(0.0);
 			perp = vec2(1.0, 0.0); // arbitrary - quad is zero-area, never visible
@@ -170,13 +180,13 @@ static const std::string PATH_MITER_GEOM = R"GLSL(
 		base = mix(p0, p1, s.x);
 
 		if(s.x < 0.5) {
-			if(gl_InstanceID > 0 && points[gl_InstanceID - 1].w == pt0.w)
+			if(pathHasPrev())
 				offset = miterOffset(perpOf(normalize(p0 - points[gl_InstanceID - 1].xy)), perp, s.y);
 			else
 				offset = perp * (u_halfWidth * s.y);
 		}
 		else {
-			if(gl_InstanceID < u_N - 2 && points[gl_InstanceID + 2].w == pt1.w)
+			if(pathHasNext())
 				offset = miterOffset(perp, perpOf(normalize(points[gl_InstanceID + 2].xy - p1)), s.y);
 			else
 				offset = perp * (u_halfWidth * s.y);
@@ -218,46 +228,87 @@ static const char* PATH_MITER_MAIN = R"GLSL(
 	}
 )GLSL";
 
+// Analytic em-per-pixel rate, shared by Sluggit (its vertex-side cap margin push) and both Stamp
+// variants (their fragment AA rate, replacing the shared fragment pipeline's default
+// `emsPerPixel = fwidth(geom.emCoord)` via PATH_STAMP_FRAG_HOOK). osgSlug_viewport is the live viewport size, updated
+// per-cull (see PathDrawableViewportCallback). Mirrors Atlas.shaders.cpp's
+// osgSlug_WorldPerPixel() math; PathDrawable doesn't link that shader unit (no a_position/layers
+// SSBO), so the small amount of math is reproduced here.
+//
+// The rate is the magnitude of each em coordinate's SCREEN-SPACE GRADIENT, from the full 2x2
+// screen/world Jacobian - not the per-axis 1 / |screen image of one world unit along the axis|.
+// The two agree only while the projected axes stay perpendicular on screen (ortho, any
+// rotation). Under perspective the axes shear toward each other, the per-axis length overstates
+// pixels-per-world, and the AA ramp comes out too sharp by 1 / sin(screen angle between the
+// axes). fwidth() is a true screen gradient, so ShapeDrawable never had this problem.
+static const std::string PATH_EM_SCALE = R"GLSL(
+	uniform vec2 osgSlug_viewport;
+
+	// Screen-pixel image of a 1-world-unit step along world-space direction `dir` from `pos`: the
+	// directional derivative of NDC position (quotient rule through the perspective divide),
+	// converted to pixels.
+	vec2 pathPixelsPerWorld(vec2 pos, vec2 dir) {
+		vec4 c = gl_ModelViewProjectionMatrix * vec4(pos, 0.0, 1.0);
+		vec4 d = gl_ModelViewProjectionMatrix * vec4(dir, 0.0, 0.0);
+		float cw2 = max(c.w * c.w, 1e-12);
+
+		return (d.xy * c.w - c.xy * d.w) / cw2 * osgSlug_viewport * 0.5;
+	}
+
+	// Em-per-pixel along each em axis at `pos`. axisX/axisY: xy = unit world direction, w =
+	// worldPerEm along it (the osgSlug_VertexResult frame convention). With world coordinates
+	// (a, b) along (axisX, axisY) and screen s = a * vx + b * vy, a = cross(s, vy) / cross(vx, vy),
+	// so |grad a| = |vy| / |det| (and symmetrically for b).
+	vec2 pathEmsPerPixel(vec2 pos, vec4 axisX, vec4 axisY) {
+		vec2 vx = pathPixelsPerWorld(pos, axisX.xy);
+		vec2 vy = pathPixelsPerWorld(pos, axisY.xy);
+		float det = max(abs(vx.x * vy.y - vx.y * vy.x), 1e-8);
+
+		return vec2(
+			length(vy) / (det * max(axisX.w, 1e-8)),
+			length(vx) / (det * max(axisY.w, 1e-8))
+		);
+	}
+)GLSL";
+
 // Sluggit
 //
-// em-X is pinned to the shape midpoint so fwidth(emCoord.x) stays near zero. Without this the
-// 0.99->0.01 discontinuity at quad boundaries causes the 2x2 derivative group to compute
-// fwidth ~ 0.98, giving pixelsPerEm.x ~ 1 and dropping coverage to ~0.48 (dark stripe).
+// The stroke's WIDTH maps onto the shape's em-Y extent; em-X carries only the end caps. A
+// fragment's em-X is its distance from the nearest real cap (a subpath end with no neighbor
+// segment), measured at the same em rate as the width and clamped at the shape's X midpoint: near
+// a cap the SDF sees that edge of the shape, everywhere else - every interior joint included - it
+// reads the shape's center column. A per-segment 0..1 em-X would instead put the shape's left and
+// right edges at both ends of every segment, i.e. a ~0.5-coverage stripe at every joint.
 //
-// Separately, emCoord.y's fwidth() (computed unconditionally by Atlas.shaders.cpp main()) is
-// the AA stair-stepping bug: road-segment quads are small and often screen-rotated, so the
-// GPU's 2x2-pixel derivative block frequently straddles a triangle/instance boundary where the
-// interpolation basis differs on each side - a well-known fwidth() unreliability on
-// thin/rotated primitives. pathSluggitEmsPerPixel() below computes the width-direction rate
-// analytically instead (stroke half-width vs. the MVP's screen-space projection scale), and
-// PATH_SLUGGIT_FRAG_HOOK's osgSlug_FragmentEmCoord() overrides emsPerPixel with it - bypassing the
-// unreliable derivative without touching the shared default fragment path every other
-// Slug-rendered shape (text, general shapes, decals) depends on.
+// The two cap distances travel as separate non-flat varyings (pathCap) and are resolved in
+// PATH_SLUGGIT_FRAG_HOOK: min() of two affine functions isn't affine, so it can't be interpolated
+// as one value. Each distance is affine in world position, so it interpolates exactly across both
+// triangles of the mitered (non-parallelogram) quad. Cap ends of the quad are pushed outward by
+// PATH_CAP_MARGIN_PX so the cap's coverage ramp has rasterized geometry to fall off into.
+//
+// Same split as SHADER_VERT/ShapeDrawable: the analytic rate (PATH_EM_SCALE) sizes the vertex-side
+// margin push, and the fragment AA rate is per-pixel fwidth() of the em varyings. A per-instance
+// (flat) analytic rate is wrong under perspective - it is exact only at the vertex it was
+// evaluated at, and a long segment's screen scale changes along its length.
 static const std::string PATH_SLUGGIT_MAIN = R"GLSL(
 	uniform vec4 u_emCorners; // x=emX0, y=emY0, z=emX1, w=emY1
 	uniform vec4 u_bandTransform; // x=bandScaleX, y=bandScaleY, z=bandOffsetX, w=bandOffsetY
 	uniform vec4 u_shapeData; // x=bandTexX, y=bandTexY, z=bandMaxX, w=bandMaxY
-	uniform vec2 osgSlug_viewport; // live viewport size (see PathDrawable::compile()'s cull callback)
 
-	// Analytic em-units-per-screen-pixel along `perp`, evaluated at `pos`. Mirrors
-	// Atlas.shaders.cpp's osgSlug_WorldPerPixel()/osgSlug_viewport machinery (same math), scaled
-	// by the shape's own em<->world rate - PathDrawable's Sluggit shaders don't link that shader
-	// unit (no a_position/layers SSBO), so the small amount of math is reproduced here rather
-	// than pulled in via a much larger, incompatible shared vertex main().
-	float pathSluggitEmsPerPixel(vec2 pos, vec2 perp, float emPerWorld) {
-		vec4 c = gl_ModelViewProjectionMatrix * vec4(pos, 0.0, 1.0);
-		vec4 d = gl_ModelViewProjectionMatrix * vec4(perp, 0.0, 0.0);
-		float cw2 = max(c.w * c.w, 1e-12);
-		vec2 ndcPerWorld = (d.xy * c.w - c.xy * d.w) / cw2;
-		float pixelsPerWorld = length(ndcPerWorld * osgSlug_viewport * 0.5);
-		float worldPerPixel = 1.0 / max(pixelsPerWorld, 1e-8);
+	// Matches OSGSLUG_MARGIN_PX (Atlas.shaders.cpp), which PathDrawable doesn't link.
+	const float PATH_CAP_MARGIN_PX = 1.5;
 
-		return worldPerPixel * emPerWorld;
-	}
+	// Cap distance for a segment end that has no cap: beyond any shape half-width in em units, so
+	// the fragment hook's clamp resolves it to the shape's X midpoint.
+	const float PATH_NO_CAP = 1.0e6;
 
-	out osgSlug_PathEmScaleBlock {
-		flat float emsPerPixel;
-	} pathEmScale;
+	// Em-space distances from this segment's start/end cap along the segment (negative inside the
+	// cap margin), or PATH_NO_CAP where that end joins a neighbor. Resolved into em-X by
+	// PATH_SLUGGIT_FRAG_HOOK - see this shader's header comment.
+	out osgSlug_PathCapBlock {
+		float startDist;
+		float endDist;
+	} pathCap;
 
 	void main() {
 		vec2 base, offset, perp;
@@ -267,19 +318,39 @@ static const std::string PATH_SLUGGIT_MAIN = R"GLSL(
 		float emY = (s.y < 0.0) ? u_emCorners.y : u_emCorners.w;
 
 		// em-units per world-unit across the stroke's width - uniform-derived only, no
-		// derivative involved.
+		// derivative involved. The cap distances use this same rate, so em-X and em-Y share it.
 		float emPerWorld = (u_emCorners.w - u_emCorners.y) / max(2.0 * u_halfWidth, 1e-8);
 		float worldPerEm = 1.0 / max(emPerWorld, 1e-8);
 		vec2 dir = vec2(perp.y, -perp.x); // undo perpOf()
 		vec2 uv = vec2(s.x, (s.y + 1.0) * 0.5);
 
+		vec2 p0 = points[gl_InstanceID].xy;
+		vec2 p1 = points[gl_InstanceID + 1].xy;
+		bool startCap = !pathIsGap() && !pathHasPrev();
+		bool endCap = !pathIsGap() && !pathHasNext();
+
+		// Push this corner past its cap; the subpath-gap quad is excluded and stays zero-area. With
+		// a worldPerEm of 1.0, pathEmsPerPixel().x is world units along `dir` per screen pixel
+		// measured across the cap edge - so the margin stays PATH_CAP_MARGIN_PX wide on screen
+		// under perspective shear too.
+		if(s.x < 0.5 ? startCap : endCap) {
+			float margin = PATH_CAP_MARGIN_PX * pathEmsPerPixel(base, vec4(dir, 0.0, 1.0), vec4(perp, 0.0, 1.0)).x;
+
+			base += dir * (s.x < 0.5 ? -margin : margin);
+		}
+
+		vec2 pos = base + offset;
+
+		pathCap.startDist = startCap ? dot(pos - p0, dir) * emPerWorld : PATH_NO_CAP;
+		pathCap.endDist = endCap ? dot(p1 - pos, dir) * emPerWorld : PATH_NO_CAP;
+
+		// emCoord.x is a placeholder (the shape's X midpoint): PATH_SLUGGIT_FRAG_HOOK replaces it
+		// with the cap-derived value, so a hook's change to emCoord.x has no effect.
 		osgSlug_VertexResult r = osgSlug_Vertex(pathVertexData(
-			vec3(base + offset, 0.0),
+			vec3(pos, 0.0),
 			vec2(emMidX, emY),
 			uv,
 			u_origin,
-			// em-X is pinned constant by design (see this shader's header comment), so it has no
-			// rate of its own; reuse the width-direction rate rather than invent a second one.
 			vec4(dir, 0.0, worldPerEm),
 			vec4(perp, 0.0, worldPerEm)
 		));
@@ -297,32 +368,21 @@ static const std::string PATH_SLUGGIT_MAIN = R"GLSL(
 		fx.sdfTile = -1;
 		fx.effectParam = u_effectParam;
 
-		// Evaluated at the POST-hook position and frame: a hook that displaces or reorients the
-		// stroke changes its screen-space footprint, and this rate is what the fragment stage
-		// antialiases with. Using the pre-hook values would silently mis-tune the AA under any
-		// hook that actually moves something.
-		pathEmScale.emsPerPixel = pathSluggitEmsPerPixel(
-			r.pos.xy,
-			r.axisY.xy,
-			1.0 / max(r.axisY.w, 1e-8)
-		);
-
 		gl_Position = gl_ModelViewProjectionMatrix * vec4(r.pos, 1.0);
 	}
 )GLSL";
 
-// Sluggit-only fragment hook: overrides osgSlug_FragmentEmCoord's emsPerPixel with the analytic
-// value PATH_SLUGGIT_MAIN computed (pathEmScale), instead of the unreliable
-// fwidth(geom.emCoord) Atlas.shaders.cpp main() computes by default - see PATH_SLUGGIT_MAIN's
-// header comment. Isotropic: emCoord.x is pinned constant by design (a different, earlier fix),
-// so it carries no real per-pixel rate of its own - reusing the analytic width-direction value
-// keeps pixelsPerEm.x finite/stable for slug_Render without introducing a second, unrelated
-// derivative source.
+// Sluggit-only fragment hook: resolves em-X from the two interpolated cap distances (pathCap) -
+// the nearer cap's distance, offset from that cap's own shape edge (start = left, end = right)
+// and clamped at the shape's X midpoint, so shapes that aren't left/right symmetric still cap
+// correctly at both ends - and sets emsPerPixel.x to that distance's fwidth(), since the incoming
+// fwidth(geom.emCoord).x is of the placeholder midpoint (zero). emsPerPixel.y is the incoming
+// fwidth(geom.emCoord).y, unchanged. See PATH_SLUGGIT_MAIN's header comment.
 //
 // This is Sluggit's per-FLAVOR default for the FragmentHook slot (Atlas::ProgramSpec::fragHook),
-// not a user hook: a caller's own FragmentHook still substitutes it, and in doing so gives up the
-// analytic emsPerPixel. A Sluggit FragmentHook that cares about AA quality should define its own
-// osgSlug_FragmentEmCoord the same way this one does.
+// not a user hook: a caller's own FragmentHook still substitutes it, and in doing so loses cap
+// coverage entirely (em-X stays at the placeholder midpoint). A Sluggit FragmentHook should define
+// its own osgSlug_FragmentEmCoord the same way this one does.
 //
 // osgSlug_FragmentData used to be hand-copied here, because the #pragma below is expanded by
 // Atlas.shaders.cpp's own resolver and this file couldn't reach it. Routing PathDrawable's
@@ -333,14 +393,31 @@ static const char* PATH_SLUGGIT_FRAG_HOOK = R"GLSL(
 
 	#pragma osgSlug fragment_emcoord
 
-	in osgSlug_PathEmScaleBlock {
-		flat float emsPerPixel;
-	} pathEmScale;
+	uniform vec2 u_emEdgesX; // x=shape's left em edge, y=right; unpadded (no PATH_EXPAND)
+
+	in osgSlug_PathCapBlock {
+		float startDist;
+		float endDist;
+	} pathCap;
 
 	vec2 osgSlug_FragmentEmCoord(vec2 emCoord, inout vec2 emsPerPixel, int effectId, float time) {
-		emsPerPixel = vec2(pathEmScale.emsPerPixel);
+		// Both derivatives are taken unconditionally (uniform control flow), then selected.
+		float startRate = fwidth(pathCap.startDist);
+		float endRate = fwidth(pathCap.endDist);
+		bool fromStart = pathCap.startDist < pathCap.endDist;
 
-		return emCoord;
+		float halfSpan = (u_emEdgesX.y - u_emEdgesX.x) * 0.5;
+		float emX = fromStart
+			? u_emEdgesX.x + min(pathCap.startDist, halfSpan)
+			: u_emEdgesX.y - min(pathCap.endDist, halfSpan);
+
+		// A PATH_NO_CAP end is constant, so its rate is zero; em-X then sits at the midpoint and
+		// its rate only needs to be finite - fall back to the width-direction rate.
+		float rateX = fromStart ? startRate : endRate;
+
+		emsPerPixel.x = (rateX > 0.0) ? rateX : emsPerPixel.y;
+
+		return vec2(emX, emCoord.y);
 	}
 
 	vec4 osgSlug_Fragment(osgSlug_FragmentData data) {
@@ -348,58 +425,11 @@ static const char* PATH_SLUGGIT_FRAG_HOOK = R"GLSL(
 	}
 )GLSL";
 
-// Shared by both Stamp vertex variants (PATH_STAMP_VERT/PATH_STAMP_TABLE_VERT): live viewport
-// size (same per-cull-updated pattern PATH_SLUGGIT_MAIN uses - see PathDrawable::compile()'s
-// cull callback) plus an analytic, anisotropic em-per-pixel rate.
-//
-// Why this exists: Stamp's emCoord varies fully over BOTH axes of the quad (unlike Sluggit,
-// which pins emX to the midpoint specifically to dodge this problem - see PATH_SLUGGIT_MAIN's
-// header comment). Left to the shared fragment pipeline's default `emsPerPixel =
-// fwidth(geom.emCoord)` (Atlas.shaders.cpp), that's a 2x2-pixel screen-space derivative: when
-// neighboring pixels in that block belong to a DIFFERENT Stamp instance - routine with many
-// small, dense, overlapping particle/glyph quads - the GPU differences across two unrelated
-// interpolations instead of a true per-instance derivative, corrupting the AA coverage ramp
-// right at quad edges (dark rims/crisp outlines around glyphs). pathStampEmsPerPixel() below
-// computes the rate analytically from the MVP's local projection scale instead, the same
-// quotient-rule technique pathSluggitEmsPerPixel() uses, generalized to two independent axes
-// since (unlike Sluggit) neither of Stamp's axes is pinned.
-static const std::string PATH_STAMP_EM_SCALE = R"GLSL(
-	uniform vec2 osgSlug_viewport;
-
-	// Em-per-pixel rate at `pos` along world-space direction `dir` (unit length), given
-	// `worldPerEm` world units per em along that same direction - the directional derivative of
-	// NDC position w.r.t. a 1-world-unit step along `dir`, converted to screen pixels and
-	// inverted. Matches PATH_SLUGGIT_MAIN's pathSluggitEmsPerPixel() exactly; duplicated rather
-	// than shared because that one is scalar/isotropic by design (Sluggit's pinned emX has no
-	// rate of its own) while this is called once per axis.
-	float pathStampAxisEmsPerPixel(vec2 pos, vec2 dir, float worldPerEm) {
-		vec4 c = gl_ModelViewProjectionMatrix * vec4(pos, 0.0, 1.0);
-		vec4 d = gl_ModelViewProjectionMatrix * vec4(dir, 0.0, 0.0);
-		float cw2 = max(c.w * c.w, 1e-12);
-		vec2 ndcPerWorld = (d.xy * c.w - c.xy * d.w) / cw2;
-		float pixelsPerWorld = length(ndcPerWorld * osgSlug_viewport * 0.5);
-		float worldPerPixel = 1.0 / max(pixelsPerWorld, 1e-8);
-
-		return worldPerPixel / max(worldPerEm, 1e-8);
-	}
-
-	// axisX/axisY: the hook RESULT's post-hook frame (osgSlug_VertexResult.axisX/axisY - xyz unit
-	// direction, w = worldPerEm rate), evaluated post-hook for the same reason PATH_SLUGGIT_MAIN
-	// does: a hook that displaces or reorients the stamp changes its screen-space footprint, and
-	// using the pre-hook frame would silently mis-tune the AA under any hook that moves something
-	// (see DEPTH_DRIFT_HOOK in pyosgslug-particles.py for exactly this case).
-	vec2 pathStampEmsPerPixel(vec2 pos, vec4 axisX, vec4 axisY) {
-		return vec2(
-			pathStampAxisEmsPerPixel(pos, axisX.xy, axisX.w),
-			pathStampAxisEmsPerPixel(pos, axisY.xy, axisY.w)
-		);
-	}
-)GLSL";
-
 // Stamp mode: one instanced quad per point, centered at points[i].xy and rotated by points[i].z.
 // Uses the full Slug SDF pipeline against a caller-defined shape (setShapeKey). emCoords vary
-// fully over both axes - see PATH_STAMP_EM_SCALE's header comment for why that needs the
-// analytic emsPerPixel below rather than fwidth(geom.emCoord).
+// fully over both axes; emsPerPixel comes from PATH_EM_SCALE's pathEmsPerPixel(), evaluated on
+// the hook RESULT's post-hook frame - a hook that displaces or reorients the stamp changes its
+// screen-space footprint (see DEPTH_DRIFT_HOOK in pyosgslug-particles.py).
 static const char* PATH_STAMP_VERT = R"GLSL(
 	uniform vec4 u_emCorners; // x=emX0, y=emY0, z=emX1, w=emY1
 	uniform vec4 u_bandTransform;
@@ -449,7 +479,7 @@ static const char* PATH_STAMP_VERT = R"GLSL(
 		fx.sdfTile = -1;
 		fx.effectParam = u_effectParam;
 
-		pathStampEmScale.emsPerPixel = pathStampEmsPerPixel(r.pos.xy, r.axisX, r.axisY);
+		pathStampEmScale.emsPerPixel = pathEmsPerPixel(r.pos.xy, r.axisX, r.axisY);
 
 		gl_Position = gl_ModelViewProjectionMatrix * vec4(r.pos, 1.0);
 	}
@@ -532,7 +562,7 @@ static const char* PATH_STAMP_TABLE_VERT = R"GLSL(
 		fx.sdfTile = -1;
 		fx.effectParam = u_effectParam;
 
-		pathStampEmScale.emsPerPixel = pathStampEmsPerPixel(r.pos.xy, r.axisX, r.axisY);
+		pathStampEmScale.emsPerPixel = pathEmsPerPixel(r.pos.xy, r.axisX, r.axisY);
 
 		gl_Position = gl_ModelViewProjectionMatrix * vec4(r.pos, 1.0);
 	}
@@ -540,9 +570,9 @@ static const char* PATH_STAMP_TABLE_VERT = R"GLSL(
 
 // Stamp-only fragment hook: overrides osgSlug_FragmentEmCoord's emsPerPixel with the analytic,
 // per-instance value PATH_STAMP_VERT/PATH_STAMP_TABLE_VERT computed (pathStampEmScale), instead
-// of the unreliable fwidth(geom.emCoord) Atlas.shaders.cpp main() computes by default - see
-// PATH_STAMP_EM_SCALE's header comment. Mirrors PATH_SLUGGIT_FRAG_HOOK exactly except it is
-// anisotropic (vec2, not broadcast from a scalar) since neither of Stamp's axes is pinned.
+// of the fwidth(geom.emCoord) Atlas.shaders.cpp main() computes by default - see
+// PATH_EM_SCALE's header comment. Mirrors PATH_SLUGGIT_FRAG_HOOK's emsPerPixel override;
+// Stamp's emCoord needs no other adjustment.
 //
 // This is Stamp's per-FLAVOR default for the FragmentHook slot (Atlas::ProgramSpec::fragHook),
 // not a user hook: a caller's own FragmentHook still substitutes it, and in doing so gives up the
@@ -632,10 +662,19 @@ void PathDrawable::setShapeKeys(std::vector<slughorn::Key> keys) {
 	if(getAtlas()) compile();
 }
 
+GLsizei PathDrawable::_instanceCount() const {
+	if(!_points || _points->empty()) return 0;
+
+	// Stamp uses one instance per point; all other modes use one per segment (N-1).
+	const size_t available = _mode == PathMode::Stamp ? _points->size() : _points->size() - 1;
+
+	return static_cast<GLsizei>(std::min(_revealCount, available));
+}
+
 void PathDrawable::setRevealCount(size_t n) {
 	_revealCount = n;
 
-	if(_drawArrays) _drawArrays->setNumInstances(static_cast<GLsizei>(n));
+	if(_drawArrays) _drawArrays->setNumInstances(_instanceCount());
 }
 
 void PathDrawable::setPoints(std::vector<Vec4> pts) {
@@ -656,9 +695,7 @@ void PathDrawable::setPoints(std::vector<Vec4> pts) {
 	if(_ssboBinding) {
 		if(sizeChanged) _ssboBinding->setSize(_points->getTotalDataSize());
 
-		if(_drawArrays) _drawArrays->setNumInstances(
-			static_cast<GLsizei>(_mode == PathMode::Stamp ? _points->size() : _points->size() - 1)
-		);
+		if(_drawArrays) _drawArrays->setNumInstances(_instanceCount());
 	}
 }
 
@@ -699,11 +736,7 @@ void PathDrawable::compile() {
 		slots.get("osgSlug::path.points"), _points, 0, _points->getTotalDataSize()
 	);
 
-	// Stamp uses one instance per point; all other modes use one per segment (N-1).
-	_drawArrays = new osg::DrawArrays(
-		GL_TRIANGLE_FAN, 0, 4,
-		static_cast<GLsizei>(_revealCount)
-	);
+	_drawArrays = new osg::DrawArrays(GL_TRIANGLE_FAN, 0, 4, _instanceCount());
 
 	removePrimitiveSet(0, getNumPrimitiveSets());
 	addPrimitiveSet(_drawArrays);
@@ -745,7 +778,7 @@ void PathDrawable::compile() {
 			// hook - a caller's own FragmentHook still wins. See the string's own comment.
 			prog = Atlas::createProgram(
 				{
-					.vertMain = PATH_COMMON + PATH_STAMP_EM_SCALE +
+					.vertMain = PATH_COMMON + PATH_EM_SCALE +
 						(multiShape ? PATH_STAMP_TABLE_VERT : PATH_STAMP_VERT),
 					.fragMain = Atlas::SHADER_FRAG,
 					.fragHook = PATH_STAMP_FRAG_HOOK
@@ -759,7 +792,7 @@ void PathDrawable::compile() {
 			// hook - a caller's own FragmentHook still wins. See the string's own comment.
 			prog = Atlas::createProgram(
 				{
-					.vertMain = PATH_COMMON + PATH_MITER_GEOM + PATH_SLUGGIT_MAIN,
+					.vertMain = PATH_COMMON + PATH_EM_SCALE + PATH_MITER_GEOM + PATH_SLUGGIT_MAIN,
 					.fragMain = Atlas::SHADER_FRAG,
 					.fragHook = PATH_SLUGGIT_FRAG_HOOK
 				},
@@ -769,8 +802,8 @@ void PathDrawable::compile() {
 			ss->addUniform(new osg::Uniform("u_N", static_cast<int>(N)));
 		}
 
-		// Live viewport size for pathSluggitEmsPerPixel()/pathStampEmsPerPixel()'s analytic scale
-		// (see PATH_SLUGGIT_MAIN/PATH_STAMP_EM_SCALE) - kept in sync per-cull the same way
+		// Live viewport size for pathEmsPerPixel()'s analytic scale (see PATH_EM_SCALE) - kept in
+		// sync per-cull the same way
 		// Atlas::ViewportUniformCallback does for the shared osgSlug_viewport uniform (Atlas.cpp),
 		// since PathDrawable's StateSet is standalone and doesn't inherit an Atlas ancestor's copy.
 		// Both Stamp and Sluggit need this now; Miter doesn't reach this branch at all.
@@ -836,14 +869,10 @@ void PathDrawable::compile() {
 				table.emplace_back(cv(shape->bandTexX), cv(shape->bandTexY), cv(shape->bandMaxX), cv(shape->bandMaxY));
 				table.emplace_back(shape->originX, shape->originY, 0_cv, 0_cv);
 
-				// PATH_EXPAND pushes every edge OUTWARD by the same amount, symmetric on both
-				// axes - NOT the inward-on-X/outward-on-Y split an earlier version of this had.
-				// That split came from copying Sluggit's emCorners math unchanged: Sluggit pins
-				// emX to (emCorners.x + emCorners.z) * 0.5, so a symmetric shift on X never
-				// changes that average and the inward/outward distinction was invisible there.
-				// Stamp has no such pin - X is a real rendered extent - so the inward push was
-				// silently shaving PATH_EXPAND off the glyph's own left/right edges, visible as
-				// clipped corners on wide/flat glyphs (e.g. the feet of a capital A).
+				// PATH_EXPAND pushes every edge OUTWARD by the same amount on both axes. X is a
+				// real rendered extent for Stamp, so pushing it inward would shave PATH_EXPAND off
+				// the shape's own left/right edges (clipped corners on wide/flat glyphs, e.g. the
+				// feet of a capital A).
 				table.emplace_back(
 					shape->bearingX - PATH_EXPAND,
 					(shape->bearingY - shape->height) - PATH_EXPAND,
@@ -875,11 +904,18 @@ void PathDrawable::compile() {
 			}
 
 			// See the multiShape branch above for why this is a symmetric outward push on both
-			// axes, not the inward-on-X/outward-on-Y split this used to have.
+			// axes.
 			const slug_t emX0 = shape->bearingX - PATH_EXPAND;
 			const slug_t emY0 = (shape->bearingY - shape->height) - PATH_EXPAND;
 			const slug_t emX1 = (shape->bearingX + shape->width) + PATH_EXPAND;
 			const slug_t emY1 = shape->bearingY + PATH_EXPAND;
+
+			// Sluggit's cap edges: the shape's true left/right em extent, unpadded - the cap
+			// margin is pushed in screen pixels by PATH_SLUGGIT_MAIN instead.
+			if(_mode == PathMode::Sluggit) ss->addUniform(new osg::Uniform("u_emEdgesX", osg::Vec2(
+				static_cast<float>(shape->bearingX),
+				static_cast<float>(shape->bearingX + shape->width)
+			)));
 
 			// The hook contract's data.origin. Uploaded per-shape in the multiShape branch above
 			// (osgSlug_ShapeTableData.originData), which is why that branch doesn't set this.
@@ -939,6 +975,10 @@ void PathDrawable::compile() {
 }
 
 void PathDrawable::drawImplementation(osg::RenderInfo& renderInfo) const {
+	// osg::DrawArrays treats 0 instances as a plain non-instanced draw (gl_InstanceID 0, so the
+	// first segment), not as nothing.
+	if(_drawArrays && _drawArrays->getNumInstances() == 0) return;
+
 	osg::Geometry::drawImplementation(renderInfo);
 }
 

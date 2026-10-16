@@ -172,10 +172,6 @@ def build_scene():
 
 	atlas.children.append(pd) # triggers compile()
 
-	# Reveal count defaults to 0 post-compile (see PathDrawable.hpp's setPoints() comment) - this
-	# second call is what actually reveals the two seed instances.
-	pd.setPoints([seed, seed])
-
 	# compile() derives a bound from whatever points are staged at the time - just the seed
 	# point here, a degenerate zero-size box. Widen it by hand so Ortho2DManipulator's home
 	# framing isn't zoomed into nothing before the first real stamp lands.

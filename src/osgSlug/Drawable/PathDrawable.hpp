@@ -2,6 +2,8 @@
 
 #include "osgSlug/Drawable.hpp"
 
+#include <limits>
+
 namespace osgSlug {
 
 enum class PathMode {
@@ -51,7 +53,10 @@ public:
 	// Recompiles, since compile() is what links the hook units. See Drawable::setHooks().
 	void setHooks(Atlas::HookList hooks) override;
 
-	// Dynamic: updates the DrawArrays instance count immediately (no recompile needed).
+	// Dynamic: updates the DrawArrays instance count immediately (no recompile needed). The count
+	// is clamped to the instances the points provide (one per segment, or one per point for
+	// Stamp), so the default reveals everything and keeps doing so as setPoints() grows the path;
+	// 0 draws nothing.
 	void setRevealCount(size_t n);
 
 	// Dynamic: replaces point data and rebuilds the SSBO binding. xy = position.
@@ -74,9 +79,12 @@ public:
 	osg::BoundingBox computeBoundingBox() const override;
 
 private:
+	// The DrawArrays instance count: _revealCount clamped to what the points provide.
+	GLsizei _instanceCount() const;
+
 	PathMode _mode = PathMode::Sluggit;
 	slug_t _halfWidth = 0.45_cv;
-	size_t _revealCount = 0;
+	size_t _revealCount = std::numeric_limits<size_t>::max();
 	int _effectId = 0;
 	slug_t _effectParam = 0.0_cv;
 	Vec4 _color = {1.0f, 1.0f, 1.0f, 1.0f};

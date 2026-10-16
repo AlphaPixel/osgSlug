@@ -378,15 +378,32 @@ uint slug_CalcRootCode(float y1, float y2, float y3) {
 	return ((0x2E74u >> shift) & 0x0101u);
 }
 
+// Roots t1 = (b - d) / a and t2 = (b + d) / a of a*t^2 - 2*b*t + c. Computed directly, the root
+// whose numerator subtracts nearly equal values loses every significant digit once |a| is small
+// next to |b| - a nearly straight curve, or a straight edge whose float32 midpoint control point
+// leaves a at one ulp of the coordinate magnitude (2^-16 at 128). That root is taken in its equal
+// form c / (b + d) or c / (b - d) instead: q = b + sign(b) * d never cancels, so the roots are
+// c / q and q / a, continuous across the callers' linear fallback. A clamped (negative)
+// discriminant keeps both roots at b / a so a grazing curve's paired contributions still cancel.
+// Mirrors slughorn::render::Sampler::_solveRoots().
+vec2 slug_SolveRoots(float a, float b, float c) {
+	float disc = b * b - a * c;
+	float d = sqrt(max(disc, 0.0));
+	float q = b >= 0.0 ? b + d : b - d;
+	float tFar = q / a;
+	float tNear = disc > 0.0 ? c / q : tFar;
+
+	return b >= 0.0 ? vec2(tNear, tFar) : vec2(tFar, tNear);
+}
+
 vec2 slug_SolveHorizPoly(vec4 p12, vec2 p3) {
 	vec2 a = p12.xy - p12.zw * 2.0 + p3;
 	vec2 b = p12.xy - p12.zw;
-	float ra = 1.0 / a.y;
 	float rb = 0.5 / b.y;
 
-	float d = sqrt(max(b.y * b.y - a.y * p12.y, 0.0));
-	float t1 = (b.y - d) * ra;
-	float t2 = (b.y + d) * ra;
+	vec2 t = slug_SolveRoots(a.y, b.y, p12.y);
+	float t1 = t.x;
+	float t2 = t.y;
 
 	if(abs(a.y) < 1.0 / 65536.0) { t1 = p12.y * rb; t2 = t1; }
 
@@ -399,12 +416,11 @@ vec2 slug_SolveHorizPoly(vec4 p12, vec2 p3) {
 vec2 slug_SolveVertPoly(vec4 p12, vec2 p3) {
 	vec2 a = p12.xy - p12.zw * 2.0 + p3;
 	vec2 b = p12.xy - p12.zw;
-	float ra = 1.0 / a.x;
 	float rb = 0.5 / b.x;
 
-	float d = sqrt(max(b.x * b.x - a.x * p12.x, 0.0));
-	float t1 = (b.x - d) * ra;
-	float t2 = (b.x + d) * ra;
+	vec2 t = slug_SolveRoots(a.x, b.x, p12.x);
+	float t1 = t.x;
+	float t2 = t.y;
 
 	if(abs(a.x) < 1.0 / 65536.0) { t1 = p12.x * rb; t2 = t1; }
 

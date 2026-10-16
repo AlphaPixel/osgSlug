@@ -187,9 +187,7 @@ def build_scene(font_path=FONT_PATH):
 	pd.updateCallback = field
 
 	# Triggers compile() (Atlas.addChild()'s auto-compile override) now that points/shapeKeys/
-	# color/halfWidth are all staged. The update callback's first tick re-calls setPoints() on
-	# the now-compiled drawable, which is what actually reveals the instances (setRevealCount()
-	# defaults to 0 - see PathDrawable.hpp's setPoints() comment).
+	# color/halfWidth are all staged.
 	atlas.children.append(pd)
 
 	# compile() derived a bound from the point data alone, which is a flat XY slab - it cannot
