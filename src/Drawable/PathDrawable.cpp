@@ -108,7 +108,7 @@ static const std::string PATH_COMMON = R"GLSL(
 		d.origin = origin;
 		d.effectParam = u_effectParam;
 		d.time = osg_SimulationTime;
-		d.bleed = 0.0; // PathDrawable bakes its margin on the CPU (PATH_EXPAND), no GPU push
+		d.bleed = 0.0; // no layer.bleed; Sluggit pushes its pixel margin after the hook, Stamp bakes PATH_EXPAND
 		d.axisX = axisX;
 		d.axisY = axisY;
 
@@ -119,9 +119,7 @@ static const std::string PATH_COMMON = R"GLSL(
 // Mitered per-segment quad geometry; used by Miter and Sluggit. Append PATH_MITER_MAIN or
 // PATH_SLUGGIT_MAIN to PATH_COMMON + this to form a complete shader.
 static const std::string PATH_MITER_GEOM = R"GLSL(
-	uniform int u_N;
-
-	const float MAX_MITER = 4.0;
+	const float MAX_MITER = 4.0; // matches PATH_MAX_MITER (C++, computeBoundingBox())
 
 	vec2 perpOf(vec2 dir) { return vec2(-dir.y, dir.x); }
 
@@ -131,7 +129,7 @@ static const std::string PATH_MITER_GEOM = R"GLSL(
 	// subpath; when false, that end is a cap.
 	bool pathIsGap() { return points[gl_InstanceID].w != points[gl_InstanceID + 1].w; }
 	bool pathHasPrev() { return gl_InstanceID > 0 && points[gl_InstanceID - 1].w == points[gl_InstanceID].w; }
-	bool pathHasNext() { return gl_InstanceID < u_N - 2 && points[gl_InstanceID + 2].w == points[gl_InstanceID + 1].w; }
+	bool pathHasNext() { return gl_InstanceID < points.length() - 2 && points[gl_InstanceID + 2].w == points[gl_InstanceID + 1].w; }
 
 	vec2 miterOffset(vec2 perp_in, vec2 perp_out, float side) {
 		vec2 m = normalize(perp_in + perp_out);
@@ -228,7 +226,7 @@ static const char* PATH_MITER_MAIN = R"GLSL(
 	}
 )GLSL";
 
-// Analytic em-per-pixel rate, shared by Sluggit (its vertex-side cap margin push) and both Stamp
+// Analytic em-per-pixel rate, shared by Sluggit (its vertex-side margin push) and both Stamp
 // variants (their fragment AA rate, replacing the shared fragment pipeline's default
 // `emsPerPixel = fwidth(geom.emCoord)` via PATH_STAMP_FRAG_HOOK). osgSlug_viewport is the live viewport size, updated
 // per-cull (see PathDrawableViewportCallback). Mirrors Atlas.shaders.cpp's
@@ -283,20 +281,29 @@ static const std::string PATH_EM_SCALE = R"GLSL(
 // The two cap distances travel as separate non-flat varyings (pathCap) and are resolved in
 // PATH_SLUGGIT_FRAG_HOOK: min() of two affine functions isn't affine, so it can't be interpolated
 // as one value. Each distance is affine in world position, so it interpolates exactly across both
-// triangles of the mitered (non-parallelogram) quad. Cap ends of the quad are pushed outward by
-// PATH_CAP_MARGIN_PX so the cap's coverage ramp has rasterized geometry to fall off into.
+// triangles of the mitered (non-parallelogram) quad. em-Y is affine too: the corner's signed
+// distance across this segment's centerline, so a miter corner clamped by MAX_MITER gets its true
+// inset em-Y rather than the edge's.
 //
-// Same split as SHADER_VERT/ShapeDrawable: the analytic rate (PATH_EM_SCALE) sizes the vertex-side
-// margin push, and the fragment AA rate is per-pixel fwidth() of the em varyings. A per-instance
-// (flat) analytic rate is wrong under perspective - it is exact only at the vertex it was
-// evaluated at, and a long segment's screen scale changes along its length.
+// Same contract as SHADER_VERT/ShapeDrawable: the hook sees the TRUE corner and em values, and
+// main() pushes the quad outward by PATH_MARGIN_PX afterwards, in the hook's returned frame,
+// adding the exactly-matching em amounts - so the coverage ramp always has rasterized geometry to
+// fall off into, and the stroke's width maps onto the shape's real em-Y extent with no padding.
+// Side corners move along their miter offset rather than along perp: neighboring segments compute
+// the same offset at a shared joint, so both quads' corner lands on the same point and the
+// bisector split stays watertight. Cap corners additionally move along the segment direction.
+//
+// The analytic rate (PATH_EM_SCALE) sizes that vertex-side push; the fragment AA rate is per-pixel
+// fwidth() of the em varyings. A per-instance (flat) analytic rate is wrong under perspective - it
+// is exact only at the vertex it was evaluated at, and a long segment's screen scale changes along
+// its length.
 static const std::string PATH_SLUGGIT_MAIN = R"GLSL(
 	uniform vec4 u_emCorners; // x=emX0, y=emY0, z=emX1, w=emY1
 	uniform vec4 u_bandTransform; // x=bandScaleX, y=bandScaleY, z=bandOffsetX, w=bandOffsetY
 	uniform vec4 u_shapeData; // x=bandTexX, y=bandTexY, z=bandMaxX, w=bandMaxY
 
 	// Matches OSGSLUG_MARGIN_PX (Atlas.shaders.cpp), which PathDrawable doesn't link.
-	const float PATH_CAP_MARGIN_PX = 1.5;
+	const float PATH_MARGIN_PX = 1.5;
 
 	// Cap distance for a segment end that has no cap: beyond any shape half-width in em units, so
 	// the fragment hook's clamp resolves it to the shape's X midpoint.
@@ -315,7 +322,7 @@ static const std::string PATH_SLUGGIT_MAIN = R"GLSL(
 		vec2 s = computeQuad(base, offset, perp);
 
 		float emMidX = (u_emCorners.x + u_emCorners.z) * 0.5;
-		float emY = (s.y < 0.0) ? u_emCorners.y : u_emCorners.w;
+		float emMidY = (u_emCorners.y + u_emCorners.w) * 0.5;
 
 		// em-units per world-unit across the stroke's width - uniform-derived only, no
 		// derivative involved. The cap distances use this same rate, so em-X and em-Y share it.
@@ -329,20 +336,10 @@ static const std::string PATH_SLUGGIT_MAIN = R"GLSL(
 		bool startCap = !pathIsGap() && !pathHasPrev();
 		bool endCap = !pathIsGap() && !pathHasNext();
 
-		// Push this corner past its cap; the subpath-gap quad is excluded and stays zero-area. With
-		// a worldPerEm of 1.0, pathEmsPerPixel().x is world units along `dir` per screen pixel
-		// measured across the cap edge - so the margin stays PATH_CAP_MARGIN_PX wide on screen
-		// under perspective shear too.
-		if(s.x < 0.5 ? startCap : endCap) {
-			float margin = PATH_CAP_MARGIN_PX * pathEmsPerPixel(base, vec4(dir, 0.0, 1.0), vec4(perp, 0.0, 1.0)).x;
-
-			base += dir * (s.x < 0.5 ? -margin : margin);
-		}
-
+		// True (unpushed) corner and em values. base lies on the centerline, so offset alone gives
+		// the corner's signed distance across it.
 		vec2 pos = base + offset;
-
-		pathCap.startDist = startCap ? dot(pos - p0, dir) * emPerWorld : PATH_NO_CAP;
-		pathCap.endDist = endCap ? dot(p1 - pos, dir) * emPerWorld : PATH_NO_CAP;
+		float emY = emMidY + dot(offset, perp) * emPerWorld;
 
 		// emCoord.x is a placeholder (the shape's X midpoint): PATH_SLUGGIT_FRAG_HOOK replaces it
 		// with the cap-derived value, so a hook's change to emCoord.x has no effect.
@@ -355,7 +352,45 @@ static const std::string PATH_SLUGGIT_MAIN = R"GLSL(
 			vec4(perp, 0.0, worldPerEm)
 		));
 
-		geom.emCoord = r.emCoord;
+		// Margin push in world units along (axisX, axisY), applied in the hook's returned frame.
+		// The subpath-gap quad has a zero offset and stays zero-area.
+		vec2 push = vec2(0.0);
+
+		if(dot(offset, offset) > 0.0) {
+			// Side: scale the miter offset itself, so a joint shared with a neighbor segment moves
+			// to the same point from both quads. offset's across-width component is u_halfWidth at
+			// every unclamped corner, so this pushes PATH_MARGIN_PX across the edge; a clamped
+			// miter corner is inset, and moves proportionally less.
+			vec2 u = normalize(offset);
+			vec3 uPost = r.axisX.xyz * dot(u, dir) + r.axisY.xyz * dot(u, perp);
+			float worldPerPixel = 1.0 / max(length(pathPixelsPerWorld(r.pos.xy, uPost.xy)), 1e-8);
+
+			push = vec2(dot(offset, dir), dot(offset, perp)) *
+				(PATH_MARGIN_PX * worldPerPixel / max(u_halfWidth, 1e-8));
+
+			// Cap: also push past the segment's end. With a worldPerEm of 1.0, pathEmsPerPixel().x
+			// is world units along axisX per screen pixel measured across the cap edge, so the
+			// margin stays PATH_MARGIN_PX wide on screen under perspective shear too.
+			if(s.x < 0.5 ? startCap : endCap) {
+				float capMargin = PATH_MARGIN_PX * pathEmsPerPixel(
+					r.pos.xy,
+					vec4(r.axisX.xy, 0.0, 1.0),
+					vec4(r.axisY.xy, 0.0, 1.0)
+				).x;
+
+				push.x += s.x < 0.5 ? -capMargin : capMargin;
+			}
+		}
+
+		float rateX = max(r.axisX.w, 1e-8);
+		float rateY = max(r.axisY.w, 1e-8);
+		float startDist = dot(pos - p0, dir) * emPerWorld + push.x / rateX;
+		float endDist = dot(p1 - pos, dir) * emPerWorld - push.x / rateX;
+
+		pathCap.startDist = startCap ? startDist : PATH_NO_CAP;
+		pathCap.endDist = endCap ? endDist : PATH_NO_CAP;
+
+		geom.emCoord = r.emCoord + vec2(0.0, push.y / rateY);
 		geom.uv = uv;
 		geom.color = u_color;
 		geom.layerIndex = 0.0;
@@ -368,7 +403,7 @@ static const std::string PATH_SLUGGIT_MAIN = R"GLSL(
 		fx.sdfTile = -1;
 		fx.effectParam = u_effectParam;
 
-		gl_Position = gl_ModelViewProjectionMatrix * vec4(r.pos, 1.0);
+		gl_Position = gl_ModelViewProjectionMatrix * vec4(r.pos + r.axisX.xyz * push.x + r.axisY.xyz * push.y, 1.0);
 	}
 )GLSL";
 
@@ -393,7 +428,7 @@ static const char* PATH_SLUGGIT_FRAG_HOOK = R"GLSL(
 
 	#pragma osgSlug fragment_emcoord
 
-	uniform vec2 u_emEdgesX; // x=shape's left em edge, y=right; unpadded (no PATH_EXPAND)
+	uniform vec4 u_emCorners; // x=emX0, y=emY0, z=emX1, w=emY1; the shape's true em extent
 
 	in osgSlug_PathCapBlock {
 		float startDist;
@@ -406,10 +441,10 @@ static const char* PATH_SLUGGIT_FRAG_HOOK = R"GLSL(
 		float endRate = fwidth(pathCap.endDist);
 		bool fromStart = pathCap.startDist < pathCap.endDist;
 
-		float halfSpan = (u_emEdgesX.y - u_emEdgesX.x) * 0.5;
+		float halfSpan = (u_emCorners.z - u_emCorners.x) * 0.5;
 		float emX = fromStart
-			? u_emEdgesX.x + min(pathCap.startDist, halfSpan)
-			: u_emEdgesX.y - min(pathCap.endDist, halfSpan);
+			? u_emCorners.x + min(pathCap.startDist, halfSpan)
+			: u_emCorners.z - min(pathCap.endDist, halfSpan);
 
 		// A PATH_NO_CAP end is constant, so its rate is zero; em-X then sits at the midpoint and
 		// its rate only needs to be finite - fall back to the width-direction rate.
@@ -619,7 +654,12 @@ static const char* PATH_SDF_FRAG = R"GLSL(
 // Implementation
 // ---------------------------------------------------------------------------
 
+// Stamp's em-space margin, baked into its quad bounds on the CPU (both axes). Sluggit pushes a
+// pixel margin on the GPU instead and uses the shape's true em extent.
 static constexpr slug_t PATH_EXPAND = 0.01_cv;
+
+// Matches MAX_MITER in PATH_MITER_GEOM.
+static constexpr slug_t PATH_MAX_MITER = 4_cv;
 
 PathDrawable::PathDrawable(PathMode mode) : _mode(mode) {
 }
@@ -685,6 +725,8 @@ void PathDrawable::setPoints(std::vector<Vec4> pts) {
 	_points->assign(pts.begin(), pts.end());
 	_points->dirty();
 
+	dirtyBound();
+
 	// _ssboBinding already exists once compile() has run (it owns the live GL buffer
 	// object). Reuse it rather than rebuilding it: OSG's GLBufferObject already tracks
 	// dirty state per-array and re-uploads only the changed byte range via
@@ -723,8 +765,6 @@ void PathDrawable::compile() {
 	auto* atlas = getAtlas();
 
 	if((_mode == PathMode::Sluggit || _mode == PathMode::Stamp) && (!atlas || !atlas->isBuilt())) return;
-
-	const size_t N = _points->size();
 
 	// (Re)build SSBO for point data.
 	auto* ssbo = new osg::ShaderStorageBufferObject();
@@ -798,8 +838,6 @@ void PathDrawable::compile() {
 				},
 				_hooks
 			);
-
-			ss->addUniform(new osg::Uniform("u_N", static_cast<int>(N)));
 		}
 
 		// Live viewport size for pathEmsPerPixel()'s analytic scale (see PATH_EM_SCALE) - kept in
@@ -903,19 +941,13 @@ void PathDrawable::compile() {
 				return;
 			}
 
-			// See the multiShape branch above for why this is a symmetric outward push on both
-			// axes.
-			const slug_t emX0 = shape->bearingX - PATH_EXPAND;
-			const slug_t emY0 = (shape->bearingY - shape->height) - PATH_EXPAND;
-			const slug_t emX1 = (shape->bearingX + shape->width) + PATH_EXPAND;
-			const slug_t emY1 = shape->bearingY + PATH_EXPAND;
-
-			// Sluggit's cap edges: the shape's true left/right em extent, unpadded - the cap
-			// margin is pushed in screen pixels by PATH_SLUGGIT_MAIN instead.
-			if(_mode == PathMode::Sluggit) ss->addUniform(new osg::Uniform("u_emEdgesX", osg::Vec2(
-				static_cast<float>(shape->bearingX),
-				static_cast<float>(shape->bearingX + shape->width)
-			)));
+			// Stamp: see the multiShape branch above for why this is a symmetric outward push on
+			// both axes.
+			const slug_t expand = _mode == PathMode::Stamp ? PATH_EXPAND : 0_cv;
+			const slug_t emX0 = shape->bearingX - expand;
+			const slug_t emY0 = (shape->bearingY - shape->height) - expand;
+			const slug_t emX1 = (shape->bearingX + shape->width) + expand;
+			const slug_t emY1 = shape->bearingY + expand;
 
 			// The hook contract's data.origin. Uploaded per-shape in the multiShape branch above
 			// (osgSlug_ShapeTableData.originData), which is why that branch doesn't set this.
@@ -942,7 +974,6 @@ void PathDrawable::compile() {
 
 		prog->addShader(new osg::Shader(osg::Shader::FRAGMENT, PATH_SDF_FRAG));
 
-		ss->addUniform(new osg::Uniform("u_N", static_cast<int>(N)));
 		ss->addUniform(new osg::Uniform("u_color", _color));
 		ss->addUniform(new osg::Uniform("u_origin", osg::Vec2(0.0f, 0.0f))); // Miter has no shape
 	}
@@ -989,10 +1020,12 @@ osg::BoundingBox PathDrawable::computeBoundingBox() const {
 
 	for(const auto& p : *_points) bb.expandBy(Vec3(p.x(), p.y(), 0.0f));
 
-	const slug_t hw = _halfWidth;
+	// A miter corner reaches up to PATH_MAX_MITER half-widths from its point. The GPU's pixel
+	// margin has no CPU-side size; that padding covers it everywhere but the sharpest joints.
+	const slug_t pad = _mode == PathMode::Stamp ? _halfWidth : _halfWidth * PATH_MAX_MITER;
 
-	bb.expandBy(Vec3(bb.xMin() - hw, bb.yMin() - hw, -0.1f));
-	bb.expandBy(Vec3(bb.xMax() + hw, bb.yMax() + hw, 0.1f));
+	bb.expandBy(Vec3(bb.xMin() - pad, bb.yMin() - pad, -0.1f));
+	bb.expandBy(Vec3(bb.xMax() + pad, bb.yMax() + pad, 0.1f));
 
 	return bb;
 }
