@@ -24,9 +24,14 @@ public:
 	PathDrawable(PathMode mode = PathMode::Sluggit);
 
 	// setMode() triggers recompile. Other setters take effect on the next compile() call,
-	// except setRevealCount() and setPoints() which are dynamic.
+	// except setHalfWidth(), setColor(), setEffectId(), setEffectParam(), setRevealCount() and
+	// setPoints(), which are dynamic.
 	void setMode(PathMode mode);
-	void setHalfWidth(slug_t w) { _halfWidth = w; }
+
+	// Dynamic: the uniform is updated live once compiled and the bound is dirtied, no recompile
+	// needed.
+	void setHalfWidth(slug_t w);
+	slug_t getHalfWidth() const { return _halfWidth; }
 	void setShapeKey(const slughorn::Key& key) { _shapeKey = key; } // Sluggit/Stamp: shape to render
 
 	// Stamp mode only: an indexed table of shapes instead of one fixed shape. points[i].w
@@ -38,7 +43,9 @@ public:
 	// setShapeKey().
 	void setShapeKeys(std::vector<slughorn::Key> keys);
 
-	void setColor(const Vec4& c) { _color = c; } // Sluggit mode only
+	// Sluggit mode only. Dynamic: the uniform is updated live once compiled, no recompile needed.
+	void setColor(const Vec4& c);
+	const Vec4& getColor() const { return _color; }
 
 	// The osgSlug_VertexData.effectId / .effectParam a linked vertex hook reads - the same two
 	// fields ShapeDrawable feeds per-layer via setLayerEffectId()/setLayerEffectParam(), so a hook

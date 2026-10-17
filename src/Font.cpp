@@ -22,7 +22,7 @@ _atlas(atlas) {
 	// NOTE: setLogCallback is process-global state in slughorn::freetype. If your
 	// application creates multiple Font instances (e.g. one per thread) you
 	// should set the callback once at startup rather than in each constructor.
-	slughorn::freetype::setLogCallback([](int level [[maybe_unused]], const std::string& msg) {
+	slughorn::freetype::setLogCallback([](int level, const std::string& msg) {
 		OSG_NOTIFY(
 			level >= slughorn::freetype::LOG_WARN ? osg::WARN :
 			level >= slughorn::freetype::LOG_NOTICE ? osg::NOTICE :

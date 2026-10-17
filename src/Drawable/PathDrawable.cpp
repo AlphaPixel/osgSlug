@@ -681,6 +681,22 @@ void PathDrawable::setHooks(Atlas::HookList hooks) {
 
 // Live uniform updates rather than a recompile: these feed a hook that is already linked, and
 // changing an animation's speed or selector mid-flight shouldn't rebuild a Program.
+void PathDrawable::setHalfWidth(slug_t w) {
+	_halfWidth = w;
+
+	if(auto* u = getStateSet() ? getStateSet()->getUniform("u_halfWidth") : nullptr; u) u->set(
+		static_cast<float>(w)
+	);
+
+	dirtyBound();
+}
+
+void PathDrawable::setColor(const Vec4& c) {
+	_color = c;
+
+	if(auto* u = getStateSet() ? getStateSet()->getUniform("u_color") : nullptr; u) u->set(c);
+}
+
 void PathDrawable::setEffectId(int id) {
 	_effectId = id;
 

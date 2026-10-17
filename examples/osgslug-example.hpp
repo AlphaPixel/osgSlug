@@ -540,10 +540,20 @@ inline bool setupArguments(
 	return true;
 }
 
+#ifdef OSGX_IMGUI
+using Widget = osgx::imgui::Widget;
+#else
+// Never defined; lets run() keep one signature when ImGui support is compiled out.
+struct Widget;
+#endif
+
+// gui: an example's own osgx::imgui::Widget (already holding its controls), or null. --profile
+// adds its sections to it instead of creating a second Widget.
 inline auto run(
 	osgViewer::Viewer& viewer,
 	osg::ArgumentParser& args,
-	osg::ref_ptr<osg::Node> sceneData
+	osg::ref_ptr<osg::Node> sceneData,
+	Widget* gui=nullptr
 ) {
 	auto headless = osgx::headless::readArguments(args);
 	auto b = sceneData->getBound();
@@ -570,7 +580,7 @@ inline auto run(
 		sceneData->accept(dsv);
 
 #ifdef OSGX_IMGUI
-		auto* gui = new osgx::imgui::Widget(viewer);
+		if(!gui) gui = new osgx::imgui::Widget(viewer);
 
 		gui->addProfilerSection(viewer, sceneData.get());
 		gui->addTextureSection(viewer, sceneData.get());

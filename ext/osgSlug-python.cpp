@@ -551,6 +551,14 @@ PYBIND11_MODULE(osgSlug, m) {
 		.def("setRevealCount", &osgSlug::PathDrawable::setRevealCount, "n"_a)
 		.def("setPoints", &osgSlug::PathDrawable::setPoints, "points"_a)
 		.def("setPaths", &osgSlug::PathDrawable::setPaths, "subpaths"_a)
+		.def_property("halfWidth", &osgSlug::PathDrawable::getHalfWidth, &osgSlug::PathDrawable::setHalfWidth)
+		// Returned by value: getColor()'s const reference would otherwise hand Python a live view
+		// of _color that bypasses setColor() (and so the uniform).
+		.def_property(
+			"color",
+			[](const osgSlug::PathDrawable& self) { return osgSlug::Vec4(self.getColor()); },
+			&osgSlug::PathDrawable::setColor
+		)
 	;
 
 	py::class_<osgSlug::Font, osg::ref_ptr<osgSlug::Font>>(m, "Font")

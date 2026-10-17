@@ -20,17 +20,9 @@ foreach(source ${TMP_SOURCES})
 		osgslug_example(${name} SOURCES "${source}")
 	endif()
 
-	# splatting reads real MVT tiles (vtzero/protozero, siblings of osgSlug under ~/dev) for
-	# the --inkdrawable whole-tile PathDrawable::setPaths() test.
-	if(name STREQUAL "osgslug-tmp.splatting")
-		target_include_directories(${name} PRIVATE
-			"${CMAKE_CURRENT_SOURCE_DIR}/../../../vtzero/include"
-			"${CMAKE_CURRENT_SOURCE_DIR}/../../../protozero/include"
-		)
-	endif()
-
-	# tilestream: real MVT tiles out of a local .mbtiles - see comment above.
-	if(name STREQUAL "osgslug-tmp.tilestream")
+	# streets and tilestream read real MVT tiles (vtzero/protozero, siblings of osgSlug under ~/dev)
+	# out of .pbf files or a local .mbtiles - see comment above.
+	if(name STREQUAL "osgslug-tmp.streets" OR name STREQUAL "osgslug-tmp.tilestream")
 		target_include_directories(${name} PRIVATE
 			"${CMAKE_CURRENT_SOURCE_DIR}/../../../vtzero/include"
 			"${CMAKE_CURRENT_SOURCE_DIR}/../../../protozero/include"
@@ -39,7 +31,7 @@ foreach(source ${TMP_SOURCES})
 		if(SQLite3_FOUND AND ZLIB_FOUND)
 			target_link_libraries(${name} PRIVATE SQLite::SQLite3 ZLIB::ZLIB)
 		else()
-			message(STATUS "osgSlug examples: SQLite3/ZLIB not found, skipping osgslug-tmp.tilestream link deps")
+			message(STATUS "osgSlug examples: SQLite3/ZLIB not found, skipping ${name} link deps")
 		endif()
 	endif()
 endforeach()
