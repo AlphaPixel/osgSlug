@@ -551,7 +551,13 @@ PYBIND11_MODULE(osgSlug, m) {
 		.def("setRevealCount", &osgSlug::PathDrawable::setRevealCount, "n"_a)
 		.def("setPoints", &osgSlug::PathDrawable::setPoints, "points"_a)
 		.def("setPaths", &osgSlug::PathDrawable::setPaths, "subpaths"_a)
+		.def("setJoin", &osgSlug::PathDrawable::setJoin, "join"_a)
+		.def("setMiterLimit", &osgSlug::PathDrawable::setMiterLimit, "limit"_a)
+		.def("setCap", &osgSlug::PathDrawable::setCap, "cap"_a)
 		.def_property("halfWidth", &osgSlug::PathDrawable::getHalfWidth, &osgSlug::PathDrawable::setHalfWidth)
+		.def_property("join", &osgSlug::PathDrawable::getJoin, &osgSlug::PathDrawable::setJoin)
+		.def_property("miterLimit", &osgSlug::PathDrawable::getMiterLimit, &osgSlug::PathDrawable::setMiterLimit)
+		.def_property("cap", &osgSlug::PathDrawable::getCap, &osgSlug::PathDrawable::setCap)
 		// Returned by value: getColor()'s const reference would otherwise hand Python a live view
 		// of _color that bypasses setColor() (and so the uniform).
 		.def_property(

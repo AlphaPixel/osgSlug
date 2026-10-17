@@ -2,6 +2,8 @@
 
 #include "osgSlug/Drawable.hpp"
 
+#include "slughorn/canvas.hpp"
+
 #include <limits>
 
 namespace osgSlug {
@@ -24,8 +26,8 @@ public:
 	PathDrawable(PathMode mode = PathMode::Sluggit);
 
 	// setMode() triggers recompile. Other setters take effect on the next compile() call,
-	// except setHalfWidth(), setColor(), setEffectId(), setEffectParam(), setRevealCount() and
-	// setPoints(), which are dynamic.
+	// except setHalfWidth(), setColor(), setJoin(), setMiterLimit(), setCap(), setEffectId(),
+	// setEffectParam(), setRevealCount() and setPoints(), which are dynamic.
 	void setMode(PathMode mode);
 
 	// Dynamic: the uniform is updated live once compiled and the bound is dirtied, no recompile
@@ -46,6 +48,20 @@ public:
 	// Sluggit mode only. Dynamic: the uniform is updated live once compiled, no recompile needed.
 	void setColor(const Vec4& c);
 	const Vec4& getColor() const { return _color; }
+
+	// Sluggit mode only: how a subpath's interior points are joined, with the same meaning as
+	// slughorn::canvas stroking - a Miter join whose miter ratio exceeds the miter limit is
+	// beveled. Dynamic: the uniforms are updated live once compiled (and the bound dirtied for the
+	// miter limit), no recompile needed.
+	void setJoin(slughorn::canvas::LineJoin join);
+	slughorn::canvas::LineJoin getJoin() const { return _join; }
+	void setMiterLimit(slug_t limit);
+	slug_t getMiterLimit() const { return _miterLimit; }
+
+	// Sluggit mode only: how each subpath's two open ends are capped, with the same meaning as
+	// slughorn::canvas stroking. Dynamic: the uniform is updated live once compiled.
+	void setCap(slughorn::canvas::LineCap cap);
+	slughorn::canvas::LineCap getCap() const { return _cap; }
 
 	// The osgSlug_VertexData.effectId / .effectParam a linked vertex hook reads - the same two
 	// fields ShapeDrawable feeds per-layer via setLayerEffectId()/setLayerEffectParam(), so a hook
@@ -95,6 +111,9 @@ private:
 	int _effectId = 0;
 	slug_t _effectParam = 0.0_cv;
 	Vec4 _color = {1.0f, 1.0f, 1.0f, 1.0f};
+	slughorn::canvas::LineJoin _join = slughorn::canvas::LineJoin::Miter;
+	slughorn::canvas::LineCap _cap = slughorn::canvas::LineCap::Butt;
+	slug_t _miterLimit = 4.0_cv;
 	slughorn::Key _shapeKey;
 	std::vector<slughorn::Key> _shapeKeys; // Stamp mode multi-shape path; see setShapeKeys()
 

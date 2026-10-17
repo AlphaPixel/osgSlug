@@ -121,6 +121,21 @@ static const std::string PATH_COMMON = R"GLSL(
 static const std::string PATH_MITER_GEOM = R"GLSL(
 	const float MAX_MITER = 4.0; // matches PATH_MAX_MITER (C++, computeBoundingBox())
 
+	// slughorn::canvas::LineJoin as int (PathDrawable::setJoin()).
+	const int PATH_JOIN_MITER = 0;
+	const int PATH_JOIN_BEVEL = 1;
+	const int PATH_JOIN_ROUND = 2;
+
+	uniform int u_join;
+	uniform float u_miterLimit; // PathDrawable::setMiterLimit(); Miter joins past it are beveled
+
+	// slughorn::canvas::LineCap as int (PathDrawable::setCap()).
+	const int PATH_CAP_BUTT = 0;
+	const int PATH_CAP_ROUND = 1;
+	const int PATH_CAP_SQUARE = 2;
+
+	uniform int u_cap;
+
 	vec2 perpOf(vec2 dir) { return vec2(-dir.y, dir.x); }
 
 	// Subpath topology of this instance's segment, from points[].w (see computeQuad()'s comment).
@@ -128,13 +143,62 @@ static const std::string PATH_MITER_GEOM = R"GLSL(
 	// pathHasPrev()/pathHasNext(): the segment's start/end joins a neighbor segment of the same
 	// subpath; when false, that end is a cap.
 	bool pathIsGap() { return points[gl_InstanceID].w != points[gl_InstanceID + 1].w; }
+
+	// A segment shorter than this has no usable direction (normalize() of a zero vector is
+	// undefined in GLSL) - typically a repeated point.
+	bool pathIsShort(vec2 v) { float eps = 1.0e-6 * u_halfWidth; return dot(v, v) <= eps * eps; }
 	bool pathHasPrev() { return gl_InstanceID > 0 && points[gl_InstanceID - 1].w == points[gl_InstanceID].w; }
 	bool pathHasNext() { return gl_InstanceID < points.length() - 2 && points[gl_InstanceID + 2].w == points[gl_InstanceID + 1].w; }
 
-	vec2 miterOffset(vec2 perp_in, vec2 perp_out, float side) {
-		vec2 m = normalize(perp_in + perp_out);
-		float scale = u_halfWidth / max(dot(m, perp_in), 1.0 / MAX_MITER);
-		return m * scale * side;
+	// The joint at points[i], between the segments (i-1, i) and (i, i+1).
+	//
+	// Both segments meeting at a joint evaluate it from the same points with the same expressions,
+	// so they agree on it bit for bit - the bisector edge their quads share stays watertight.
+	struct PathJoint {
+		vec2 miter; // unit miter direction, toward the +perp side of both segments (their normals' bisector)
+		vec2 outer; // unit direction toward the OUTER side of the turn: +-miter, or the incoming direction at a full reversal
+		float cosHalf; // cos(half the turn angle) = dot(miter, either normal); 0 at a full reversal
+		bool extended; // miter ratio (1 / cosHalf) past the join's limit - see computeQuad()
+		int clip; // shape the fragment stage cuts the corner to: -1 (none, a plain miter), PATH_JOIN_BEVEL or PATH_JOIN_ROUND
+	};
+
+	PathJoint pathJoint(int i) {
+		vec2 vIn = points[i].xy - points[i - 1].xy;
+		vec2 vOut = points[i + 1].xy - points[i].xy;
+
+		PathJoint j;
+
+		// Next to a zero-length segment the turn is unknown: the segment ends as if with a round
+		// cap, so the segments on either side of a repeated point meet in a round joint whatever
+		// their turn (the zero-length segment itself draws nothing - see computeQuad()).
+		if(pathIsShort(vIn) || pathIsShort(vOut)) {
+			j.miter = vec2(0.0);
+			j.outer = vec2(0.0);
+			j.cosHalf = 0.0;
+			j.extended = true;
+			j.clip = PATH_JOIN_ROUND;
+
+			return j;
+		}
+
+		vec2 dirIn = normalize(vIn);
+		vec2 dirOut = normalize(vOut);
+		vec2 sum = perpOf(dirIn) + perpOf(dirOut);
+
+		j.miter = dot(sum, sum) > 1.0e-12 ? normalize(sum) : vec2(0.0);
+		j.cosHalf = max(dot(j.miter, perpOf(dirIn)), 0.0);
+
+		// A left turn (positive cross product) bends toward +perp, so its outer side is -perp.
+		float turn = dirIn.x * dirOut.y - dirIn.y * dirOut.x;
+
+		j.outer = j.cosHalf > 0.0 ? j.miter * (turn > 0.0 ? -1.0 : 1.0) : dirIn;
+
+		float limit = u_join == PATH_JOIN_MITER ? u_miterLimit : MAX_MITER;
+
+		j.extended = j.cosHalf * limit < 1.0;
+		j.clip = u_join == PATH_JOIN_MITER ? (j.extended ? PATH_JOIN_BEVEL : -1) : u_join;
+
+		return j;
 	}
 
 	// Returns sign vector s (s.x in [0,1]: segment start/end; s.y in {-1,+1}: sides).
@@ -149,7 +213,25 @@ static const std::string PATH_MITER_GEOM = R"GLSL(
 	// perp (out): unit segment-perpendicular direction, exposed so PATH_SLUGGIT_MAIN can
 	// derive its em<->world frame and analytic screen-space scale (PATH_EM_SCALE's
 	// pathEmsPerPixel()) instead of trusting fwidth() on the emCoord varying.
-	vec2 computeQuad(out vec2 base, out vec2 offset, out vec2 perp) {
+	//
+	// joins: false keeps the plain miter with its corner clamped at MAX_MITER (Miter mode, which
+	// has no fragment-side join shape). true (Sluggit) shapes each joined end by its PathJoint:
+	//
+	// - Not extended: the end's corners sit on the joint's miter bisector, the unclamped miter.
+	//   The two segments' quads then share that edge exactly, every pixel belongs to one of them,
+	//   and a bevel or round join piece lies inside the miter wedge, so the fragment stage only
+	//   has to cut it out.
+	// - Extended: the miter tip would be too far away to rasterize (it reaches infinity at a full
+	//   reversal), so the end instead stops square across the full width at the joint and runs
+	//   one half-width past it, which contains the whole join piece. Clamping the corner along
+	//   the bisector instead would pull this quad's side edge inside the stroke and cut it with an
+	//   aliased raster edge. The two segments' extensions overlap, so a translucent stroke blends
+	//   twice there; avoiding that needs per-pixel coverage accumulation (an offscreen max pass,
+	//   or pixel local storage / fragment shader interlock), which PathDrawable doesn't do.
+	//
+	// With joins, a Round or Square cap end also runs one half-width past its point; the fragment
+	// stage shapes it.
+	vec2 computeQuad(out vec2 base, out vec2 offset, out vec2 perp, bool joins) {
 		vec4 pt0 = points[gl_InstanceID ];
 		vec4 pt1 = points[gl_InstanceID + 1];
 		vec2 p0 = pt0.xy;
@@ -162,9 +244,9 @@ static const std::string PATH_MITER_GEOM = R"GLSL(
 		vec2 s = signs[gl_VertexID % 4];
 
 		// This instance straddles two different subpaths - it isn't a real segment, it's the
-		// gap between one path's last point and the next path's first. Degenerate to a
-		// zero-area quad instead of drawing a spurious connecting segment.
-		if(pathIsGap()) {
+		// gap between one path's last point and the next path's first - or has zero length.
+		// Degenerate to a zero-area quad instead of drawing a spurious connecting segment.
+		if(pathIsGap() || pathIsShort(p1 - p0)) {
 			base = p0;
 			offset = vec2(0.0);
 			perp = vec2(1.0, 0.0); // arbitrary - quad is zero-area, never visible
@@ -177,17 +259,24 @@ static const std::string PATH_MITER_GEOM = R"GLSL(
 
 		base = mix(p0, p1, s.x);
 
-		if(s.x < 0.5) {
-			if(pathHasPrev())
-				offset = miterOffset(perpOf(normalize(p0 - points[gl_InstanceID - 1].xy)), perp, s.y);
-			else
-				offset = perp * (u_halfWidth * s.y);
+		bool atEnd = s.x > 0.5;
+
+		if(atEnd ? pathHasNext() : pathHasPrev()) {
+			PathJoint j = pathJoint(gl_InstanceID + (atEnd ? 1 : 0));
+
+			if(joins && j.extended) offset = perp * (u_halfWidth * s.y) + dir * (atEnd ? u_halfWidth : -u_halfWidth);
+
+			else {
+				float cosHalf = joins ? j.cosHalf : max(j.cosHalf, 1.0 / MAX_MITER);
+
+				offset = j.miter * (u_halfWidth / cosHalf * s.y);
+			}
 		}
+
 		else {
-			if(pathHasNext())
-				offset = miterOffset(perp, perpOf(normalize(points[gl_InstanceID + 2].xy - p1)), s.y);
-			else
-				offset = perp * (u_halfWidth * s.y);
+			offset = perp * (u_halfWidth * s.y);
+
+			if(joins && u_cap != PATH_CAP_BUTT) offset += dir * (atEnd ? u_halfWidth : -u_halfWidth);
 		}
 
 		return s;
@@ -206,7 +295,7 @@ static const char* PATH_MITER_MAIN = R"GLSL(
 
 	void main() {
 		vec2 base, offset, perp;
-		vec2 s = computeQuad(base, offset, perp);
+		vec2 s = computeQuad(base, offset, perp, false);
 
 		vec2 uv = vec2(s.x, (s.y + 1.0) * 0.5);
 		vec2 dir = vec2(perp.y, -perp.x); // undo perpOf()
@@ -271,19 +360,27 @@ static const std::string PATH_EM_SCALE = R"GLSL(
 
 // Sluggit
 //
-// The stroke's WIDTH maps onto the shape's em-Y extent; em-X carries only the end caps. A
-// fragment's em-X is its distance from the nearest real cap (a subpath end with no neighbor
-// segment), measured at the same em rate as the width and clamped at the shape's X midpoint: near
-// a cap the SDF sees that edge of the shape, everywhere else - every interior joint included - it
-// reads the shape's center column. A per-segment 0..1 em-X would instead put the shape's left and
-// right edges at both ends of every segment, i.e. a ~0.5-coverage stripe at every joint.
+// The stroke's WIDTH maps onto the shape's em-Y extent; em-X carries only the segment's ends. A
+// fragment's em-X is its distance inside the nearest real end boundary, measured at the same em
+// rate as the width and clamped at the shape's X midpoint: near that boundary the SDF sees that
+// edge of the shape, everywhere else - every plain miter joint included - it reads the shape's
+// center column. A per-segment 0..1 em-X would instead put the shape's left and right edges at
+// both ends of every segment, i.e. a ~0.5-coverage stripe at every joint.
 //
-// The two cap distances travel as separate non-flat varyings (pathCap) and are resolved in
+// An end boundary is a cap (a subpath end with no neighbor segment), or a joint with a join
+// piece (bevel, round, or a miter past its limit). A round cap is the round join's disc alone; a
+// square cap moves the butt end one half-width past the point. At a joint, the boundary is the union of the
+// segment's body ending square at the joint and the join piece: for round, the disc of radius
+// u_halfWidth around the joint; for bevel, that disc cut by the bevel line. The fragment's em-Y
+// already limits each segment to its own width band, and within that band this union is exactly
+// the true stroke. Folding the join piece into em-X, rather than into coverage afterwards, keeps
+// the AA on the Slug evaluation itself, and keeps the fill nonzero before SHADER_FRAG's discard.
+//
+// The two end distances travel as separate non-flat varyings (pathEnd) and are resolved in
 // PATH_SLUGGIT_FRAG_HOOK: min() of two affine functions isn't affine, so it can't be interpolated
 // as one value. Each distance is affine in world position, so it interpolates exactly across both
 // triangles of the mitered (non-parallelogram) quad. em-Y is affine too: the corner's signed
-// distance across this segment's centerline, so a miter corner clamped by MAX_MITER gets its true
-// inset em-Y rather than the edge's.
+// distance across this segment's centerline.
 //
 // Same contract as SHADER_VERT/ShapeDrawable: the hook sees the TRUE corner and em values, and
 // main() pushes the quad outward by PATH_MARGIN_PX afterwards, in the hook's returned frame,
@@ -309,17 +406,28 @@ static const std::string PATH_SLUGGIT_MAIN = R"GLSL(
 	// the fragment hook's clamp resolves it to the shape's X midpoint.
 	const float PATH_NO_CAP = 1.0e6;
 
-	// Em-space distances from this segment's start/end cap along the segment (negative inside the
-	// cap margin), or PATH_NO_CAP where that end joins a neighbor. Resolved into em-X by
-	// PATH_SLUGGIT_FRAG_HOOK - see this shader's header comment.
-	out osgSlug_PathCapBlock {
+	// Per-end data resolved into em-X by PATH_SLUGGIT_FRAG_HOOK - see this shader's header comment.
+	//
+	// startDist/endDist: em-space distance along the segment from its start/end point (negative
+	// past it), or PATH_NO_CAP where that end is a plain miter joint. An end with a cap, or with a
+	// join piece (bevel/round; a miter past its limit), ends the segment's body square at the point
+	// - one half-width past it for a square cap.
+	//
+	// startRel/endRel: world offset of the (pushed) position from the start/end point.
+	// startJoin/endJoin: the joint's outer direction (xy), cosHalf (z) and clip (w; -1 for none).
+	// See PathJoint. A round cap end carries clip PATH_JOIN_ROUND alone.
+	out osgSlug_PathEndBlock {
 		float startDist;
 		float endDist;
-	} pathCap;
+		vec2 startRel;
+		vec2 endRel;
+		flat vec4 startJoin;
+		flat vec4 endJoin;
+	} pathEnd;
 
 	void main() {
 		vec2 base, offset, perp;
-		vec2 s = computeQuad(base, offset, perp);
+		vec2 s = computeQuad(base, offset, perp, true);
 
 		float emMidX = (u_emCorners.x + u_emCorners.z) * 0.5;
 		float emMidY = (u_emCorners.y + u_emCorners.w) * 0.5;
@@ -335,6 +443,32 @@ static const std::string PATH_SLUGGIT_MAIN = R"GLSL(
 		vec2 p1 = points[gl_InstanceID + 1].xy;
 		bool startCap = !pathIsGap() && !pathHasPrev();
 		bool endCap = !pathIsGap() && !pathHasNext();
+		bool startJoined = !pathIsGap() && pathHasPrev();
+		bool endJoined = !pathIsGap() && pathHasNext();
+
+		vec4 startJoin = vec4(0.0, 0.0, 0.0, -1.0);
+		vec4 endJoin = vec4(0.0, 0.0, 0.0, -1.0);
+
+		if(startJoined) {
+			PathJoint j = pathJoint(gl_InstanceID);
+
+			startJoin = vec4(j.outer, j.cosHalf, float(j.clip));
+		}
+
+		if(endJoined) {
+			PathJoint j = pathJoint(gl_InstanceID + 1);
+
+			endJoin = vec4(j.outer, j.cosHalf, float(j.clip));
+		}
+
+		// A round cap is the round join's disc on its own; only clip (w) is read for it.
+		if(u_cap == PATH_CAP_ROUND) {
+			if(startCap) startJoin = vec4(0.0, 0.0, 0.0, float(PATH_JOIN_ROUND));
+			if(endCap) endJoin = vec4(0.0, 0.0, 0.0, float(PATH_JOIN_ROUND));
+		}
+
+		// A square cap moves the body's end one half-width past the point.
+		float capReach = u_cap == PATH_CAP_SQUARE ? u_halfWidth * emPerWorld : 0.0;
 
 		// True (unpushed) corner and em values. base lies on the centerline, so offset alone gives
 		// the corner's signed distance across it.
@@ -368,10 +502,12 @@ static const std::string PATH_SLUGGIT_MAIN = R"GLSL(
 			push = vec2(dot(offset, dir), dot(offset, perp)) *
 				(PATH_MARGIN_PX * worldPerPixel / max(u_halfWidth, 1e-8));
 
-			// Cap: also push past the segment's end. With a worldPerEm of 1.0, pathEmsPerPixel().x
+			// Butt cap: also push past the segment's end. An extended joint's or a round/square cap's
+			// end corners already moved past it, along with the rest of the offset above. With a
+			// worldPerEm of 1.0, pathEmsPerPixel().x
 			// is world units along axisX per screen pixel measured across the cap edge, so the
 			// margin stays PATH_MARGIN_PX wide on screen under perspective shear too.
-			if(s.x < 0.5 ? startCap : endCap) {
+			if(u_cap == PATH_CAP_BUTT && (s.x < 0.5 ? startCap : endCap)) {
 				float capMargin = PATH_MARGIN_PX * pathEmsPerPixel(
 					r.pos.xy,
 					vec4(r.axisX.xy, 0.0, 1.0),
@@ -387,8 +523,15 @@ static const std::string PATH_SLUGGIT_MAIN = R"GLSL(
 		float startDist = dot(pos - p0, dir) * emPerWorld + push.x / rateX;
 		float endDist = dot(p1 - pos, dir) * emPerWorld - push.x / rateX;
 
-		pathCap.startDist = startCap ? startDist : PATH_NO_CAP;
-		pathCap.endDist = endCap ? endDist : PATH_NO_CAP;
+		// The pushed position in this segment's own (pre-hook) frame.
+		vec2 pushed = pos + dir * push.x + perp * push.y;
+
+		pathEnd.startDist = startCap ? startDist + capReach : (startJoin.w >= 0.0 ? startDist : PATH_NO_CAP);
+		pathEnd.endDist = endCap ? endDist + capReach : (endJoin.w >= 0.0 ? endDist : PATH_NO_CAP);
+		pathEnd.startRel = pushed - p0;
+		pathEnd.endRel = pushed - p1;
+		pathEnd.startJoin = startJoin;
+		pathEnd.endJoin = endJoin;
 
 		geom.emCoord = r.emCoord + vec2(0.0, push.y / rateY);
 		geom.uv = uv;
@@ -407,8 +550,9 @@ static const std::string PATH_SLUGGIT_MAIN = R"GLSL(
 	}
 )GLSL";
 
-// Sluggit-only fragment hook: resolves em-X from the two interpolated cap distances (pathCap) -
-// the nearer cap's distance, offset from that cap's own shape edge (start = left, end = right)
+// Sluggit-only fragment hook: resolves em-X from the two interpolated end distances (pathEnd),
+// each unioned with its joint's join piece - the nearer end's inside distance, offset from that
+// end's own shape edge (start = left, end = right)
 // and clamped at the shape's X midpoint, so shapes that aren't left/right symmetric still cap
 // correctly at both ends - and sets emsPerPixel.x to that distance's fwidth(), since the incoming
 // fwidth(geom.emCoord).x is of the placeholder midpoint (zero). emsPerPixel.y is the incoming
@@ -429,22 +573,43 @@ static const char* PATH_SLUGGIT_FRAG_HOOK = R"GLSL(
 	#pragma osgSlug fragment_emcoord
 
 	uniform vec4 u_emCorners; // x=emX0, y=emY0, z=emX1, w=emY1; the shape's true em extent
+	uniform float u_halfWidth;
 
-	in osgSlug_PathCapBlock {
+	in osgSlug_PathEndBlock {
 		float startDist;
 		float endDist;
-	} pathCap;
+		vec2 startRel;
+		vec2 endRel;
+		flat vec4 startJoin;
+		flat vec4 endJoin;
+	} pathEnd;
+
+	// Inside distance (em units, positive inside) of one segment end: dist, unioned with the
+	// joint's join piece when join.w (its clip) is a bevel (1) or round (2) join.
+	float pathEndInside(float dist, vec2 rel, vec4 join, float emPerWorld) {
+		if(join.w < 0.0) return dist;
+
+		float d = length(rel) - u_halfWidth;
+
+		if(join.w < 1.5) d = max(d, dot(rel, join.xy) - u_halfWidth * join.z);
+
+		return max(dist, -d * emPerWorld);
+	}
 
 	vec2 osgSlug_FragmentEmCoord(vec2 emCoord, inout vec2 emsPerPixel, int effectId, float time) {
+		float emPerWorld = (u_emCorners.w - u_emCorners.y) / max(2.0 * u_halfWidth, 1e-8);
+		float startIn = pathEndInside(pathEnd.startDist, pathEnd.startRel, pathEnd.startJoin, emPerWorld);
+		float endIn = pathEndInside(pathEnd.endDist, pathEnd.endRel, pathEnd.endJoin, emPerWorld);
+
 		// Both derivatives are taken unconditionally (uniform control flow), then selected.
-		float startRate = fwidth(pathCap.startDist);
-		float endRate = fwidth(pathCap.endDist);
-		bool fromStart = pathCap.startDist < pathCap.endDist;
+		float startRate = fwidth(startIn);
+		float endRate = fwidth(endIn);
+		bool fromStart = startIn < endIn;
 
 		float halfSpan = (u_emCorners.z - u_emCorners.x) * 0.5;
 		float emX = fromStart
-			? u_emCorners.x + min(pathCap.startDist, halfSpan)
-			: u_emCorners.z - min(pathCap.endDist, halfSpan);
+			? u_emCorners.x + min(startIn, halfSpan)
+			: u_emCorners.z - min(endIn, halfSpan);
 
 		// A PATH_NO_CAP end is constant, so its rate is zero; em-X then sits at the midpoint and
 		// its rate only needs to be finite - fall back to the width-direction rate.
@@ -695,6 +860,28 @@ void PathDrawable::setColor(const Vec4& c) {
 	_color = c;
 
 	if(auto* u = getStateSet() ? getStateSet()->getUniform("u_color") : nullptr; u) u->set(c);
+}
+
+void PathDrawable::setJoin(slughorn::canvas::LineJoin join) {
+	_join = join;
+
+	if(auto* u = getStateSet() ? getStateSet()->getUniform("u_join") : nullptr; u) u->set(static_cast<int>(join));
+}
+
+void PathDrawable::setCap(slughorn::canvas::LineCap cap) {
+	_cap = cap;
+
+	if(auto* u = getStateSet() ? getStateSet()->getUniform("u_cap") : nullptr; u) u->set(static_cast<int>(cap));
+}
+
+void PathDrawable::setMiterLimit(slug_t limit) {
+	_miterLimit = limit;
+
+	if(auto* u = getStateSet() ? getStateSet()->getUniform("u_miterLimit") : nullptr; u) u->set(
+		static_cast<float>(limit)
+	);
+
+	dirtyBound();
 }
 
 void PathDrawable::setEffectId(int id) {
@@ -995,6 +1182,9 @@ void PathDrawable::compile() {
 	}
 
 	ss->addUniform(new osg::Uniform("u_halfWidth", _halfWidth));
+	ss->addUniform(new osg::Uniform("u_join", static_cast<int>(_join)));
+	ss->addUniform(new osg::Uniform("u_cap", static_cast<int>(_cap)));
+	ss->addUniform(new osg::Uniform("u_miterLimit", static_cast<float>(_miterLimit)));
 	ss->addUniform(new osg::Uniform("u_effectId", _effectId));
 	ss->addUniform(new osg::Uniform("u_effectParam", _effectParam));
 	ss->setAttributeAndModes(prog, osg::StateAttribute::ON);
@@ -1036,9 +1226,11 @@ osg::BoundingBox PathDrawable::computeBoundingBox() const {
 
 	for(const auto& p : *_points) bb.expandBy(Vec3(p.x(), p.y(), 0.0f));
 
-	// A miter corner reaches up to PATH_MAX_MITER half-widths from its point. The GPU's pixel
-	// margin has no CPU-side size; that padding covers it everywhere but the sharpest joints.
-	const slug_t pad = _mode == PathMode::Stamp ? _halfWidth : _halfWidth * PATH_MAX_MITER;
+	// A miter corner reaches up to the larger of PATH_MAX_MITER and the miter limit, in
+	// half-widths, from its point; past that, a joint's corners stay within sqrt(2) half-widths.
+	// The GPU's pixel margin has no CPU-side size; that padding covers it everywhere but the
+	// sharpest joints.
+	const slug_t pad = _mode == PathMode::Stamp ? _halfWidth : _halfWidth * std::max(PATH_MAX_MITER, _miterLimit);
 
 	bb.expandBy(Vec3(bb.xMin() - pad, bb.yMin() - pad, -0.1f));
 	bb.expandBy(Vec3(bb.xMax() + pad, bb.yMax() + pad, 0.1f));

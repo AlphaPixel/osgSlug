@@ -29,8 +29,7 @@ static void applyBlendMode(osg::State& state, slughorn::BlendMode mode) {
 
 	// Tells the fragment shader which mode is active, so it can emit the dual-source coverage
 	// output (see the modes below using GL_SRC1_ALPHA_/GL_ONE_MINUS_SRC1_ALPHA_) the six broken
-	// modes need. See ai/todo-compositing.md, Cause 3 - coverage-as-alpha (blend(c*S, D)) is only
-	// correct for Fb(a) in {1-a, 1}; these six have Fb in {0, a} and need the true coverage `c`
+	// modes need. Coverage-as-alpha (blend(c*S, D)) is only correct for Fb(a) in {1-a, 1}; these six have Fb in {0, a} and need the true coverage `c`
 	// kept separate from color, which only a second fragment output can carry.
 	if(GLint loc = state.getUniformLocation("osgSlug_blendMode"); loc >= 0) {
 		ext->glUniform1i(loc, static_cast<int>(mode));

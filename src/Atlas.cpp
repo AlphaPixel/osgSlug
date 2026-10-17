@@ -107,12 +107,19 @@ bool Atlas::addChild(osg::Node* child) {
 			d0->compile();
 			if(d0->onAtlasAttached) d0->onAtlasAttached(*this);
 		}
-		else osgx::LambdaVisitor<osg::Drawable>([this](auto& d1) {
-			if(auto* sd = dynamic_cast<osgSlug::Drawable*>(&d1)) {
-				sd->compile();
-				if(sd->onAtlasAttached) sd->onAtlasAttached(*this);
-			}
-		})(child);
+		else {
+			osgx::LambdaVisitor<osg::Drawable> visitor([this](auto& d1) {
+				if(auto* sd = dynamic_cast<osgSlug::Drawable*>(&d1)) {
+					sd->compile();
+					if(sd->onAtlasAttached) sd->onAtlasAttached(*this);
+				}
+			});
+
+			// Hidden (node mask 0) subtrees still belong to this Atlas and can be shown later, when
+			// nothing else would compile them.
+			visitor.setNodeMaskOverride(~0u);
+			visitor(child);
+		}
 	}
 
 	return result;

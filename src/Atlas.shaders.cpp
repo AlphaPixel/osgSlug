@@ -1425,12 +1425,7 @@ void main() {
 
 		vec4 fillColor = osgSlug_Fragment(fData);
 
-		vec4 borderColor = vec4(
-			fract(fx.bandTransform.x * 127.1),
-			fract(fx.bandTransform.y * 311.7),
-			fract(fx.bandTransform.z * 74.3 + fx.bandTransform.w * 19.1),
-			1.0
-		);
+		vec4 borderColor = vec4(1.0, 0.0, 0.0, 1.0);
 
 		color = mix(fillColor, borderColor, onEdge);
 
