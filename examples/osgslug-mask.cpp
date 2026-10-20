@@ -17,8 +17,7 @@
 // Masking is now fully automatic and needs NO custom FragmentHook at all (contrast with the
 // old HOOK_MASK_BODY this file used to define) - osgSlug_FragmentMask(), an always-linked
 // early hook, evaluates and discards BEFORE slug_Render runs, so a mask that only reveals a
-// fraction of a shape skips Slug's curve-band loop entirely for the rest. See
-// ai/context-todo-mask.md, "osgSlug_FragmentMask() early hook."
+// fraction of a shape skips Slug's curve-band loop entirely for the rest.
 //
 // All --type values produce a visually comparable result; the differences are in edge
 // quality, cost, and whether the mask shape was pre-baked (tile) or evaluated analytically

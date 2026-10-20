@@ -94,8 +94,7 @@ public:
 	// Always-valid "no mask" sentinel (type=-1), created once alongside this Atlas. Bound as an
 	// ambient default in createDefaultStateSet() so every fragment shader can read osgSlug_mask
 	// unconditionally; ShapeDrawable::drawImplementation() rebinds it after any masked
-	// RenderGroup so the next group never sees a stale real mask. See
-	// ai/context-todo-mask.md, "null UBO" plan.
+	// RenderGroup so the next group never sees a stale real mask.
 	RenderMask* getNullMask() const { return _nullMask.get(); }
 
 	// Shader sources. All are unexpanded GLSL: their #pragma lines are expanded by
@@ -114,8 +113,7 @@ public:
 	// Default for osgSlug_FragmentMask's early (pre-slug_Render) hook. Unlike the two NOOP hooks
 	// above, this default is NOT a no-op - it IS the real mask coverage evaluation, always
 	// linked as its own shader unit so masking works automatically (no user hook required) and
-	// main() can discard before slug_Render for fragments outside the mask. See
-	// ai/context-todo-mask.md, "osgSlug_FragmentMask() early hook."
+	// main() can discard before slug_Render for fragments outside the mask.
 	static const std::string SHADER_MASK_FRAGMENT_HOOK;
 	// createDecalProgram()'s default MaskHook. Evaluates against data.uv (the decal quad's own
 	// [0,1] tangent-plane position) instead of data.emCoord + osgSlug_Mask_LayerOrigin() - a
@@ -182,8 +180,7 @@ public:
 	// (Slug's own analytic fill test, including the early mask-hook discard) - always linked via
 	// #pragma osgSlug coverage_lib in SHADER_FRAG, and reused verbatim by osgSlug's pick fragment
 	// shader so the two can never compute a different answer for the same fragment. See
-	// SHADER_FRAG's own #pragma osgSlug coverage_lib pull-in comment and
-	// slughorn/ai/context-todo-picking.md.
+	// SHADER_FRAG's own #pragma osgSlug coverage_lib pull-in comment.
 	static const std::string SHADER_LIB_COVERAGE;
 	// osgSlug_SDF_Sample/Gradient/BevelNormal, osgSlug's "em coord" API over a baked tile - see
 	// SHADER_LIB_FRAGMENT's prototypes for the per-function contract. Also owns
@@ -208,8 +205,7 @@ public:
 	// GPU object-ID pick fragment: calls osgSlug_CoverageFill() (coverage_lib) for the real
 	// Slug/mask coverage test - the SAME one SHADER_FRAG's main() uses - and on a coverage pass
 	// writes a packed pick ID (the `pickID` uniform's per-drawable base, plus this fragment's
-	// 0-based layer offset) instead of color; discards otherwise. See createPickProgram() and
-	// ai/context-todo-picking.md.
+	// 0-based layer offset) instead of color; discards otherwise. See createPickProgram().
 	static const std::string SHADER_PICK_FRAG;
 
 	enum Hook { VertexHook, FragmentHook, FragmentExtHook, MaskHook };
@@ -275,8 +271,7 @@ public:
 	// explicitly.
 	//
 	// Does NOT consider osgSlug_FragmentExt (glow/halo can make a fragment visible past Slug's own
-	// fill; deliberately out of scope - see SHADER_LIB_COVERAGE's own comment and
-	// ai/context-todo-picking.md).
+	// fill; deliberately out of scope - see SHADER_LIB_COVERAGE's own comment).
 	static osg::Program* createPickProgram(const HookList& hooks={});
 
 	osg::StateSet* createDefaultStateSet(HookList hooks={}) const;

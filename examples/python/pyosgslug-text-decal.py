@@ -1,9 +1,8 @@
 #!/usr/bin/env python3
 #vimrun! ./pyosgslug-text-decal.py
 
-# Real successor to examples/tmp/osgslug-tmp.worn.cpp - see ai/context-todo-decal.md (slughorn
-# repo) Open Work item 6: "Replace osgslug-tmp.worn.cpp's flat overlay with the text genuinely
-# decaled onto the cobblestone quad... the natural regression/acceptance test." worn.cpp never
+# Real successor to examples/tmp/osgslug-tmp.worn.cpp: the text genuinely decaled onto the wall
+# instead of a flat overlay, which makes it the natural regression/acceptance test. worn.cpp never
 # actually decaled anything - it was a flat, depth-test-off 2D quad hovering in front of a
 # textured wall, alpha-blended with zero lighting response. This uses the REAL DecalDrawable
 # mechanism (DecalDrawable.addPlanarDecal(), proven in osgslug-tmp.decalcube.cpp) to place text
@@ -107,10 +106,10 @@ GROUND_COLOR = osg.Vec3(0.05, 0.04, 0.03)
 BLEND_MODES = {
 	# SrcOver is slughorn's actual default (slughorn.hpp:525, "must stay 0 forever") - plain alpha
 	# compositing, no per-pixel dst readback. Also --emoji's escape hatch from the sibling-layer
-	# bleed (see ai/context-todo-decal.md's "NEXT UP" section): with SrcOver, a composite shape's
-	# own overlapping layers occlude each other normally again (opaque paint replaces, doesn't
-	# mix), at the cost of the wall's highlights/shadows no longer showing through the paint at
-	# all - the exact tradeoff Overlay was chosen to avoid for TEXT.
+	# bleed: with SrcOver, a composite shape's own overlapping layers occlude each other normally
+	# again (opaque paint replaces, doesn't mix), at the cost of the wall's highlights/shadows no
+	# longer showing through the paint at all - the exact tradeoff Overlay was chosen to avoid for
+	# TEXT.
 	"normal": slughorn.BlendMode.SrcOver,
 	# Replaces the wall outright, ignoring its own alpha for blending (only depth/stencil apply) -
 	# premultiplied AA edges show as dark halos rather than blending smoothly into the wall.
@@ -405,11 +404,11 @@ def build_decal_atlas(args):
 	for layer in comp.layers:
 		layer.bleed = MSDF_RANGE
 		# TEMPORARY short-circuit: DECAL_FRAGMENT_HOOK's survival term has a threshold baseline
-		# that's barely coupled to effectParam (see ai/context-todo-decal.md) - ANY positive value,
-		# even 0.05, engages ~50% patchy transparency, which reads as "wall/sibling bleeding
-		# through" and is easy to mistake for the (separate, already-fixed-by-blend-mode=normal)
-		# sibling-layer BlendMode bug. Forcing 0 here so --emoji renders can be judged on layering
-		# alone. Remove once survivalThreshold actually ramps smoothly from effectParam=0.
+		# that's barely coupled to effectParam - ANY positive value, even 0.05, engages ~50%
+		# patchy transparency, which reads as "wall/sibling bleeding through" and is easy to mistake
+		# for the (separate, already-fixed-by-blend-mode=normal) sibling-layer BlendMode bug.
+		# Forcing 0 here so --emoji renders can be judged on layering alone. Remove once
+		# survivalThreshold actually ramps smoothly from effectParam=0.
 		layer.effectParam = 0.0 if args.emoji else args.erosion
 		layer.blendMode = BLEND_MODES[args.blend_mode]
 
@@ -473,7 +472,7 @@ def parse_args():
 	parser.add_argument("--res", default="2k", help="Polyhaven download resolution (default: %(default)s)")
 	# "overlay" is the user-confirmed winner (2026-09-09) - the wall's own brick highlights/mortar
 	# shading visibly show through the ink, which is the actual "physically part of the wall" cue
-	# every earlier from-scratch relighting attempt was chasing. See ai/context-todo-decal.md.
+	# every earlier from-scratch relighting attempt was chasing.
 	parser.add_argument("--blend-mode", choices=sorted(BLEND_MODES), default="overlay",
 		help="how the paint composites against the wall's already-rendered pixels (default: %(default)s)")
 	parser.add_argument("--erosion", type=float, default=0.12,
@@ -537,9 +536,9 @@ def make_panel_fn(args, decal, base_colors):
 
 		osgx.imgui.separator()
 
-		# Erosion's survivalThreshold has a baseline barely coupled to effectParam (see
-		# ai/context-todo-decal.md) - expect a hard jump from pristine at exactly 0 to ~50%
-		# patchy just above it, not a smooth ramp. Not a slider bug, a known shader-tuning gap.
+		# Erosion's survivalThreshold has a baseline barely coupled to effectParam - expect a hard
+		# jump from pristine at exactly 0 to ~50% patchy just above it, not a smooth ramp. Not a
+		# slider bug, a known shader-tuning gap.
 		if args.emoji:
 			osgx.imgui.text("Erosion disabled for --emoji (see build_decal_atlas())")
 

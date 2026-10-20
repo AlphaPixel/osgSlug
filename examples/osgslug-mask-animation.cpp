@@ -1,12 +1,11 @@
 //vimrun! ./osgslug-mask-animation --clear-color 0.1,0.2,0.3
 
 // Animated mask demo - proves the "growing stroke / radial wipe / arc sweep" use case that
-// motivated the procedural-vs-baked mask design split in the first place (see
-// ai/context-todo-mask.md). Mutates a RenderMask's underlying slughorn::Mask params in place,
-// frame to frame, then repack()s it - no re-authoring, no atlas rebuild, no baking. Procedural
-// mask types can animate their own *shape* this cheaply; a tile-baked mask can only cheaply
-// animate its transform (currently: scale about its center), not its underlying
-// geometry - this demo exercises both.
+// motivated the procedural-vs-baked mask design split in the first place. Mutates a RenderMask's
+// underlying slughorn::Mask params in place, frame to frame, then repack()s it - no re-authoring,
+// no atlas rebuild, no baking. Procedural mask types can animate their own *shape* this cheaply;
+// a tile-baked mask can only cheaply animate its transform (currently: scale about its center),
+// not its underlying geometry - this demo exercises both.
 //
 // Scene is four quads, one per canvas quadrant, each with its own emoji glyph (COLR, loaded the
 // same way as osgslug-emoji-grid.cpp) centered on the quad (see centerGlyphOnQuad() below) and

@@ -347,10 +347,10 @@ struct ManipulatorToggleHandler: public osgGA::GUIEventHandler {
 };
 
 // 'c' dumps the live Ortho2DManipulator state to OSG_NOTICE - enough (center + halfExtentY) to
-// hardcode into a scratch repro example. Added for chasing the FreeType-only zoom artifact (see
-// osgSlug/ai/context-todo-textzoom.md): navigate interactively to a view that shows the
-// artifact, hit 'c', copy the printed values into osgslug-tmp.textzoom.cpp so the repro no
-// longer needs manual navigation. Re-fetches the manipulator at handle() time rather than
+// hardcode into a scratch repro example. For chasing view-dependent artifacts (e.g. the
+// FreeType-only zoom artifact): navigate interactively to a view that shows the artifact, hit
+// 'c', copy the printed values into osgslug-tmp.textzoom.cpp so the repro no longer needs manual
+// navigation. Re-fetches the manipulator at handle() time rather than
 // caching it at construction, since ManipulatorToggleHandler (F12) can swap it live for a
 // TrackballManipulator - dynamic_cast to the Ortho2DManipulator base also covers
 // ImGuiAwareManipulator, which derives from it.

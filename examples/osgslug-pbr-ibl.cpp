@@ -1,7 +1,7 @@
 //vimrun! ./osgslug-pbr-ibl --trackball --ktx2 /home/cubicool/dev/OpenSceneGraph.py/examples/pyosg-lighting/data/papermill.ktx2
 
-// Proof-of-concept for slughorn/ai/context-todo-lighting.md Idea 1: an osgSlug shape shaded as
-// polished chrome. Two light sources, both physically-based GGX:
+// Proof-of-concept: an osgSlug shape shaded as polished chrome. Two light sources, both
+// physically-based GGX:
 //
 // - IBL: a real prefiltered environment cubemap via the split-sum technique (Karis 2013),
 //   using osgx::pbr (BRDF math) and osgx::Environment (cubemap + shared BRDF LUT).
@@ -27,8 +27,7 @@
 // GLSL - chrome FragmentHook
 // ================================================================================================
 
-// effectData.w packing, per ai/context-todo-lighting.md: low byte = roughness*255,
-// high byte = metallic*255.
+// effectData.w packing: low byte = roughness*255, high byte = metallic*255.
 static float packMaterial(float roughness, float metallic) {
 	return float(int(roughness * 255.0f)) + float(int(metallic * 255.0f)) * 256.0f;
 }
@@ -160,7 +159,7 @@ vec4 osgSlug_Fragment(osgSlug_FragmentData data) {
 
 // Per-frame light rig: a handful of point lights orbiting in front of the badge - now
 // osgx::OrbitLightRig (osgx.hpp), generalized out of this example so
-// osgslug-pbr-ibl-text.cpp can reuse it. See ai/context-todo-lighting.md.
+// osgslug-pbr-ibl-text.cpp can reuse it.
 
 int main(int argc, char** argv) {
 	osg::ArgumentParser args(&argc, argv);

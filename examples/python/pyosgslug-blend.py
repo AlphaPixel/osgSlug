@@ -4,8 +4,8 @@
 # BlendMode playground: three overlapping filled circles (a Venn-diagram arrangement), each with
 # independently controllable RGBA + BlendMode via an ImGui panel, plus a live clear-color control.
 # Companion to pyosgslug-text-decal.py's --blend-mode flag - built to develop intuition for how
-# slughorn.BlendMode actually behaves before tackling the harder composite-shape/decal work (see
-# slughorn's ai/context-todo-decal.md). Deliberately NOT decal-based: plain osgSlug.ShapeDrawable,
+# slughorn.BlendMode actually behaves before tackling the harder composite-shape/decal work.
+# Deliberately NOT decal-based: plain osgSlug.ShapeDrawable,
 # no wall texture, no erosion, no --emoji - just three shapes and blend modes, isolated from
 # everything else this session touched.
 #

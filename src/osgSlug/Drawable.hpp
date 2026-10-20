@@ -15,8 +15,7 @@ namespace osgSlug {
 // Render-side wrapper around a slughorn::Mask. Owns the packed GPU-ready representation
 // (mirroring the std140 layout of osgSlug_MaskData in Atlas.shaders.cpp) plus the UBO it
 // lives in, and gives the mask reference-counted identity so RenderShape/RenderGroup can
-// group layers by pointer equality instead of comparing Mask values (see
-// ai/context-todo-mask.md, "Step 2 design").
+// group layers by pointer equality instead of comparing Mask values.
 //
 // NOT an osg::StateAttribute: RenderGroup already bypasses StateSet for per-group state
 // (see applyBlendMode() in ShapeDrawable.cpp) because state must change multiple times
@@ -41,12 +40,11 @@ public:
 	explicit RenderMask(const slughorn::Mask& mask);
 
 	// Always-valid "no mask" sentinel: packs type=-1, which every dispatcher (shader-side
-	// osgSlug_Mask_CoverageFor and friends) treats as "fully unmasked" - see
-	// ai/context-todo-mask.md, "null UBO" plan. Bind this (Atlas::getNullMask() owns one)
-	// wherever a RenderGroup has no real mask, instead of leaving the "osgSlug::mask" slot
-	// unbound: reading an unbound uniform block is undefined behavior, and once
-	// osgSlug_FragmentMask() is called unconditionally by every fragment shader (not just
-	// mask-aware hooks), every draw call needs something valid bound here.
+	// osgSlug_Mask_CoverageFor and friends) treats as "fully unmasked". Bind this
+	// (Atlas::getNullMask() owns one) wherever a RenderGroup has no real mask, instead of leaving
+	// the "osgSlug::mask" slot unbound: reading an unbound uniform block is undefined behavior,
+	// and once osgSlug_FragmentMask() is called unconditionally by every fragment shader (not
+	// just mask-aware hooks), every draw call needs something valid bound here.
 	static osg::ref_ptr<RenderMask> createNull();
 
 	const slughorn::Mask& mask() const { return _mask; }
@@ -73,10 +71,11 @@ public:
 
 private:
 	// CPU mirror of osgSlug_MaskData's std140 layout (80 bytes: 68 of data, the struct's size
-	// rounds up to its 16-byte alignment - see the field-order note in ai/context-todo-mask.md,
-	// "params/params2 split"). Real int/bool bit patterns are required here, NOT
-	// numeric-cast-to-float (unlike osgSlug_LayerData's all-float convention) -
-	// osgSlug_MaskData declares actual GLSL int/bool members.
+	// rounds up to its 16-byte alignment). Field order must match osgSlug_MaskData exactly:
+	// params2 is a vec2, so type and invert share its 16-byte row and debug starts the next one.
+	// Real int/bool bit patterns are required here, NOT numeric-cast-to-float (unlike
+	// osgSlug_LayerData's all-float convention) - osgSlug_MaskData declares actual GLSL int/bool
+	// members.
 	struct alignas(16) PackedData {
 		slug_t params[4] = {};
 		slug_t sdfRect[4] = {}; // tile texel rect: x, y, w, h (w == 0 = no tile)

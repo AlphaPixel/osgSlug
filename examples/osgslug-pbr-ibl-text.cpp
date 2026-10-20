@@ -1,7 +1,7 @@
 //vimrun! ./osgslug-pbr-ibl-text --trackball --ktx2 /home/cubicool/dev/OpenSceneGraph.py/examples/pyosg-lighting/data/papermill.ktx2
 
 // Same chrome/IBL technique as osgslug-pbr-ibl.cpp (the circle badge), applied to real text
-// glyphs instead of a single primitive - see ai/context-todo-lighting.md's "Ultimate Goal".
+// glyphs instead of a single primitive.
 // Shares the promoted osgx::pbr GLSL (DIRECT_SPECULAR/TONEMAP_PBR_NEUTRAL), osgx::Environment, and
 // osgx::OrbitLightRig with the badge example; only the shape-specific bits (glyph loading,
 // per-layer material/MSDF registration, light-rig centering on the text's bounding box) differ.
