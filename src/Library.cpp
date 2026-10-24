@@ -13,6 +13,7 @@ osgx::Library(arguments, options) {
 
 	slots.declare(osgx::Bindings::Type::SSBO, "osgSlug::atlas.shapes");
 	slots.declare(osgx::Bindings::Type::SSBO, "osgSlug::atlas.sdfTiles");
+	slots.declare(osgx::Bindings::Type::SSBO, "osgSlug::atlas.patterns");
 	slots.declare(osgx::Bindings::Type::SSBO, "osgSlug::layers");
 	slots.declare(osgx::Bindings::Type::SSBO, "osgSlug::path.points");
 	slots.declare(osgx::Bindings::Type::SSBO, "osgSlug::path.shapes");

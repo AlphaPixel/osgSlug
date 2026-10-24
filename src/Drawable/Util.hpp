@@ -4,6 +4,8 @@
 
 #include "osgSlug/Atlas.hpp"
 
+#include <osg/Notify>
+
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
@@ -30,16 +32,24 @@ inline void addSamplerUniforms(osg::StateSet* ss) {
 	}
 }
 
-struct GradientData {
+// A layer's "paint slot": osgSlug_LayerData's [1] (gradientMeta) and [2] (gradientTransform).
+// A layer has ONE paint - flat color, a gradient or a pattern - so gradients and patterns share
+// the same two vec4s (HTML Canvas / SVG treat all three as one fillStyle):
+//
+//   gradient: meta.x = gradientId (positive), the rest as buildGradientDataFromInfo() documents.
+//   pattern: meta.x = -patternId (negative), meta.yzw = (xx, yx, xy) and xform.xyz = (yy, dx, dy)
+//            of PatternInfo::transform, xform.w = reflect bits (1 = X, 2 = Y). The atlas-level
+//            half (cell + tile shape) is in the osgSlug::atlas.patterns SSBO.
+struct PaintData {
 	Vec4 meta {0.0f, 0.0f, 0.0f, 0.0f};
 	Vec4 xform {0.0f, 0.0f, 0.0f, 0.0f};
 };
 
-inline GradientData buildGradientDataFromInfo(
+inline PaintData buildGradientDataFromInfo(
 	uint32_t gradientId,
 	const slughorn::GradientInfo& grad
 ) {
-	GradientData data;
+	PaintData data;
 
 	data.meta.x() = cv(gradientId);
 
@@ -71,7 +81,40 @@ inline GradientData buildGradientDataFromInfo(
 	return data;
 }
 
-inline GradientData buildGradientData(const Atlas& atlas, const slughorn::Layer& layer) {
+inline uint32_t patternReflectBits(slughorn::PatternInfo::Repeat repeatX, slughorn::PatternInfo::Repeat repeatY) {
+	return
+		(repeatX == slughorn::PatternInfo::Repeat::Reflect ? 1u : 0u) |
+		(repeatY == slughorn::PatternInfo::Repeat::Reflect ? 2u : 0u)
+	;
+}
+
+inline PaintData buildPatternDataFromInfo(uint32_t patternId, const slughorn::PatternInfo& pattern) {
+	const auto& m = pattern.transform;
+
+	return {
+		{-cv(patternId), cv(m.xx), cv(m.yx), cv(m.xy)},
+		{cv(m.yy), cv(m.dx), cv(m.dy), cv(patternReflectBits(pattern.repeatX, pattern.repeatY))}
+	};
+}
+
+inline PaintData buildPaintData(const Atlas& atlas, const slughorn::Layer& layer) {
+	if(layer.patternId > 0) {
+		const auto& patterns = atlas.getPatterns();
+
+		if(layer.gradientId > 0) OSG_WARN
+			<< "osgSlug: layer " << layer.key << " has both a gradient and a pattern; using the pattern"
+			<< std::endl
+		;
+
+		if(layer.patternId <= patterns.size()) {
+			return buildPatternDataFromInfo(layer.patternId, patterns[layer.patternId - 1]);
+		}
+
+		OSG_WARN << "osgSlug: layer " << layer.key << " has an unknown patternId " << layer.patternId << std::endl;
+
+		return {};
+	}
+
 	if(layer.gradientId <= 0) return {};
 
 	return buildGradientDataFromInfo(layer.gradientId, atlas.getGradients()[layer.gradientId - 1]);

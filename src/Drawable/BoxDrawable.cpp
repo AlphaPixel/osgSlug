@@ -111,7 +111,7 @@ void BoxDrawable::compile() {
 				base, index_element_type(base + 2), index_element_type(base + 3)
 			});
 
-			const auto [gmeta, gxform] = buildGradientData(*atlas, layer);
+			const auto [gmeta, gxform] = buildPaintData(*atlas, layer);
 			const slug_t shapeIdx = cv(atlas->getShapeIndex(layer.key));
 
 			auto layerBuf = osgx::make_ref<osgx::Vec4Array>();

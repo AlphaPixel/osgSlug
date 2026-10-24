@@ -86,6 +86,18 @@ public:
 	virtual void setLayerShapeIndex(size_t index, size_t shapeIndex);
 	virtual void setLayerGradientTransform(size_t index, const slughorn::Matrix& m);
 
+	// Replaces a pattern layer's PatternInfo::transform (region em-space -> tile em-space) for this
+	// layer only - e.g. to scroll or rotate the pattern. No-op on a layer without a pattern.
+	virtual void setLayerPatternTransform(size_t index, const slughorn::Matrix& m);
+
+	// Replaces a pattern layer's per-axis repeat modes for this layer only. No-op on a layer
+	// without a pattern.
+	virtual void setLayerPatternRepeat(
+		size_t index,
+		slughorn::PatternInfo::Repeat repeatX,
+		slughorn::PatternInfo::Repeat repeatY
+	);
+
 	// GPU object-ID picking: 0 (default) = this layer never writes a pick ID and is invisible to
 	// SHADER_PICK_FRAG. See RenderShape::pickID's own comment.
 	virtual void setLayerPickID(size_t index, uint32_t id);

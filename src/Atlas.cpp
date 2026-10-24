@@ -216,6 +216,50 @@ void Atlas::packTextures() {
 		}
 
 		if(_sdfTileBuffer) _sdfTileBuffer->setBufferObject(new osg::ShaderStorageBufferObject());
+
+		// The pattern table (osgSlug::atlas.patterns): per slughorn::PatternInfo, its cell and a
+		// copy of the tile shape's bandTransform/shapeData. Layers reach an entry through the
+		// negative id in their paint slot (see PaintData in Drawable/Util.hpp); the per-layer
+		// transform and reflect bits live there too, not here.
+		_patternBuffer = nullptr;
+
+		if(!getPatterns().empty()) {
+			_patternBuffer = osgx::make_ref<osgx::Vec4Array>();
+
+			for(const auto& pattern : getPatterns()) {
+				_patternBuffer->push_back({pattern.cellX, pattern.cellY, pattern.cellWidth, pattern.cellHeight});
+
+				const auto tile = getShapes().find(pattern.tile);
+
+				// An all-zero tile record renders as zero coverage - the pattern draws nothing.
+				if(tile == getShapes().end()) {
+					OSG_WARN << "osgSlug::Atlas: pattern tile " << pattern.tile << " is not a shape" << std::endl;
+
+					_patternBuffer->push_back({0_cv, 0_cv, 0_cv, 0_cv});
+					_patternBuffer->push_back({0_cv, 0_cv, 0_cv, 0_cv});
+
+					continue;
+				}
+
+				const auto& shape = tile->second;
+
+				_patternBuffer->push_back({
+					shape.bandScaleX,
+					shape.bandScaleY,
+					shape.bandOffsetX,
+					shape.bandOffsetY
+				});
+
+				_patternBuffer->push_back({
+					cv(shape.bandTexX),
+					cv(shape.bandTexY),
+					cv(shape.bandMaxX),
+					cv(shape.bandMaxY)
+				});
+			}
+
+			_patternBuffer->setBufferObject(new osg::ShaderStorageBufferObject());
+		}
 	}
 
 	// Always refresh the StateSet so callers can re-apply hook changes by re-calling.

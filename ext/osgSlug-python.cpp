@@ -82,6 +82,18 @@ namespace detail {
 			PYBIND11_OVERRIDE(void, osgSlug::ShapeDrawable, setLayerGradientTransform, index, m);
 		}
 
+		void setLayerPatternTransform(size_t index, const slughorn::Matrix& m) override {
+			PYBIND11_OVERRIDE(void, osgSlug::ShapeDrawable, setLayerPatternTransform, index, m);
+		}
+
+		void setLayerPatternRepeat(
+			size_t index,
+			slughorn::PatternInfo::Repeat repeatX,
+			slughorn::PatternInfo::Repeat repeatY
+		) override {
+			PYBIND11_OVERRIDE(void, osgSlug::ShapeDrawable, setLayerPatternRepeat, index, repeatX, repeatY);
+		}
+
 		void updateLayer(size_t index, const slughorn::Layer& layer) override {
 			PYBIND11_OVERRIDE(void, osgSlug::ShapeDrawable, updateLayer, index, layer);
 		}
@@ -141,6 +153,16 @@ namespace detail {
 
 		void setGradientTransform(const slughorn::Matrix& m) {
 			_owner->setLayerGradientTransform(_index, m);
+			_owner->dirtyLayers(_index);
+		}
+
+		void setPatternTransform(const slughorn::Matrix& m) {
+			_owner->setLayerPatternTransform(_index, m);
+			_owner->dirtyLayers(_index);
+		}
+
+		void setPatternRepeat(slughorn::PatternInfo::Repeat repeatX, slughorn::PatternInfo::Repeat repeatY) {
+			_owner->setLayerPatternRepeat(_index, repeatX, repeatY);
 			_owner->dirtyLayers(_index);
 		}
 
@@ -375,6 +397,8 @@ PYBIND11_MODULE(osgSlug, m) {
 		.def_property("effectParam", &detail::Layer::getEffectParam, &detail::Layer::setEffectParam)
 		.def("setShapeIndex", &detail::Layer::setShapeIndex, "shapeIndex"_a)
 		.def("setGradientTransform", &detail::Layer::setGradientTransform, "matrix"_a)
+		.def("setPatternTransform", &detail::Layer::setPatternTransform, "matrix"_a)
+		.def("setPatternRepeat", &detail::Layer::setPatternRepeat, "repeatX"_a, "repeatY"_a)
 		// Raw per-layer SSBO slice (osg.Vec4Array, backed by an osg.ShaderStorageBufferObject).
 		// Valid after compile(); None if the drawable hasn't been compiled yet. Combined with
 		// Array.bufferObject and BufferObject.glBufferObject(contextID).glObjectID (both in

@@ -86,6 +86,12 @@ public:
 	// every drawable stores in its layer's effectData.z).
 	int getSDFTileIndex(const slughorn::Key& key) const;
 
+	// Pattern table (the osgSlug::atlas.patterns SSBO): 3 vec4s per slughorn::PatternInfo, in
+	// getPatterns() order - {cell, tile bandTransform, tile shapeData}. The tile's two shape
+	// vec4s are copied in (same values as its atlas.shapes entry) so the fragment stage needs one
+	// lookup, not two. Null when no patterns are registered. Valid after packTextures().
+	osgx::Vec4Array* getPatternBuffer() const { return _patternBuffer.get(); }
+
 	// Atlas-level shape SSBO (the osgSlug::atlas.shapes slot). Valid after packTextures().
 	// Returns the 0-based index of key in the shape buffer, or throws if not found.
 	uint32_t getShapeIndex(const slughorn::Key& key) const;
@@ -325,6 +331,7 @@ private:
 	std::unordered_map<slughorn::Key, int, slughorn::KeyHash> _sdfTileIndex;
 
 	osg::ref_ptr<osgx::Vec4Array> _shapeBuffer; // osgSlug::atlas.shapes SSBO
+	osg::ref_ptr<osgx::Vec4Array> _patternBuffer; // osgSlug::atlas.patterns SSBO (null = no patterns)
 	std::unordered_map<slughorn::Key, uint32_t, slughorn::KeyHash> _shapeIndex;
 
 	osg::ref_ptr<RenderMask> _nullMask; // see getNullMask()

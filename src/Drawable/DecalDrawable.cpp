@@ -390,7 +390,7 @@ void DecalDrawable::compile() {
 			}
 
 			// 7-Vec4 SSBO: [0..3] standard layer data, [4..6] tangent frame.
-			const auto [gmeta, gxform] = buildGradientData(*atlas, layer);
+			const auto [gmeta, gxform] = buildPaintData(*atlas, layer);
 			const slug_t shapeIdx = cv(atlas->getShapeIndex(layer.key));
 
 			layerBuf->push_back({layer.color.r, layer.color.g, layer.color.b, layer.color.a}); // [0]

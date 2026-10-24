@@ -261,7 +261,8 @@ void ShapeDrawable::compile() {
 	// but each array has its own modifiedCount, enabling per-layer dirty uploads.
 	//
 	// [0] color: RGBA
-	// [1] gradientMeta: x=gradientId, yz=center, w=r0_norm
+	// [1] gradientMeta: the paint slot with [2] - gradient (x = gradientId > 0) or pattern
+	//     (x = -patternId); see PaintData in Util.hpp
 	// [2] gradientTransform
 	// [3] effectData: x=effectId, y=shapeIndex, z=SDF tile index (-1 = none), w=effectParam
 	// [4] transformData: xy=layer.transform.xy (canvas-space origin, read by osgSlug_Mask_Evaluate); z=layer.bleed; w=pickID (0=not pickable, see setLayerPickID())
@@ -311,7 +312,7 @@ void ShapeDrawable::compile() {
 				{emX0, emY1, 0_cv, 1_cv}
 			});
 
-			const auto [gmeta, gxform] = buildGradientData(*atlas, layer);
+			const auto [gmeta, gxform] = buildPaintData(*atlas, layer);
 			const slug_t shapeIdx = cv(atlas->getShapeIndex(layer.key));
 
 			layerBuf->push_back({layer.color.r, layer.color.g, layer.color.b, layer.color.a});
@@ -446,6 +447,39 @@ void ShapeDrawable::setLayerGradientTransform(size_t index, const slughorn::Matr
 	buf[2] = gxform;
 }
 
+void ShapeDrawable::setLayerPatternTransform(size_t index, const slughorn::Matrix& m) {
+	auto* atlas = getAtlas();
+
+	if(index >= _layers.size() || !_layers[index].buffer || !atlas) return;
+
+	const auto& layer = _layers[index].layer;
+
+	if(layer.patternId <= 0 || layer.patternId > atlas->getPatterns().size()) return;
+
+	slughorn::PatternInfo tmp = atlas->getPatterns()[layer.patternId - 1];
+	tmp.transform = m;
+
+	auto [pmeta, pxform] = buildPatternDataFromInfo(layer.patternId, tmp);
+	auto& buf = *_layers[index].buffer;
+
+	// Keep this layer's own reflect bits (setLayerPatternRepeat()), not the atlas PatternInfo's.
+	pxform.w() = buf[2].w();
+
+	buf[1] = pmeta;
+	buf[2] = pxform;
+}
+
+void ShapeDrawable::setLayerPatternRepeat(
+	size_t index,
+	slughorn::PatternInfo::Repeat repeatX,
+	slughorn::PatternInfo::Repeat repeatY
+) {
+	if(index >= _layers.size() || !_layers[index].buffer || _layers[index].layer.patternId <= 0) return;
+
+	// Only the reflect bits in [2].w change; see PaintData in Util.hpp.
+	(*_layers[index].buffer)[2].w() = cv(patternReflectBits(repeatX, repeatY));
+}
+
 void ShapeDrawable::updateLayer(size_t index, const slughorn::Layer& layer) {
 	auto* atlas = getAtlas();
 
@@ -453,7 +487,7 @@ void ShapeDrawable::updateLayer(size_t index, const slughorn::Layer& layer) {
 
 	_layers[index].layer = layer;
 
-	const auto [gmeta, gxform] = buildGradientData(*atlas, layer);
+	const auto [gmeta, gxform] = buildPaintData(*atlas, layer);
 	const slug_t shapeIdx = cv(atlas->getShapeIndex(layer.key));
 
 	auto& buf = *_layers[index].buffer;

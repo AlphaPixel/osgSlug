@@ -177,7 +177,7 @@ void SubdividedDrawable::compile() {
 				}
 			}
 
-			const auto [gmeta, gxform] = buildGradientData(*atlas, layer);
+			const auto [gmeta, gxform] = buildPaintData(*atlas, layer);
 			const slug_t shapeIdx = cv(atlas->getShapeIndex(layer.key));
 
 			layerBuf->push_back({layer.color.r, layer.color.g, layer.color.b, layer.color.a});

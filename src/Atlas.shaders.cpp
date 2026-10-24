@@ -52,8 +52,8 @@ const std::string Atlas::SHADER_TYPES = SHADER_ATLAS_TYPES + R"(
 // Slot order: slughorn contract first (color, gradient), osgSlug machinery last (effectData).
 struct osgSlug_LayerData {
 	vec4 color; // RGBA flat color
-	vec4 gradientMeta; // x = gradientId (1-based), yz = gradient center, w = r0_norm
-	vec4 gradientTransform;// gradient transform (B matrix / direction / sweep)
+	vec4 gradientMeta; // paint slot with gradientTransform: x = gradientId (1-based) or -patternId, rest per paint type (PaintData, Drawable/Util.hpp)
+	vec4 gradientTransform;// gradient transform (B matrix / direction / sweep), or pattern transform + reflect bits
 	vec4 effectData; // x = effectId, y = shapeIndex (into AtlasShapeBuffer), z = SDF tile index (into SDFTileBuffer, -1 = no tile), w = effectParam
 	vec4 transformData; // xy = layer.transform.xy (canvas-space origin); z = layer.bleed (em); w = pickID (0 = not pickable, see ShapeDrawable::setLayerPickID())
 	vec4 axisX; // xyz = model-space direction of +1 em along the quad's X axis, w = worldPerEm rate
@@ -118,7 +118,7 @@ out osgSlug_GeomBlock {
 
 out osgSlug_FxBlock {
 	flat int effectId;
-	flat int gradientId;
+	flat int gradientId; // > 0 = gradient id, < 0 = -pattern id (the shared paint slot), 0 = flat color
 	flat int sdfTile; // index into SDFTileBuffer (fragment only), -1 = no tile
 	flat float effectParam;
 	flat vec4 bandTransform;
@@ -625,6 +625,62 @@ float slug_RenderText(
 	return c;
 }
 
+// Fill patterns (slughorn::PatternInfo), gated by OSGSLUG_WITH_PATTERNS (set by
+// Atlas::createDefaultStateSet() only when the Atlas has patterns, same as OSGSLUG_WITH_SDF).
+//
+// A pattern layer's paint slot (see PaintData in Drawable/Util.hpp) carries -patternId in
+// fx.gradientId, PatternInfo::transform in geom.gradientMeta.yzw = (xx, yx, xy) and
+// geom.gradientTransform.xyz = (yy, dx, dy), and reflect bits in geom.gradientTransform.w
+// (1 = X, 2 = Y). The atlas-level half - the cell and a copy of the tile shape's band data - is
+// the osgSlug::atlas.patterns entry. Redeclared here because fragment shader objects never get
+// SHADER_TYPES (see SHADER_PICK_FRAG's LayerBuffer comment).
+#pragma import_defines ( OSGSLUG_WITH_PATTERNS )
+
+#ifdef OSGSLUG_WITH_PATTERNS
+struct osgSlug_AtlasPatternData {
+	vec4 cell; // xy = cell origin, zw = cell size, in the tile shape's em-space
+	vec4 bandTransform; // the tile shape's, as in osgSlug_AtlasShapeData
+	vec4 shapeData; // the tile shape's, as in osgSlug_AtlasShapeData
+};
+
+layout(std430, binding = @osgSlug::atlas.patterns@) readonly buffer AtlasPatternBuffer {
+	osgSlug_AtlasPatternData atlasPatterns[];
+};
+
+// Coverage [0,1] of pattern `index`'s tile at region em-coordinate `em`. emsPerPixel is the
+// region's; the tile's is derived from the transform's linear part rather than fwidth(), which
+// would blow up where the cell remap jumps at every cell seam.
+float osgSlug_PatternFill(int index, vec2 em, vec2 emsPerPixel, out int iterations) {
+	osgSlug_AtlasPatternData pd = atlasPatterns[index];
+
+	vec2 col0 = geom.gradientMeta.yz; // (xx, yx)
+	vec2 col1 = vec2(geom.gradientMeta.w, geom.gradientTransform.x); // (xy, yy)
+	vec2 p = col0 * em.x + col1 * em.y + geom.gradientTransform.yz;
+
+	vec2 size = pd.cell.zw;
+	vec2 q = p - pd.cell.xy;
+	vec2 k = floor(q / size);
+
+	q -= k * size;
+
+	int reflectBits = int(geom.gradientTransform.w + 0.5);
+
+	if((reflectBits & 1) != 0 && mod(k.x, 2.0) != 0.0) q.x = size.x - q.x;
+	if((reflectBits & 2) != 0 && mod(k.y, 2.0) != 0.0) q.y = size.y - q.y;
+
+	vec2 tileEmsPerPixel = abs(col0) * emsPerPixel.x + abs(col1) * emsPerPixel.y;
+
+	return slug_Render(
+		pd.cell.xy + q,
+		1.0 / tileEmsPerPixel,
+		pd.bandTransform,
+		ivec2(pd.shapeData.xy),
+		ivec2(pd.shapeData.zw),
+		iterations
+	);
+}
+#endif
+
 // Computes Slug's own analytic fill coverage [0,1] for the CURRENT fragment, exactly like
 // main()'s own (former) inline computation - INCLUDING the same early mask discard (see
 // osgSlug_FragmentMask's own doc comment in SHADER_FRAGMENT_EMCOORD): a masked-away fragment
@@ -653,10 +709,24 @@ float osgSlug_CoverageFill(out float maskFill, out int iterations) {
 	vec2 renderCoord = osgSlug_FragmentEmCoord(geom.emCoord, emsPerPixel, fx.effectId, osg_SimulationTime);
 	vec2 pixelsPerEm = 1.0 / emsPerPixel;
 
-	return osgSlug_textMode
+	float fill = osgSlug_textMode
 		? slug_RenderText(renderCoord, emsPerPixel, pixelsPerEm, fx.bandTransform, glyphLoc, bandMax, iterations)
 		: slug_Render(renderCoord, pixelsPerEm, fx.bandTransform, glyphLoc, bandMax, iterations)
 	;
+
+#ifdef OSGSLUG_WITH_PATTERNS
+	// A pattern layer's coverage is its region's times its tile's - so picking (which shares this
+	// function) also sees the gaps between tiles.
+	if(fx.gradientId < 0 && fill > 0.0) {
+		int tileIterations;
+
+		fill *= osgSlug_PatternFill(-fx.gradientId - 1, renderCoord, emsPerPixel, tileIterations);
+
+		iterations += tileIterations;
+	}
+#endif
+
+	return fill;
 }
 )";
 
@@ -773,7 +843,7 @@ void main() {
 	fx.effectId = effectId;
 	fx.sdfTile = ld.effectData.z < 0.0 ? -1 : int(ld.effectData.z + 0.5);
 	fx.effectParam = ld.effectData.w;
-	fx.gradientId = int(ld.gradientMeta.x + 0.5);
+	fx.gradientId = int(floor(ld.gradientMeta.x + 0.5)); // floor, not int(): pattern ids are negative
 
 	gl_Position = osg_ModelViewProjectionMatrix * vec4(pos, 1.0);
 }
@@ -866,7 +936,7 @@ void main() {
 	fx.bandTransform = sd.bandTransform;
 	fx.shapeData = sd.shapeData;
 	fx.effectId = effectId;
-	fx.gradientId = int(ld.gradientMeta.x + 0.5);
+	fx.gradientId = int(floor(ld.gradientMeta.x + 0.5)); // floor, not int(): pattern ids are negative
 	fx.sdfTile = ld.effectData.z < 0.0 ? -1 : int(ld.effectData.z + 0.5);
 	fx.effectParam = ld.effectData.w;
 
@@ -2334,6 +2404,22 @@ osg::StateSet* Atlas::createDefaultStateSet(HookList hooks) const {
 			),
 			osg::StateAttribute::ON
 		);
+	}
+
+	// Pattern table, gated like the SDF tiles: an Atlas without patterns compiles none of
+	// coverage_lib's pattern code (OSGSLUG_WITH_PATTERNS).
+	if(_patternBuffer.valid() && _patternBuffer->getTotalDataSize() > 0) {
+		ss->setAttributeAndModes(
+			new osg::ShaderStorageBufferBinding(
+				slots.get("osgSlug::atlas.patterns"),
+				_patternBuffer,
+				0,
+				_patternBuffer->getTotalDataSize()
+			),
+			osg::StateAttribute::ON
+		);
+
+		ss->setDefine("OSGSLUG_WITH_PATTERNS");
 	}
 
 	ss->setMode(GL_BLEND, osg::StateAttribute::ON);
