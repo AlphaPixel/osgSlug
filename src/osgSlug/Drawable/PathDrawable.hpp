@@ -5,6 +5,7 @@
 #include "slughorn/canvas.hpp"
 
 #include <limits>
+#include <optional>
 
 namespace osgSlug {
 
@@ -63,6 +64,20 @@ public:
 	void setCap(slughorn::canvas::LineCap cap);
 	slughorn::canvas::LineCap getCap() const { return _cap; }
 
+	// Sluggit mode only: draws the stroke through an Atlas pattern (slughorn::Atlas::addPattern()'s
+	// 1-based id; 0 = none), in color. The pattern lives in stroke space - x is arc length along
+	// the path, y is across it - with the tile cell's height fitted to the stroke's width, then
+	// the pattern's PatternInfo::transform (or setPatternTransform()'s) applied in tile space.
+	// Arc length is points[].z at each point plus the distance along its segment, so z must hold
+	// each point's cumulative arc length (world units, like xy) for the pattern to run on across
+	// joints. Triggers recompile.
+	void setPatternId(uint32_t id);
+	uint32_t getPatternId() const { return _patternId; }
+
+	// Dynamic: replaces the pattern's tile-space transform (initially its PatternInfo::transform),
+	// e.g. a translation to scroll the pattern along the path. No recompile needed.
+	void setPatternTransform(const slughorn::Matrix& transform);
+
 	// The osgSlug_VertexData.effectId / .effectParam a linked vertex hook reads - the same two
 	// fields ShapeDrawable feeds per-layer via setLayerEffectId()/setLayerEffectParam(), so a hook
 	// written against one drawable reads them identically here. PathDrawable has no per-layer
@@ -105,6 +120,9 @@ private:
 	// The DrawArrays instance count: _revealCount clamped to what the points provide.
 	GLsizei _instanceCount() const;
 
+	// Writes u_patternMeta/u_patternTransform for the current pattern (zero for none).
+	void _updatePatternUniforms();
+
 	PathMode _mode = PathMode::Sluggit;
 	slug_t _halfWidth = 0.45_cv;
 	size_t _revealCount = std::numeric_limits<size_t>::max();
@@ -116,6 +134,8 @@ private:
 	slug_t _miterLimit = 4.0_cv;
 	slughorn::Key _shapeKey;
 	std::vector<slughorn::Key> _shapeKeys; // Stamp mode multi-shape path; see setShapeKeys()
+	uint32_t _patternId = 0;
+	std::optional<slughorn::Matrix> _patternTransform;
 
 	osg::ref_ptr<osgx::Vec4Array> _points;
 	osg::ref_ptr<osg::ShaderStorageBufferBinding> _ssboBinding;

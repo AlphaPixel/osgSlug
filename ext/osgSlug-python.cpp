@@ -578,10 +578,13 @@ PYBIND11_MODULE(osgSlug, m) {
 		.def("setJoin", &osgSlug::PathDrawable::setJoin, "join"_a)
 		.def("setMiterLimit", &osgSlug::PathDrawable::setMiterLimit, "limit"_a)
 		.def("setCap", &osgSlug::PathDrawable::setCap, "cap"_a)
+		.def("setPatternId", &osgSlug::PathDrawable::setPatternId, "id"_a)
+		.def("setPatternTransform", &osgSlug::PathDrawable::setPatternTransform, "matrix"_a)
 		.def_property("halfWidth", &osgSlug::PathDrawable::getHalfWidth, &osgSlug::PathDrawable::setHalfWidth)
 		.def_property("join", &osgSlug::PathDrawable::getJoin, &osgSlug::PathDrawable::setJoin)
 		.def_property("miterLimit", &osgSlug::PathDrawable::getMiterLimit, &osgSlug::PathDrawable::setMiterLimit)
 		.def_property("cap", &osgSlug::PathDrawable::getCap, &osgSlug::PathDrawable::setCap)
+		.def_property("patternId", &osgSlug::PathDrawable::getPatternId, &osgSlug::PathDrawable::setPatternId)
 		// Returned by value: getColor()'s const reference would otherwise hand Python a live view
 		// of _color that bypasses setColor() (and so the uniform).
 		.def_property(

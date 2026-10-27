@@ -700,6 +700,10 @@ float osgSlug_CoverageFill(out float maskFill, out int iterations) {
 	ivec2 bandMax = ivec2(fx.shapeData.zw);
 	vec2 emsPerPixel = fwidth(geom.emCoord);
 
+	// Patterns read geom.emCoord, like gradients - the coordinate the drawable authored, not
+	// osgSlug_FragmentEmCoord's - so the rate is kept before the hook can rewrite it.
+	vec2 paintEmsPerPixel = emsPerPixel;
+
 	maskFill = osgSlug_FragmentMask(
 		osgSlug_FragmentMaskData(geom.emCoord, geom.uv, emsPerPixel, osg_SimulationTime)
 	);
@@ -720,7 +724,7 @@ float osgSlug_CoverageFill(out float maskFill, out int iterations) {
 	if(fx.gradientId < 0 && fill > 0.0) {
 		int tileIterations;
 
-		fill *= osgSlug_PatternFill(-fx.gradientId - 1, renderCoord, emsPerPixel, tileIterations);
+		fill *= osgSlug_PatternFill(-fx.gradientId - 1, geom.emCoord, paintEmsPerPixel, tileIterations);
 
 		iterations += tileIterations;
 	}

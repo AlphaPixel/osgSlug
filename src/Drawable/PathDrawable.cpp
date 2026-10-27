@@ -394,10 +394,23 @@ static const std::string PATH_EM_SCALE = R"GLSL(
 // fwidth() of the em varyings. A per-instance (flat) analytic rate is wrong under perspective - it
 // is exact only at the vertex it was evaluated at, and a long segment's screen scale changes along
 // its length.
+//
+// geom.emCoord.x carries arc length along the path in em units (points[].z, at the width's em
+// rate) - the shape itself never reads it, since PATH_SLUGGIT_FRAG_HOOK rebuilds em-X from
+// pathEnd. A pattern (setPatternId()) reads geom.emCoord, so it runs along the path in (arc
+// length, across) space. Lines of constant arc length fan from one end's bisector to the other's
+// (radial on a circular arc), so at a plain-miter joint both segments agree on its corners and
+// the pattern stays continuous across it. Corner values are interpolated linearly per triangle,
+// which bends those lines slightly at the quad's diagonal: by about d * turn / 2 world units at an
+// offset d from the centerline.
 static const std::string PATH_SLUGGIT_MAIN = R"GLSL(
 	uniform vec4 u_emCorners; // x=emX0, y=emY0, z=emX1, w=emY1
 	uniform vec4 u_bandTransform; // x=bandScaleX, y=bandScaleY, z=bandOffsetX, w=bandOffsetY
 	uniform vec4 u_shapeData; // x=bandTexX, y=bandTexY, z=bandMaxX, w=bandMaxY
+
+	// The paint slot (geom.gradientMeta/gradientTransform) for setPatternId(); all zero for none.
+	uniform vec4 u_patternMeta;
+	uniform vec4 u_patternTransform;
 
 	// Matches OSGSLUG_MARGIN_PX (Atlas.shaders.cpp), which PathDrawable doesn't link.
 	const float PATH_MARGIN_PX = 1.5;
@@ -429,7 +442,6 @@ static const std::string PATH_SLUGGIT_MAIN = R"GLSL(
 		vec2 base, offset, perp;
 		vec2 s = computeQuad(base, offset, perp, true);
 
-		float emMidX = (u_emCorners.x + u_emCorners.z) * 0.5;
 		float emMidY = (u_emCorners.y + u_emCorners.w) * 0.5;
 
 		// em-units per world-unit across the stroke's width - uniform-derived only, no
@@ -449,16 +461,26 @@ static const std::string PATH_SLUGGIT_MAIN = R"GLSL(
 		vec4 startJoin = vec4(0.0, 0.0, 0.0, -1.0);
 		vec4 endJoin = vec4(0.0, 0.0, 0.0, -1.0);
 
+		// Each end's arc line: the line through its point along which arc length is constant, as
+		// (along dir) per unit across perp. A plain-miter end's is the joint's bisector, which its
+		// neighbor shares; any other end's is square across (0).
+		float lean0 = 0.0;
+		float lean1 = 0.0;
+
 		if(startJoined) {
 			PathJoint j = pathJoint(gl_InstanceID);
 
 			startJoin = vec4(j.outer, j.cosHalf, float(j.clip));
+
+			if(!j.extended && j.cosHalf > 0.0) lean0 = dot(j.miter, dir) / j.cosHalf;
 		}
 
 		if(endJoined) {
 			PathJoint j = pathJoint(gl_InstanceID + 1);
 
 			endJoin = vec4(j.outer, j.cosHalf, float(j.clip));
+
+			if(!j.extended && j.cosHalf > 0.0) lean1 = dot(j.miter, dir) / j.cosHalf;
 		}
 
 		// A round cap is the round join's disc on its own; only clip (w) is read for it.
@@ -475,11 +497,21 @@ static const std::string PATH_SLUGGIT_MAIN = R"GLSL(
 		vec2 pos = base + offset;
 		float emY = emMidY + dot(offset, perp) * emPerWorld;
 
-		// emCoord.x is a placeholder (the shape's X midpoint): PATH_SLUGGIT_FRAG_HOOK replaces it
-		// with the cap-derived value, so a hook's change to emCoord.x has no effect.
+		// Arc length: t runs 0..1 between the two ends' arc lines (the arc line through a point at
+		// offset d across is the one whose lean is mix(lean0, lean1, t)), then maps onto points[].z.
+		// A joint's corners sit on its arc line, so both segments give them that point's z exactly.
+		float segLen = distance(p0, p1);
+		float acrossD = dot(pos - p0, perp);
+		float arcDen = max(segLen + acrossD * (lean1 - lean0), 1e-8);
+		float arcT = (dot(pos - p0, dir) - acrossD * lean0) / arcDen;
+		float arcZ = points[gl_InstanceID + 1].z - points[gl_InstanceID].z;
+		float arcEm = (points[gl_InstanceID].z + arcT * arcZ) * emPerWorld;
+
+		// emCoord.x is arc length, not the shape's em-X: PATH_SLUGGIT_FRAG_HOOK rebuilds that from
+		// pathEnd, so a hook's change to emCoord.x moves only a pattern.
 		osgSlug_VertexResult r = osgSlug_Vertex(pathVertexData(
 			vec3(pos, 0.0),
-			vec2(emMidX, emY),
+			vec2(arcEm, emY),
 			uv,
 			u_origin,
 			vec4(dir, 0.0, worldPerEm),
@@ -533,16 +565,20 @@ static const std::string PATH_SLUGGIT_MAIN = R"GLSL(
 		pathEnd.startJoin = startJoin;
 		pathEnd.endJoin = endJoin;
 
-		geom.emCoord = r.emCoord + vec2(0.0, push.y / rateY);
+		// The push's arc length change, from t's gradient at this corner: zero along a joint's arc
+		// line, so a shared corner keeps its z.
+		float arcPush = (push.x - push.y * (lean0 + arcT * (lean1 - lean0))) * arcZ / arcDen;
+
+		geom.emCoord = r.emCoord + vec2(arcPush / rateX, push.y / rateY);
 		geom.uv = uv;
 		geom.color = u_color;
 		geom.layerIndex = 0.0;
-		geom.gradientMeta = vec4(0.0);
-		geom.gradientTransform = vec4(0.0);
+		geom.gradientMeta = u_patternMeta;
+		geom.gradientTransform = u_patternTransform;
 		fx.bandTransform = u_bandTransform;
 		fx.shapeData = u_shapeData;
 		fx.effectId = u_effectId;
-		fx.gradientId = 0;
+		fx.gradientId = int(floor(u_patternMeta.x + 0.5));
 		fx.sdfTile = -1;
 		fx.effectParam = u_effectParam;
 
@@ -555,12 +591,12 @@ static const std::string PATH_SLUGGIT_MAIN = R"GLSL(
 // end's own shape edge (start = left, end = right)
 // and clamped at the shape's X midpoint, so shapes that aren't left/right symmetric still cap
 // correctly at both ends - and sets emsPerPixel.x to that distance's fwidth(), since the incoming
-// fwidth(geom.emCoord).x is of the placeholder midpoint (zero). emsPerPixel.y is the incoming
+// fwidth(geom.emCoord).x is of the arc length, not of the em-X this hook returns. emsPerPixel.y is the incoming
 // fwidth(geom.emCoord).y, unchanged. See PATH_SLUGGIT_MAIN's header comment.
 //
 // This is Sluggit's per-FLAVOR default for the FragmentHook slot (Atlas::ProgramSpec::fragHook),
 // not a user hook: a caller's own FragmentHook still substitutes it, and in doing so loses cap
-// coverage entirely (em-X stays at the placeholder midpoint). A Sluggit FragmentHook should define
+// coverage entirely (em-X stays the arc length). A Sluggit FragmentHook should define
 // its own osgSlug_FragmentEmCoord the same way this one does.
 //
 // osgSlug_FragmentData used to be hand-copied here, because the #pragma below is expanded by
@@ -905,6 +941,66 @@ void PathDrawable::setShapeKeys(std::vector<slughorn::Key> keys) {
 	if(getAtlas()) compile();
 }
 
+void PathDrawable::setPatternId(uint32_t id) {
+	_patternId = id;
+	_compiled = false;
+
+	if(getAtlas()) compile();
+}
+
+void PathDrawable::setPatternTransform(const slughorn::Matrix& transform) {
+	_patternTransform = transform;
+
+	_updatePatternUniforms();
+}
+
+// Stroke space is (arc length, em-Y), both at the width's em rate, so one uniform scale fits the
+// shape's em-Y extent onto the cell's height: arc length 0 and the stroke's lower edge land on the
+// cell's origin.
+void PathDrawable::_updatePatternUniforms() {
+	auto* ss = getStateSet();
+	auto* atlas = getAtlas();
+
+	if(!ss || !atlas || _mode != PathMode::Sluggit) return;
+
+	PaintData data;
+
+	if(_patternId > 0) {
+		const auto& patterns = atlas->getPatterns();
+		const auto shape = atlas->getShape(_shapeKey);
+
+		if(_patternId > patterns.size()) {
+			OSG_WARN << "PathDrawable: unknown patternId " << _patternId << std::endl;
+		}
+
+		else if(shape && shape->height > 0_cv) {
+			auto info = patterns[_patternId - 1];
+
+			const slug_t scale = info.cellHeight / shape->height;
+			const slug_t emY0 = shape->bearingY - shape->height;
+			const slughorn::Matrix fit = {
+				.xx = scale,
+				.yy = scale,
+				.dx = info.cellX,
+				.dy = info.cellY - scale * emY0
+			};
+
+			info.transform = _patternTransform.value_or(info.transform) * fit;
+
+			data = buildPatternDataFromInfo(_patternId, info);
+		}
+	}
+
+	for(const auto& [name, value] : {
+		std::pair{"u_patternMeta", data.meta},
+		std::pair{"u_patternTransform", data.xform}
+	}) {
+		if(auto* u = ss->getUniform(name); u) u->set(value);
+
+		else ss->addUniform(new osg::Uniform(name, value));
+	}
+}
+
 GLsizei PathDrawable::_instanceCount() const {
 	if(!_points || _points->empty()) return 0;
 
@@ -1168,6 +1264,25 @@ void PathDrawable::compile() {
 				cv(shape->bandMaxX), cv(shape->bandMaxY)
 			)));
 		}
+
+		// Sluggit patterns: the Atlas's pattern table and its coverage_lib gate, bound here for the
+		// same reason as the null mask above - this StateSet may not inherit the Atlas's own.
+		const auto patternSlot = slots.get("osgSlug::atlas.patterns");
+
+		ss->removeAttribute(osg::StateAttribute::SHADERSTORAGEBUFFERBINDING, patternSlot);
+		ss->removeDefine("OSGSLUG_WITH_PATTERNS");
+
+		auto* patternBuffer = atlas->getPatternBuffer();
+
+		if(_mode == PathMode::Sluggit && _patternId > 0 && patternBuffer && patternBuffer->getTotalDataSize() > 0) {
+			ss->setAttributeAndModes(
+				new osg::ShaderStorageBufferBinding(patternSlot, patternBuffer, 0, patternBuffer->getTotalDataSize()),
+				osg::StateAttribute::ON
+			);
+			ss->setDefine("OSGSLUG_WITH_PATTERNS");
+		}
+
+		_updatePatternUniforms();
 	}
 
 	else { // Miter - analytical fwidth SDF, no atlas
@@ -1206,7 +1321,12 @@ void PathDrawable::compile() {
 	// either of these up - no confirmed link to the overlap-seam artifact yet, but this closes a
 	// real, confirmed gap from the known-correct setup regardless.
 	ss->setMode(GL_DEPTH_TEST, osg::StateAttribute::OFF);
-	ss->setRenderingHint(osg::StateSet::TRANSPARENT_BIN);
+
+	// A caller's own render bin (e.g. to order coplanar drawables, which the depth-sorted
+	// transparent bin orders by bound center) is kept.
+	if(ss->getRenderBinMode() == osg::StateSet::INHERIT_RENDERBIN_DETAILS) {
+		ss->setRenderingHint(osg::StateSet::TRANSPARENT_BIN);
+	}
 
 	_compiled = true;
 }
