@@ -74,7 +74,7 @@ CAPS = (slughorn.canvas.LineCap.BUTT, slughorn.canvas.LineCap.SQUARE, slughorn.c
 # Vertical distance between the two strokes' centerlines.
 OFFSET = 2.0 * CASES_HALF_Y * LENGTH + WIDTH + PARALLEL_CLEARANCE
 
-# Sluggit's caller-provided profile shape - a bare unit square, same convention as
+# The sluggit shape - a bare unit square, same convention as
 # osgslug-tmp.ink.cpp's "_path_sq". NOT the baked stroke-outline shape ShapeDrawable uses below.
 SQUARE_SHAPE_KEY = "_path_sq"
 
@@ -318,7 +318,7 @@ class RotateHandler(osgGA.GUIEventHandler):
 # Atlas / shape setup
 # ---------------------------------------------------------------------------
 
-# Bakes one reference stroke per (case, join, cap) plus Sluggit's unit-square profile shape.
+# Bakes one reference stroke per (case, join, cap) plus the unit-square sluggit shape.
 # Returns (osgSlug.Atlas, {(case, join, cap): Layer}); a combination canvas.stroke() could not
 # bake maps to None. Shapes are authored at unit size and reach world units through the Layer's
 # scale=LENGTH - large canvas-space coordinates lose precision, so keep them small.
@@ -357,7 +357,7 @@ def build_atlas():
 
 					layers[(name, join, cap)] = None
 
-	# Sluggit's profile shape genuinely IS a unit square, so auto_metrics=False (and its
+	# The sluggit shape genuinely IS a unit square, so auto_metrics=False (and its
 	# hardcoded 0/1/1/1 metrics) is correct here.
 	cvs.auto_metrics = False
 

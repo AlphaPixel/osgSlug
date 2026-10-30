@@ -22,7 +22,7 @@ foreach(source ${TMP_SOURCES})
 
 	# streets and tilestream read real MVT tiles (vtzero/protozero, siblings of osgSlug under ~/dev)
 	# out of .pbf files or a local .mbtiles - see comment above.
-	if(name STREQUAL "osgslug-tmp.streets" OR name STREQUAL "osgslug-tmp.tilestream")
+	if(name STREQUAL "osgslug-tmp.streets" OR name STREQUAL "osgslug-tmp.tilestream" OR name STREQUAL "osgslug-tmp.tilestreamsingle")
 		target_include_directories(${name} PRIVATE
 			"${CMAKE_CURRENT_SOURCE_DIR}/../../../vtzero/include"
 			"${CMAKE_CURRENT_SOURCE_DIR}/../../../protozero/include"

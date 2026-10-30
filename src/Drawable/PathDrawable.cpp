@@ -139,16 +139,29 @@ static const std::string PATH_MITER_GEOM = R"GLSL(
 	vec2 perpOf(vec2 dir) { return vec2(-dir.y, dir.x); }
 
 	// Subpath topology of this instance's segment, from points[].w (see computeQuad()'s comment).
-	// pathIsGap(): the instance spans two different subpaths and is not a real segment.
+	// floor(w) is the subpath id; w = id + 0.5 marks a ghost point, which setPaths() puts on either
+	// side of a closed subpath (a copy of the neighbor across its closing point) so that point
+	// joins instead of capping. A ghost is only ever read as a neighbor: no segment touching one
+	// draws.
+	// pathIsGap(): the instance spans two different subpaths, or touches a ghost, and is not a real
+	// segment.
 	// pathHasPrev()/pathHasNext(): the segment's start/end joins a neighbor segment of the same
 	// subpath; when false, that end is a cap.
-	bool pathIsGap() { return points[gl_InstanceID].w != points[gl_InstanceID + 1].w; }
+	bool pathIsGhost(int i) { return fract(points[i].w) != 0.0; }
+	bool pathSameId(int a, int b) { return floor(points[a].w) == floor(points[b].w); }
+
+	bool pathIsGap() {
+		return !pathSameId(gl_InstanceID, gl_InstanceID + 1) ||
+			pathIsGhost(gl_InstanceID) ||
+			pathIsGhost(gl_InstanceID + 1)
+		;
+	}
 
 	// A segment shorter than this has no usable direction (normalize() of a zero vector is
 	// undefined in GLSL) - typically a repeated point.
 	bool pathIsShort(vec2 v) { float eps = 1.0e-6 * u_halfWidth; return dot(v, v) <= eps * eps; }
-	bool pathHasPrev() { return gl_InstanceID > 0 && points[gl_InstanceID - 1].w == points[gl_InstanceID].w; }
-	bool pathHasNext() { return gl_InstanceID < points.length() - 2 && points[gl_InstanceID + 2].w == points[gl_InstanceID + 1].w; }
+	bool pathHasPrev() { return gl_InstanceID > 0 && pathSameId(gl_InstanceID - 1, gl_InstanceID); }
+	bool pathHasNext() { return gl_InstanceID < points.length() - 2 && pathSameId(gl_InstanceID + 2, gl_InstanceID + 1); }
 
 	// The joint at points[i], between the segments (i-1, i) and (i, i+1).
 	//
@@ -1040,21 +1053,116 @@ void PathDrawable::setPoints(std::vector<Vec4> pts) {
 	}
 }
 
-void PathDrawable::setPaths(const std::vector<std::vector<Vec4>>& subpaths) {
+void PathDrawable::setPaths(const std::vector<std::vector<Vec4>>& subpaths, const std::vector<bool>& closed) {
 	size_t total = 0;
 
-	for(const auto& sub : subpaths) total += sub.size();
+	for(const auto& sub : subpaths) total += sub.size() + 3;
 
 	std::vector<Vec4> combined;
 	combined.reserve(total);
 
 	for(size_t id = 0; id < subpaths.size(); id++) {
-		for(const auto& p : subpaths[id]) {
-			combined.emplace_back(p.x(), p.y(), p.z(), static_cast<float>(id));
+		const float w = static_cast<float>(id);
+
+		std::vector<Vec4> sub = subpaths[id];
+
+		const bool loop = id < closed.size() && closed[id] && sub.size() >= 2;
+
+		if(loop) {
+			const Vec4& first = sub.front();
+			const Vec4& last = sub.back();
+			const float gap = (osg::Vec2(first.x(), first.y()) - osg::Vec2(last.x(), last.y())).length();
+
+			// A last point within float rounding of the first (e.g. a loop computed with cos/sin)
+			// is moved onto it: appending would leave a near-zero segment at the seam, whose
+			// direction the closing join and the ghost point before the first can't use. Same
+			// test as slughorn::coincident(), at the subpath's own extent.
+			float extent = 0.0f;
+
+			for(const auto& p : sub) extent = std::max({extent, std::abs(p.x()), std::abs(p.y())});
+
+			if(slughorn::coincident(last.x(), last.y(), first.x(), first.y(), extent)) {
+				sub.back().x() = first.x();
+				sub.back().y() = first.y();
+			}
+
+			else sub.emplace_back(first.x(), first.y(), last.z() + gap, 0.0f);
+		}
+
+		// A closed subpath's ghosts (w = id + 0.5, see pathIsGhost() in the shader): the point
+		// before its last one, placed before its first, and the point after its first one, placed
+		// after its last. Their z continues the arc length across the closing point.
+		const bool ghosts = loop && sub.size() >= 3;
+
+		if(ghosts) {
+			const Vec4& prev = sub[sub.size() - 2];
+
+			combined.emplace_back(prev.x(), prev.y(), sub.front().z() - (sub.back().z() - prev.z()), w + 0.5f);
+		}
+
+		for(const auto& p : sub) combined.emplace_back(p.x(), p.y(), p.z(), w);
+
+		if(ghosts) {
+			const Vec4& next = sub[1];
+
+			combined.emplace_back(next.x(), next.y(), sub.back().z() + (next.z() - sub.front().z()), w + 0.5f);
 		}
 	}
 
 	setPoints(std::move(combined));
+}
+
+void PathDrawable::setPaths(const std::vector<slughorn::canvas::Path::Polyline>& polylines) {
+	std::vector<std::vector<Vec4>> subpaths;
+	std::vector<bool> closed;
+
+	subpaths.reserve(polylines.size());
+	closed.reserve(polylines.size());
+
+	for(const auto& line : polylines) {
+		auto& sub = subpaths.emplace_back();
+
+		sub.reserve(line.points.size());
+
+		for(const auto& s : line.points) sub.emplace_back(s.x, s.y, s.arcLength, 0_cv);
+
+		closed.push_back(line.closed);
+	}
+
+	setPaths(subpaths, closed);
+}
+
+void PathDrawable::setPaths(const slughorn::Atlas& atlas, const slughorn::Layer& layer, slug_t step) {
+	const auto shape = atlas.getShape(layer.key);
+
+	if(!shape) {
+		OSG_WARN << "PathDrawable: setPaths() - layer key not found in atlas" << std::endl;
+
+		return;
+	}
+
+	if(step <= 0_cv || layer.scale <= 0_cv) {
+		OSG_WARN << "PathDrawable: setPaths() - step and layer.scale must be positive" << std::endl;
+
+		return;
+	}
+
+	// Flattened in em-space, so the world-space step shrinks by the layer's scale.
+	auto polylines = slughorn::canvas::Path(*shape).polylines(step / layer.scale);
+
+	// Shape::computeQuad()'s placement: em point e lands at (transform - origin + e) * scale.
+	const slug_t dx = layer.transform.x - shape->originX;
+	const slug_t dy = layer.transform.y - shape->originY;
+
+	for(auto& line : polylines) {
+		for(auto& s : line.points) {
+			s.x = (dx + s.x) * layer.scale;
+			s.y = (dy + s.y) * layer.scale;
+			s.arcLength *= layer.scale;
+		}
+	}
+
+	setPaths(polylines);
 }
 
 void PathDrawable::compile() {
@@ -1106,8 +1214,14 @@ void PathDrawable::compile() {
 
 	setCullCallback(nullptr);
 
+	// Sluggit with no shape key renders the built-in unit square: coverage_lib's
+	// slug_RenderUnitSquare() (OSGSLUG_UNIT_SQUARE), with no atlas shape or texture fetches.
+	const bool unitSquare = _mode == PathMode::Sluggit && _shapeKey == slughorn::Key();
+
+	ss->removeDefine("OSGSLUG_UNIT_SQUARE");
+
 	if(_mode == PathMode::Stamp || _mode == PathMode::Sluggit) {
-		if(!atlas->getCurveTexture()) {
+		if(!unitSquare && !atlas->getCurveTexture()) {
 			OSG_WARN << "PathDrawable: curve texture is null - was atlas->packTextures() called?\n";
 			return;
 		}
@@ -1155,21 +1269,24 @@ void PathDrawable::compile() {
 		// is undefined behavior the moment this shader links against SHADER_FRAG.
 		ss->setAttributeAndModes(atlas->getNullMask()->getBinding(), osg::StateAttribute::ON);
 
-		ss->setTextureAttributeAndModes(
-			slots.get("osgSlug::atlas.curve"),
-			atlas->getCurveTexture(),
-			osg::StateAttribute::ON
-		);
+		// The unit square never samples these, but a pattern's tile still does.
+		if(atlas->getCurveTexture()) {
+			ss->setTextureAttributeAndModes(
+				slots.get("osgSlug::atlas.curve"),
+				atlas->getCurveTexture(),
+				osg::StateAttribute::ON
+			);
 
-		ss->setTextureAttributeAndModes(
-			slots.get("osgSlug::atlas.band"),
-			atlas->getBandTexture(),
-			osg::StateAttribute::ON
-		);
+			ss->setTextureAttributeAndModes(
+				slots.get("osgSlug::atlas.band"),
+				atlas->getBandTexture(),
+				osg::StateAttribute::ON
+			);
 
-		ss->addUniform(new osg::Uniform("osgSlug_texWidth",
-			static_cast<int>(std::countr_zero(atlas->getTextureWidth()))
-		));
+			ss->addUniform(new osg::Uniform("osgSlug_texWidth",
+				static_cast<int>(std::countr_zero(atlas->getTextureWidth()))
+			));
+		}
 		addSamplerUniforms(ss);
 		ss->addUniform(new osg::Uniform("osgSlug_gradientCount", 0));
 
@@ -1229,6 +1346,14 @@ void PathDrawable::compile() {
 			);
 
 			ss->setAttributeAndModes(_shapeTableBinding, osg::StateAttribute::ON);
+		}
+
+		else if(unitSquare) {
+			ss->addUniform(new osg::Uniform("u_origin", osg::Vec2(0.0f, 0.0f)));
+			ss->addUniform(new osg::Uniform("u_emCorners", Vec4(0_cv, 0_cv, 1_cv, 1_cv)));
+			ss->addUniform(new osg::Uniform("u_bandTransform", Vec4(0_cv, 0_cv, 0_cv, 0_cv)));
+			ss->addUniform(new osg::Uniform("u_shapeData", Vec4(0_cv, 0_cv, 0_cv, 0_cv)));
+			ss->setDefine("OSGSLUG_UNIT_SQUARE");
 		}
 
 		else {

@@ -625,6 +625,33 @@ float slug_RenderText(
 	return c;
 }
 
+// Unit-square coverage, gated by OSGSLUG_UNIT_SQUARE (set by PathDrawable's Sluggit mode when no
+// shape key is set). slug_Render()'s own loop evaluated in closed form for the square (0,0)-(1,1):
+// its four edges are straight, so each ray's crossings are known without any band or curve
+// fetches. The horizontal ray crosses x=0 and x=1 only while 0 <= y <= 1, the vertical ray crosses
+// y=0 and y=1 only while 0 <= x <= 1, and each crossing contributes exactly what slug_Render()'s
+// loop would (coverage clamp(r + 0.5), weight clamp(1 - 2|r|)). Both rays are taken with the
+// square's interior positive; slug_CalcCoverage() only needs their signs to agree.
+#pragma import_defines ( OSGSLUG_UNIT_SQUARE )
+
+#ifdef OSGSLUG_UNIT_SQUARE
+float slug_RenderUnitSquare(vec2 renderCoord, vec2 pixelsPerEm, out int totalIterations) {
+	vec2 r0 = -renderCoord * pixelsPerEm;
+	vec2 r1 = (1.0 - renderCoord) * pixelsPerEm;
+	vec2 cov = clamp(r1 + 0.5, 0.0, 1.0) - clamp(r0 + 0.5, 0.0, 1.0);
+	vec2 wgt = max(clamp(1.0 - abs(r0) * 2.0, 0.0, 1.0), clamp(1.0 - abs(r1) * 2.0, 0.0, 1.0));
+
+	// cov.x/wgt.x are the horizontal ray's, which exists only inside the square's Y span; likewise
+	// cov.y/wgt.y and the X span.
+	float hasX = step(0.0, renderCoord.y) * step(renderCoord.y, 1.0);
+	float hasY = step(0.0, renderCoord.x) * step(renderCoord.x, 1.0);
+
+	totalIterations = 0;
+
+	return slug_CalcCoverage(cov.x * hasX, cov.y * hasY, wgt.x * hasX, wgt.y * hasY);
+}
+#endif
+
 // Fill patterns (slughorn::PatternInfo), gated by OSGSLUG_WITH_PATTERNS (set by
 // Atlas::createDefaultStateSet() only when the Atlas has patterns, same as OSGSLUG_WITH_SDF).
 //
@@ -713,10 +740,14 @@ float osgSlug_CoverageFill(out float maskFill, out int iterations) {
 	vec2 renderCoord = osgSlug_FragmentEmCoord(geom.emCoord, emsPerPixel, fx.effectId, osg_SimulationTime);
 	vec2 pixelsPerEm = 1.0 / emsPerPixel;
 
+#ifdef OSGSLUG_UNIT_SQUARE
+	float fill = slug_RenderUnitSquare(renderCoord, pixelsPerEm, iterations);
+#else
 	float fill = osgSlug_textMode
 		? slug_RenderText(renderCoord, emsPerPixel, pixelsPerEm, fx.bandTransform, glyphLoc, bandMax, iterations)
 		: slug_Render(renderCoord, pixelsPerEm, fx.bandTransform, glyphLoc, bandMax, iterations)
 	;
+#endif
 
 #ifdef OSGSLUG_WITH_PATTERNS
 	// A pattern layer's coverage is its region's times its tile's - so picking (which shares this

@@ -574,7 +574,33 @@ PYBIND11_MODULE(osgSlug, m) {
 		.def("setEffectParam", &osgSlug::PathDrawable::setEffectParam, "param"_a)
 		.def("setRevealCount", &osgSlug::PathDrawable::setRevealCount, "n"_a)
 		.def("setPoints", &osgSlug::PathDrawable::setPoints, "points"_a)
-		.def("setPaths", &osgSlug::PathDrawable::setPaths, "subpaths"_a)
+		.def(
+			"setPaths",
+			py::overload_cast<const std::vector<std::vector<osgSlug::Vec4>>&, const std::vector<bool>&>(
+				&osgSlug::PathDrawable::setPaths
+			),
+			"subpaths"_a,
+			"closed"_a=std::vector<bool>{}
+		)
+		.def(
+			"setPaths",
+			py::overload_cast<const std::vector<slughorn::canvas::Path::Polyline>&>(
+				&osgSlug::PathDrawable::setPaths
+			),
+			"polylines"_a,
+			"One subpath per slughorn.canvas.Path.polylines() entry: z = arc length, closed as reported."
+		)
+		.def(
+			"setPaths",
+			[](osgSlug::PathDrawable& self, const osgSlug::Atlas& atlas, const slughorn::Layer& layer, slug_t step) {
+				self.setPaths(atlas, layer, step);
+			},
+			"atlas"_a,
+			"layer"_a,
+			"step"_a,
+			"The shape layer.key names in atlas (e.g. a Canvas.define_geometry() Layer), flattened to "
+			"points at most step world units apart and placed where ShapeDrawable would draw the layer."
+		)
 		.def("setJoin", &osgSlug::PathDrawable::setJoin, "join"_a)
 		.def("setMiterLimit", &osgSlug::PathDrawable::setMiterLimit, "limit"_a)
 		.def("setCap", &osgSlug::PathDrawable::setCap, "cap"_a)

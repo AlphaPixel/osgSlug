@@ -11,7 +11,7 @@ namespace osgSlug {
 
 enum class PathMode {
 	Miter, // mitered quads + analytical fwidth SDF (fast, no atlas needed)
-	Sluggit, // mitered quads + Slug SDF pipeline against a caller-provided shape (setShapeKey)
+	Sluggit, // mitered quads + Slug SDF pipeline against a built-in unit square or setShapeKey()'s shape
 	Stamp // one shape per point, rotated by points[i].z, Slug SDF pipeline (setShapeKey/setShapeKeys)
 };
 
@@ -19,8 +19,9 @@ enum class PathMode {
 //
 // Typical usage:
 // 1. Call atlas->build() then atlas->packTextures().
-// 2. For Sluggit/Stamp: define a shape in the atlas and call setShapeKey() before compile().
-//    Stamp mode alone also accepts setShapeKeys() for a per-point shape table - see its comment.
+// 2. For Stamp: define a shape in the atlas and call setShapeKey() before compile(). Stamp mode
+//    alone also accepts setShapeKeys() for a per-point shape table - see its comment. Sluggit
+//    needs no shape (see setShapeKey()).
 // 3. Call setPoints() then add under atlas via atlas->addChild() (triggers compile).
 class PathDrawable: public Drawable {
 public:
@@ -35,7 +36,11 @@ public:
 	// needed.
 	void setHalfWidth(slug_t w);
 	slug_t getHalfWidth() const { return _halfWidth; }
-	void setShapeKey(const slughorn::Key& key) { _shapeKey = key; } // Sluggit/Stamp: shape to render
+	// The shape every instance renders. Stamp requires one. Sluggit samples it across the stroke's
+	// width (em-Y fitted to 2 * halfWidth, em-X at the shape's midpoint except at caps and join
+	// pieces); with none set (the default Key()), Sluggit renders a built-in unit square in closed
+	// form, with no atlas shape or curve/band texture fetches. Takes effect on the next compile().
+	void setShapeKey(const slughorn::Key& key) { _shapeKey = key; }
 
 	// Stamp mode only: an indexed table of shapes instead of one fixed shape. points[i].w
 	// becomes a 0-based index into `keys`, so each instance can stamp a different shape - e.g.
@@ -110,7 +115,22 @@ public:
 	// instanced draw call instead of one PathDrawable per path. Incoming w components (if any)
 	// are discarded; z is preserved (Stamp mode's per-point rotation, though Stamp doesn't use
 	// this method's boundary logic - see computeQuad() in the .cpp).
-	void setPaths(const std::vector<std::vector<Vec4>>& subpaths);
+	//
+	// closed[i] (missing entries are false) makes subpath i a closed loop (Miter/Sluggit): its last
+	// point joins its first with the current join style, and neither end is capped. Its last
+	// point should repeat its first, as slughorn's Path::polylines() returns it; one is appended
+	// if it doesn't. Each closed subpath adds two points to the SSBO, which draw nothing.
+	void setPaths(const std::vector<std::vector<Vec4>>& subpaths, const std::vector<bool>& closed={});
+
+	// One subpath per polyline, in the form slughorn::canvas::Path::polylines() returns: xy =
+	// position, z = the sample's arcLength, closed as the polyline reports.
+	void setPaths(const std::vector<slughorn::canvas::Path::Polyline>& polylines);
+
+	// The shape `layer` names in `atlas` (e.g. a Canvas::defineGeometry() Layer), flattened to
+	// points at most `step` world units apart and placed where ShapeDrawable would draw the layer's
+	// fill (Shape::computeQuad()); arc length is in world units. layer.transform.z, color and the
+	// other Layer fields are not used: color, width, join and cap stay this drawable's own.
+	void setPaths(const slughorn::Atlas& atlas, const slughorn::Layer& layer, slug_t step);
 
 	void compile() override;
 	void drawImplementation(osg::RenderInfo& renderInfo) const override;
