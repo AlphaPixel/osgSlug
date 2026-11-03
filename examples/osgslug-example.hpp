@@ -13,6 +13,7 @@
 
 OSGSLUG_DISABLE_WARNINGS
 
+#include <osg/GraphicsContext>
 #include <osg/Group>
 #include <osg/MatrixTransform>
 #include <osg/Uniform>
@@ -29,6 +30,8 @@ OSGSLUG_DISABLE_WARNINGS
 OSGSLUG_ENABLE_WARNINGS
 
 #include <charconv>
+#include <functional>
+#include <string>
 
 namespace example {
 
@@ -54,6 +57,23 @@ struct ImGuiAwareManipulator: public osgx::Ortho2DManipulator {
 };
 #endif
 
+// A one-shot edit run on a context's graphics thread, between frames. Event handlers run on the
+// main thread while (under DrawThreadPerContext) the previous frame is still drawing, and the draw
+// iterates a StateSet's define and mode maps until it has popped every StateSet; editing those
+// maps from the handler races it.
+struct GraphicsThreadEdit: public osg::GraphicsOperation {
+	std::function<void()> edit;
+
+	GraphicsThreadEdit(std::function<void()> e):
+	osg::GraphicsOperation("GraphicsThreadEdit", false),
+	edit(std::move(e)) {
+	}
+
+	void operator()(osg::GraphicsContext*) override {
+		edit();
+	}
+};
+
 struct DebugModeHandler: public osgGA::GUIEventHandler {
 	static constexpr int MAX_MODE = 7;
 
@@ -72,6 +92,8 @@ struct DebugModeHandler: public osgGA::GUIEventHandler {
 	osg::ref_ptr<osg::Uniform> _uniform;
 	int _mode = 0;
 	bool _msaa = true;
+	bool _aaAxis = false;
+	bool _noMsaa = false;
 
 	DebugModeHandler(osg::StateSet* ss) : _ss(ss) {
 		_ss->setMode(GL_MULTISAMPLE, osg::StateAttribute::ON);
@@ -98,18 +120,59 @@ struct DebugModeHandler: public osgGA::GUIEventHandler {
 		OSG_NOTICE << "osgSlug_debugMode = " << _mode << " (" << MODE_NAMES[_mode] << ")" << std::endl;
 	}
 
-	bool handle(const osgGA::GUIEventAdapter& ea, osgGA::GUIActionAdapter&) override {
+	// Runs edit on the view camera's graphics thread (see GraphicsThreadEdit), or right away when
+	// there is no context yet.
+	void editState(osgGA::GUIActionAdapter& aa, std::function<void()> edit) {
+		osg::View* view = aa.asView();
+		osg::GraphicsContext* gc = view && view->getCamera() ? view->getCamera()->getGraphicsContext() : nullptr;
+
+		if(gc) gc->add(new GraphicsThreadEdit(std::move(edit)));
+		else edit();
+	}
+
+	void toggleDefine(osgGA::GUIActionAdapter& aa, const std::string& name, bool on) {
+		osg::ref_ptr<osg::StateSet> ss = _ss;
+
+		editState(aa, [ss, name, on]() {
+			if(on) ss->setDefine(name);
+			else ss->removeDefine(name);
+		});
+	}
+
+	bool handle(const osgGA::GUIEventAdapter& ea, osgGA::GUIActionAdapter& aa) override {
 		if(ea.getEventType() != osgGA::GUIEventAdapter::KEYDOWN) return false;
 
 		if(ea.getKey() == 'm') {
 			_msaa = !_msaa;
 
-			_ss->setMode(GL_MULTISAMPLE, _msaa
-				? osg::StateAttribute::ON
-				: osg::StateAttribute::OFF
-			);
+			osg::ref_ptr<osg::StateSet> ss = _ss;
+			const auto value = _msaa ? osg::StateAttribute::ON : osg::StateAttribute::OFF;
+
+			editState(aa, [ss, value]() { ss->setMode(GL_MULTISAMPLE, value); });
 
 			OSG_NOTICE << "MSAA: " << (_msaa ? "ON" : "OFF") << std::endl;
+
+			return true;
+		}
+
+		// OSGSLUG_AA_AXIS on the camera reaches every Slug drawable below it that doesn't set its own.
+		if(ea.getKey() == osgGA::GUIEventAdapter::KEY_F8) {
+			_aaAxis = !_aaAxis;
+
+			toggleDefine(aa, "OSGSLUG_AA_AXIS", _aaAxis);
+
+			OSG_NOTICE << "Slug AA ramp: " << (_aaAxis ? "axis (OSGSLUG_AA_AXIS)" : "edge") << std::endl;
+
+			return true;
+		}
+
+		// OSGSLUG_NO_MSAA: slug_RenderText()'s small-text 4-sample blend.
+		if(ea.getKey() == osgGA::GUIEventAdapter::KEY_F9) {
+			_noMsaa = !_noMsaa;
+
+			toggleDefine(aa, "OSGSLUG_NO_MSAA", _noMsaa);
+
+			OSG_NOTICE << "Slug text MSAA blend: " << (_noMsaa ? "OFF (OSGSLUG_NO_MSAA)" : "on") << std::endl;
 
 			return true;
 		}
@@ -135,12 +198,13 @@ struct DebugModeHandler: public osgGA::GUIEventHandler {
 
 // Alt+Scroll adjusts osgSlug_gamma live, in fixed 0.025 steps. Opt-in per example (add
 // `viewer.addEventHandler(new GammaHandler(ss))` where `ss` is the StateSet carrying the
-// osgSlug program) - NOT wired into example::run() globally. Gamma correction requires
-// osgSlug_textMode (see Atlas.shaders.cpp), so the constructor always sets both uniforms
-// together: textMode alone with no explicit gamma value would leave osgSlug_gamma at GLSL's
-// zero-initialized uniform default, and pow(fill, 0.0) == 1.0 for any positive coverage --
-// every antialiased edge everywhere would snap to full opacity. Does NOT touch
-// osgSlug_stemDarken, a separate, independent knob (safe to leave unset - defaults false/off).
+// osgSlug program) - NOT wired into example::run() globally. Gamma correction only applies under
+// osgSlug_textMode (see Atlas.shaders.cpp), which this handler leaves to the example: textMode
+// also switches on slug_RenderText()'s small-text sampling, so installing the handler must not
+// change how anything renders. The constructor still adds osgSlug_gamma (1.0) when missing: with
+// textMode on and no gamma value, GLSL's zero-initialized uniform would make pow(fill, 0.0) == 1.0
+// and snap every antialiased edge to full opacity. Does NOT touch osgSlug_stemDarken, a separate,
+// independent knob (safe to leave unset - defaults false/off).
 struct GammaHandler: public osgGA::GUIEventHandler {
 	static constexpr float STEP = 0.025f;
 	static constexpr float MIN_GAMMA = 0.025f;
@@ -158,8 +222,6 @@ struct GammaHandler: public osgGA::GUIEventHandler {
 		}
 
 		else _uniform->get(_gamma);
-
-		if(!ss->getUniform("osgSlug_textMode")) ss->addUniform(new osg::Uniform("osgSlug_textMode", true));
 
 		OSG_NOTICE << "GammaHandler: osgSlug_gamma = " << _gamma << " (Alt+Scroll to adjust)" << std::endl;
 	}
@@ -505,7 +567,7 @@ inline bool setupArguments(
 
 	args.getApplicationUsage()->addCommandLineOption(
 		"--profile",
-		"Applies an osgx::debug::ProfilerVisitor for profiling"
+		"Attaches an osgx::debug::Profiler (ImGui table, or a report on exit without ImGui)"
 	);
 
 	args.getApplicationUsage()->addCommandLineOption(
@@ -573,6 +635,9 @@ inline auto run(
 		viewer.getCamera()->addChild(grid2D);
 	}
 
+	// Without ImGui, --profile writes the profile to stdout once the viewer exits.
+	osg::ref_ptr<osgx::debug::Profiler> profiler;
+
 	if(args.read("--profile")) {
 		setenv("__GL_SYNC_TO_VBLANK", "0", 1);
 
@@ -582,19 +647,12 @@ inline auto run(
 #ifdef OSGX_IMGUI
 		if(!gui) gui = new osgx::imgui::Widget(viewer);
 
-		gui->addProfilerSection(viewer, sceneData.get());
+		gui->addProfilerSection(viewer);
 		gui->addTextureSection(viewer, sceneData.get());
 #else
+		profiler = new osgx::debug::Profiler();
 
-		auto dv = osgx::debug::ProfilerVisitor<>();
-
-		sceneData->accept(dv);
-
-		osgx::debug::appendCameraDrawCallback(
-			viewer.getCamera(),
-			osgx::debug::CameraDrawCallbackSlot::FINAL_DRAW,
-			new osgx::debug::ProfilerFinalCallback<>()
-		);
+		profiler->attach(viewer);
 #endif
 	}
 
@@ -668,7 +726,11 @@ inline auto run(
 		}
 	}
 
-	return osgx::headless::run(viewer, headless);
+	const auto r = osgx::headless::run(viewer, headless);
+
+	if(profiler) profiler->report(std::cout);
+
+	return r;
 }
 
 /* void getKeys(slughorn::Atlas& atlas, std::ostream& out=osg::notify(osg::NOTICE)) {

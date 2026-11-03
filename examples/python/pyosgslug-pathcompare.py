@@ -23,6 +23,9 @@
 #   g        toggle the pixel grid overlay (zoom >= 4x)
 #   f        freeze the pixel-peep anchor
 #   F1-F7    osgSlug_debugMode (checkerboard / band edges / quad border / heatmap / ...)
+#   F8       toggle OSGSLUG_AA_AXIS (pyosgslug_example.DebugModeHandler): ShapeDrawable's Slug ray
+#            crossings ramp along the ray (Lengyel's original) instead of across the edge (the
+#            default, Sluggit's ramp); Sluggit's own closed-form unit square ignores it
 #
 # --case NAME, --join NAME, --cap NAME and --debug N pick the starting state, so a headless run
 # (--headless, see pyosgslug_example.py) can capture any combination.
@@ -73,10 +76,6 @@ CAPS = (slughorn.canvas.LineCap.BUTT, slughorn.canvas.LineCap.SQUARE, slughorn.c
 
 # Vertical distance between the two strokes' centerlines.
 OFFSET = 2.0 * CASES_HALF_Y * LENGTH + WIDTH + PARALLEL_CLEARANCE
-
-# The sluggit shape - a bare unit square, same convention as
-# osgslug-tmp.ink.cpp's "_path_sq". NOT the baked stroke-outline shape ShapeDrawable uses below.
-SQUARE_SHAPE_KEY = "_path_sq"
 
 # One shared near-white for both, so the comparison is about shape and AA, not color. slughorn.Color
 # for the Layer, osg.Vec4 for PathDrawable.setColor() - same value.
@@ -318,7 +317,8 @@ class RotateHandler(osgGA.GUIEventHandler):
 # Atlas / shape setup
 # ---------------------------------------------------------------------------
 
-# Bakes one reference stroke per (case, join, cap) plus the unit-square sluggit shape.
+# Bakes one reference stroke per (case, join, cap). The Sluggit PathDrawable needs no shape of its
+# own: with no shape key it uses its built-in closed-form unit square.
 # Returns (osgSlug.Atlas, {(case, join, cap): Layer}); a combination canvas.stroke() could not
 # bake maps to None. Shapes are authored at unit size and reach world units through the Layer's
 # scale=LENGTH - large canvas-space coordinates lose precision, so keep them small.
@@ -356,14 +356,6 @@ def build_atlas():
 					print(f"canvas.stroke() failed for {name}/{join}/{cap}: {e}")
 
 					layers[(name, join, cap)] = None
-
-	# The sluggit shape genuinely IS a unit square, so auto_metrics=False (and its
-	# hardcoded 0/1/1/1 metrics) is correct here.
-	cvs.auto_metrics = False
-
-	cvs.begin_path()
-	cvs.rect(0.0, 0.0, 1.0, 1.0)
-	cvs.define_shape(SQUARE_SHAPE_KEY)
 
 	a.build()
 
@@ -407,7 +399,6 @@ class Bench:
 
 		self.sluggit = osgSlug.PathDrawable(osgSlug.PathMode.Sluggit)
 
-		self.sluggit.setShapeKey(SQUARE_SHAPE_KEY)
 		self.sluggit.color = PATH_COLOR
 		self.sluggit.halfWidth = WIDTH * 0.5
 		self.sluggit.miterLimit = MITER_LIMIT
@@ -546,7 +537,7 @@ if __name__ == "__main__":
 	viewer.eventHandlers.append(BenchHandler(bench))
 
 	print("top=ShapeDrawable(baked)  bottom=PathDrawable(Sluggit)")
-	print("c case  j join  k cap  r rotate  F12 2D/3D  [ / ] zoom  g grid  f freeze peep  F1-F7 debug")
+	print("c case  j join  k cap  a edge AA  r rotate  F12 2D/3D  [ / ] zoom  g grid  f freeze peep  F1-F7 debug")
 	print("(grid overlay only draws at 4x+ zoom - press ']' a few times before 'g')")
 
 	while not viewer.done:

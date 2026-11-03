@@ -396,7 +396,9 @@ vec2 slug_SolveRoots(float a, float b, float c) {
 	return b >= 0.0 ? vec2(tNear, tFar) : vec2(tFar, tNear);
 }
 
-vec2 slug_SolveHorizPoly(vec4 p12, vec2 p3) {
+// tangents: the curve's direction at each root, B'(t) / 2 = a * t - b (xy for the first root, zw
+// for the second), unnormalized; only the edge ramp reads them (see OSGSLUG_AA_AXIS).
+vec2 slug_SolveHorizPoly(vec4 p12, vec2 p3, out vec4 tangents) {
 	vec2 a = p12.xy - p12.zw * 2.0 + p3;
 	vec2 b = p12.xy - p12.zw;
 	float rb = 0.5 / b.y;
@@ -407,13 +409,16 @@ vec2 slug_SolveHorizPoly(vec4 p12, vec2 p3) {
 
 	if(abs(a.y) < 1.0 / 65536.0) { t1 = p12.y * rb; t2 = t1; }
 
+	tangents = vec4(a * t1 - b, a * t2 - b);
+
 	return vec2(
 		(a.x * t1 - b.x * 2.0) * t1 + p12.x,
 		(a.x * t2 - b.x * 2.0) * t2 + p12.x
 	);
 }
 
-vec2 slug_SolveVertPoly(vec4 p12, vec2 p3) {
+// See slug_SolveHorizPoly() for tangents.
+vec2 slug_SolveVertPoly(vec4 p12, vec2 p3, out vec4 tangents) {
 	vec2 a = p12.xy - p12.zw * 2.0 + p3;
 	vec2 b = p12.xy - p12.zw;
 	float rb = 0.5 / b.x;
@@ -423,6 +428,8 @@ vec2 slug_SolveVertPoly(vec4 p12, vec2 p3) {
 	float t2 = t.y;
 
 	if(abs(a.x) < 1.0 / 65536.0) { t1 = p12.x * rb; t2 = t1; }
+
+	tangents = vec4(a * t1 - b, a * t2 - b);
 
 	return vec2(
 		(a.y * t1 - b.y * 2.0) * t1 + p12.y,
@@ -478,17 +485,76 @@ int slug_BandX(ivec2 glyphLoc, vec4 bandTransform, vec2 renderCoord) {
 }
 
 // ------------------------------------------------------------------------------------------------
+// Edge ramp (the default; OSGSLUG_AA_AXIS opts out)
+//
+// Each crossing's distance is converted to its distance across the edge in screen pixels, divided
+// by the edge's ramp width |cos| + |sin| in screen space, so straight edges get a linear ramp
+// |cos| + |sin| pixels wide across the edge: the ramp PathDrawable's Sluggit mode draws, softer on
+// angled edges and identical on axis-aligned ones. It reads the full em Jacobian, so it holds
+// under rotation and perspective. Mirrors slughorn::render::AARamp::Edge (render.hpp), whose
+// test/slughorn-test-aa measures it. The weights keep the unscaled axis distance, so a ray nearly
+// parallel to an edge stays down-weighted.
+//
+// OSGSLUG_AA_AXIS restores Lengyel's original: each crossing ramps 1 pixel along its ray's own
+// axis (close to an exact box filter) and bands are walked 0.5 pixels deep instead of 2. Measured
+// on curve-heavy scenes (Tokyo baked roads), the edge ramp costs 4-8% of GPU time on an RTX 3060
+// and up to about 12% on a GTX 1070 inside osgSlug's full fragment shader.
+// ------------------------------------------------------------------------------------------------
+#pragma import_defines ( OSGSLUG_AA_AXIS )
+
+#ifndef OSGSLUG_AA_AXIS
+// Floors the scale so a crossing contributes at most SLUG_AA_REACH pixels behind the sample, which
+// the banded walks' early exit relies on; it only bends edges within about 18 degrees of parallel
+// to the ray.
+const float SLUG_AA_SCALE_FLOOR = 0.25;
+const float SLUG_AA_REACH = 0.5 / SLUG_AA_SCALE_FLOOR;
+
+// tangent: em-space curve direction at the crossing; n = (tangent.y, -tangent.x) is its normal.
+// The edge's offset along the ray is n.axis * r em, and one screen pixel step changes it by
+// n . emJacobian[0] and n . emJacobian[1], so the scale applied to the axis distance in pixels is
+// |n.axis| / (pixelsPerEm.axis * (|n . dx| + |n . dy|)). across holds the loop-invariant part:
+// n . dx * pixelsPerEm.axis = dot(tangent, across.xy), likewise across.zw for dy (see
+// slug_RampAcross()).
+float slug_RampScale(vec2 tangent, vec4 across, bool horizontal) {
+	float sum = abs(dot(tangent, across.xy)) + abs(dot(tangent, across.zw));
+
+	return sum > 0.0 ? max(SLUG_AA_SCALE_FLOOR, abs(horizontal ? tangent.y : tangent.x) / sum) : 1.0;
+}
+
+// The per-ray constants slug_RampScale() reads: n . v = tangent.y * v.x - tangent.x * v.y.
+vec4 slug_RampAcross(mat2 emJacobian, float pixelsPerEm) {
+	return vec4(-emJacobian[0].y, emJacobian[0].x, -emJacobian[1].y, emJacobian[1].x) * pixelsPerEm;
+}
+#else
+const float SLUG_AA_REACH = 0.5;
+#endif
+
+// The em Jacobian of em space axis-aligned with the screen, emsPerPixel em per pixel per axis.
+mat2 slug_EmJacobian(vec2 emsPerPixel) {
+	return mat2(emsPerPixel.x, 0.0, 0.0, emsPerPixel.y);
+}
+
+// ------------------------------------------------------------------------------------------------
 // slug_Render
 // ------------------------------------------------------------------------------------------------
+// emJacobian: the em-space change for a one pixel step along screen x (column 0) and screen y
+// (column 1), i.e. mat2(dFdx(em), dFdy(em)); a caller with only per-axis rates passes
+// slug_EmJacobian(emsPerPixel). Axis mode reads only the per-axis pixels per em it implies,
+// 1 / (|dx| + |dy|), which is 1 / fwidth(em).
 float slug_Render(
 	vec2 renderCoord,
-	vec2 pixelsPerEm,
+	mat2 emJacobian,
 	vec4 bandTransform,
 	ivec2 glyphLoc,
 	ivec2 bandMax,
 	out int totalIterations
 ) {
 	int curveIndex;
+	vec2 pixelsPerEm = 1.0 / (abs(emJacobian[0]) + abs(emJacobian[1]));
+
+#ifndef OSGSLUG_AA_AXIS
+	vec4 hAcross = slug_RampAcross(emJacobian, pixelsPerEm.x);
+#endif
 
 	int bandY = slug_BandY(glyphLoc, bandTransform, renderCoord);
 	int bandX = slug_BandX(glyphLoc, bandTransform, renderCoord);
@@ -521,20 +587,29 @@ float slug_Render(
 		// against the pre-sharing renderer at real CJK-atlas scale.
 		vec2 p3 = texelFetch(osgSlug_curveTexture, slug_CalcCurveLoc(curveLoc, 1), 0).xy - renderCoord;
 
-		if(max(max(p12.x, p12.z), p3.x) * pixelsPerEm.x < -0.5) break;
+		if(max(max(p12.x, p12.z), p3.x) * pixelsPerEm.x < -SLUG_AA_REACH) break;
 
 		uint code = slug_CalcRootCode(p12.y, p12.w, p3.y);
 
 		if(code != 0u) {
-			vec2 r = slug_SolveHorizPoly(p12, p3) * pixelsPerEm.x;
+			vec4 tangents;
+			vec2 r = slug_SolveHorizPoly(p12, p3, tangents) * pixelsPerEm.x;
+			vec2 rc = r;
+
+#ifndef OSGSLUG_AA_AXIS
+			rc *= vec2(
+				slug_RampScale(tangents.xy, hAcross, true),
+				slug_RampScale(tangents.zw, hAcross, true)
+			);
+#endif
 
 			if((code & 1u) != 0u) {
-				xcov += clamp(r.x + 0.5, 0.0, 1.0);
+				xcov += clamp(rc.x + 0.5, 0.0, 1.0);
 				xwgt = max(xwgt, clamp(1.0 - abs(r.x) * 2.0, 0.0, 1.0));
 			}
 
 			if(code > 1u) {
-				xcov -= clamp(r.y + 0.5, 0.0, 1.0);
+				xcov -= clamp(rc.y + 0.5, 0.0, 1.0);
 				xwgt = max(xwgt, clamp(1.0 - abs(r.y) * 2.0, 0.0, 1.0));
 			}
 		}
@@ -542,6 +617,10 @@ float slug_Render(
 
 	float ycov = 0.0;
 	float ywgt = 0.0;
+
+#ifndef OSGSLUG_AA_AXIS
+	vec4 vAcross = slug_RampAcross(emJacobian, pixelsPerEm.y);
+#endif
 
 	uvec2 vbandData = texelFetch(
 		osgSlug_bandTexture,
@@ -561,20 +640,29 @@ float slug_Render(
 		// See the matching endpoint-sharing tradeoff comment in the horizontal-band loop above.
 		vec2 p3 = texelFetch(osgSlug_curveTexture, slug_CalcCurveLoc(curveLoc, 1), 0).xy - renderCoord;
 
-		if(max(max(p12.y, p12.w), p3.y) * pixelsPerEm.y < -0.5) break;
+		if(max(max(p12.y, p12.w), p3.y) * pixelsPerEm.y < -SLUG_AA_REACH) break;
 
 		uint code = slug_CalcRootCode(p12.x, p12.z, p3.x);
 
 		if(code != 0u) {
-			vec2 r = slug_SolveVertPoly(p12, p3) * pixelsPerEm.y;
+			vec4 tangents;
+			vec2 r = slug_SolveVertPoly(p12, p3, tangents) * pixelsPerEm.y;
+			vec2 rc = r;
+
+#ifndef OSGSLUG_AA_AXIS
+			rc *= vec2(
+				slug_RampScale(tangents.xy, vAcross, false),
+				slug_RampScale(tangents.zw, vAcross, false)
+			);
+#endif
 
 			if((code & 1u) != 0u) {
-				ycov -= clamp(r.x + 0.5, 0.0, 1.0);
+				ycov -= clamp(rc.x + 0.5, 0.0, 1.0);
 				ywgt = max(ywgt, clamp(1.0 - abs(r.x) * 2.0, 0.0, 1.0));
 			}
 
 			if(code > 1u) {
-				ycov += clamp(r.y + 0.5, 0.0, 1.0);
+				ycov += clamp(rc.y + 0.5, 0.0, 1.0);
 				ywgt = max(ywgt, clamp(1.0 - abs(r.y) * 2.0, 0.0, 1.0));
 			}
 		}
@@ -587,30 +675,40 @@ float slug_Render(
 
 // ------------------------------------------------------------------------------------------------
 // slug_RenderText
+//
+// Below 16 ppem, blends toward the mean of 4 extra slug_Render() samples (fully by 8 ppem);
+// OSGSLUG_NO_MSAA turns that off. The samples are a 2x2 grid of half-pixel boxes that tile the
+// pixel: each sits a quarter pixel from the center along both screen axes and filters over half
+// the pixel's em Jacobian, so their mean is still a one-pixel box. The offsets go through the
+// Jacobian, so they stay inside the pixel's footprint under rotation and perspective.
 // ------------------------------------------------------------------------------------------------
+#pragma import_defines ( OSGSLUG_NO_MSAA )
+
 float slug_RenderText(
 	vec2 renderCoord,
-	vec2 emsPerPixel,
-	vec2 pixelsPerEm,
+	mat2 emJacobian,
 	vec4 bandTransform,
 	ivec2 glyphLoc,
 	ivec2 bandMax,
 	out int totalIterations
 ) {
+	vec2 emsPerPixel = abs(emJacobian[0]) + abs(emJacobian[1]);
 	float ppem = 1.0 / max(emsPerPixel.x, emsPerPixel.y);
 
 	int iters;
-	float c = slug_Render(renderCoord, pixelsPerEm, bandTransform, glyphLoc, bandMax, iters);
+	float c = slug_Render(renderCoord, emJacobian, bandTransform, glyphLoc, bandMax, iters);
 
 #ifndef OSGSLUG_NO_MSAA
 	if(ppem < 16.0) {
-		vec2 d = emsPerPixel * (1.0 / 3.0);
+		mat2 sub = emJacobian * 0.5;
+		vec2 dx = emJacobian[0] * 0.25;
+		vec2 dy = emJacobian[1] * 0.25;
 		int i1, i2, i3, i4;
 		float msaa = 0.25 * (
-			slug_Render(renderCoord + vec2(-d.x, -d.y), pixelsPerEm, bandTransform, glyphLoc, bandMax, i1) +
-			slug_Render(renderCoord + vec2( d.x, -d.y), pixelsPerEm, bandTransform, glyphLoc, bandMax, i2) +
-			slug_Render(renderCoord + vec2(-d.x, d.y), pixelsPerEm, bandTransform, glyphLoc, bandMax, i3) +
-			slug_Render(renderCoord + vec2( d.x, d.y), pixelsPerEm, bandTransform, glyphLoc, bandMax, i4)
+			slug_Render(renderCoord - dx - dy, sub, bandTransform, glyphLoc, bandMax, i1) +
+			slug_Render(renderCoord + dx - dy, sub, bandTransform, glyphLoc, bandMax, i2) +
+			slug_Render(renderCoord - dx + dy, sub, bandTransform, glyphLoc, bandMax, i3) +
+			slug_Render(renderCoord + dx + dy, sub, bandTransform, glyphLoc, bandMax, i4)
 		);
 		float msaaAmount = 1.0 - smoothstep(8.0, 16.0, ppem);
 
@@ -699,7 +797,7 @@ float osgSlug_PatternFill(int index, vec2 em, vec2 emsPerPixel, out int iteratio
 
 	return slug_Render(
 		pd.cell.xy + q,
-		1.0 / tileEmsPerPixel,
+		slug_EmJacobian(tileEmsPerPixel),
 		pd.bandTransform,
 		ivec2(pd.shapeData.xy),
 		ivec2(pd.shapeData.zw),
@@ -726,6 +824,8 @@ float osgSlug_CoverageFill(out float maskFill, out int iterations) {
 	ivec2 glyphLoc = ivec2(fx.shapeData.xy);
 	ivec2 bandMax = ivec2(fx.shapeData.zw);
 	vec2 emsPerPixel = fwidth(geom.emCoord);
+	vec2 emDx = dFdx(geom.emCoord);
+	vec2 emDy = dFdy(geom.emCoord);
 
 	// Patterns read geom.emCoord, like gradients - the coordinate the drawable authored, not
 	// osgSlug_FragmentEmCoord's - so the rate is kept before the hook can rewrite it.
@@ -740,12 +840,17 @@ float osgSlug_CoverageFill(out float maskFill, out int iterations) {
 	vec2 renderCoord = osgSlug_FragmentEmCoord(geom.emCoord, emsPerPixel, fx.effectId, osg_SimulationTime);
 	vec2 pixelsPerEm = 1.0 / emsPerPixel;
 
+	// The hook may rewrite emsPerPixel (Sluggit, tiling); each em axis of the Jacobian is rescaled
+	// to match it, which keeps a per-axis scale exact and leaves an unchanged rate untouched.
+	vec2 emScale = emsPerPixel / max(abs(emDx) + abs(emDy), vec2(1e-30));
+	mat2 emJacobian = mat2(emDx * emScale, emDy * emScale);
+
 #ifdef OSGSLUG_UNIT_SQUARE
 	float fill = slug_RenderUnitSquare(renderCoord, pixelsPerEm, iterations);
 #else
 	float fill = osgSlug_textMode
-		? slug_RenderText(renderCoord, emsPerPixel, pixelsPerEm, fx.bandTransform, glyphLoc, bandMax, iterations)
-		: slug_Render(renderCoord, pixelsPerEm, fx.bandTransform, glyphLoc, bandMax, iterations)
+		? slug_RenderText(renderCoord, emJacobian, fx.bandTransform, glyphLoc, bandMax, iterations)
+		: slug_Render(renderCoord, emJacobian, fx.bandTransform, glyphLoc, bandMax, iterations)
 	;
 #endif
 

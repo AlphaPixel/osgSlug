@@ -106,7 +106,7 @@ def configure_viewer(viewer, scene, args):
 
 		gui = osgx.imgui.Widget(viewer)
 
-		gui.addProfilerSection(viewer, scene)
+		gui.addProfilerSection(viewer)
 		gui.addTextureSection(viewer, scene)
 
 	if args.trackball:
@@ -192,7 +192,8 @@ class ManipulatorToggleHandler(osgGA.GUIEventHandler):
 #
 # Pressing an already-active function key returns to normal rendering; M
 # toggles GL_MULTISAMPLE independently, which is useful for inspecting edge
-# coverage while any debug mode is active.
+# coverage while any debug mode is active. F8 toggles OSGSLUG_AA_AXIS (Slug's
+# per-axis ramp instead of the default edge ramp) on the same StateSet.
 class DebugModeHandler(osgGA.GUIEventHandler):
 	def __init__(self, state_set):
 		super().__init__()
@@ -200,6 +201,11 @@ class DebugModeHandler(osgGA.GUIEventHandler):
 		self.state_set = state_set
 		self.mode = 0
 		self.msaa = True
+		self.aa_axis = False
+
+		# Edited (modes, defines) during event traversal, which overlaps the previous frame's draw
+		# under DrawThreadPerContext; DYNAMIC makes the viewer finish drawing with it first.
+		self.state_set.dataVariance = osg.Object.DYNAMIC
 		self.state_set.modes[GL_MULTISAMPLE] = osg.StateAttribute.ON
 
 		try:
@@ -225,6 +231,18 @@ class DebugModeHandler(osgGA.GUIEventHandler):
 				osg.StateAttribute.ON if self.msaa else osg.StateAttribute.OFF
 			)
 			print(f"MSAA: {'ON' if self.msaa else 'OFF'}")
+
+			return True
+
+		if ea.key == osgGA.GUIEventAdapter.KEY_F8:
+			self.aa_axis = not self.aa_axis
+
+			if self.aa_axis:
+				self.state_set.defines["OSGSLUG_AA_AXIS"] = osg.StateAttribute.ON
+			else:
+				del self.state_set.defines["OSGSLUG_AA_AXIS"]
+
+			print(f"Slug AA ramp: {'axis (OSGSLUG_AA_AXIS)' if self.aa_axis else 'edge'}")
 
 			return True
 
