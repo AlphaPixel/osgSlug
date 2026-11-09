@@ -326,7 +326,7 @@ def make_composite_hud(scene_tex, blur_tex, w, h):
 def create_scene():
 	Origin = slughorn.ShapeInfo.Origin
 	# centered = Origin(Origin.Type.Centered)  # fun variation: bbox center drifts from circle center on gapped arcs
-	ring_pivot = Origin(CX, CY)  # Pivot(CX, CY): geometric circle center, immune to bbox asymmetry from the gap
+	ring_pivot = Origin((CX, CY))  # Pivot((CX, CY)): geometric circle center, immune to bbox asymmetry from the gap
 
 	# Build ring geometry in slughorn.
 	slug_atlas = slughorn.Atlas()
@@ -341,7 +341,7 @@ def create_scene():
 		canvas.begin_path()
 		canvas.arc(CX, CY, ring["radius"], GAP / 2, 2 * math.pi - GAP / 2)
 		ring_layers.append(canvas.stroke(
-			ring["width"],
+			slughorn.canvas.Stroke(width=ring["width"]),
 			slughorn.Color(0.6, 0.85, 1.0, 1.0),
 			1.0,
 			slughorn.Key(f"ring_{i}"),
@@ -351,7 +351,7 @@ def create_scene():
 	# Cluster of dots inside the gap, anchored at ring-0's gap angle (0 rad).
 	# Angles are evenly spread over DOT_SPREAD centered on 0.
 	dot_path = slughorn.canvas.Path()
-	pivot = slughorn.ShapeInfo.Origin(CX, CY) # Custom: pin rotation to ring center
+	pivot = slughorn.ShapeInfo.Origin((CX, CY)) # Custom: pin rotation to ring center
 
 	for j in range(DOT_COUNT):
 		theta = -DOT_SPREAD / 2 + j * DOT_SPREAD / (DOT_COUNT - 1)
@@ -374,11 +374,11 @@ def create_scene():
 
 	for i, (ring, layer) in enumerate(zip(RINGS, ring_layers)):
 		layer.transform.z = i * Z_STEP
-		layer.effectId = 1
+		layer.effect_id = 1
 		sd.addLayer(layer)
 
 	dot_layer.transform.z = 0.5 * Z_STEP
-	dot_layer.effectId = 1
+	dot_layer.effect_id = 1
 	sd.addLayer(dot_layer)
 
 	sd.setHooks({osgSlug.VertexHook: VERT_EFFECTS})

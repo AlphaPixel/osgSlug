@@ -72,7 +72,7 @@ int main(int argc, char** argv) {
 	// Blue: Pivot at the top-left corner of the upright bar (an arbitrary named point)
 	drawL(0.85_cv, 0.1_cv);
 
-	auto lPivot = canvas.fill({0.4_cv, 0.6_cv, 1_cv, 1_cv}, 1_cv, Origin(0.85_cv, 0.4_cv));
+	auto lPivot = canvas.fill({0.4_cv, 0.6_cv, 1_cv, 1_cv}, 1_cv, Origin({0.85_cv, 0.4_cv}));
 
 	atlas->build();
 	atlas->packTextures();

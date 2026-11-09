@@ -79,7 +79,7 @@ private:
 	struct alignas(16) PackedData {
 		slug_t params[4] = {};
 		slug_t sdfRect[4] = {}; // tile texel rect: x, y, w, h (w == 0 = no tile)
-		slug_t sdfFrame[4] = {}; // tile em frame: emOriginX, emOriginY, texelsPerEm, range
+		slug_t sdfFrame[4] = {}; // tile em frame: emOrigin.x, emOrigin.y, texelsPerEm, range
 		slug_t params2[2] = {};
 		int32_t type = 0;
 		int32_t invert = 0;

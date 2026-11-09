@@ -78,13 +78,13 @@ int main(int argc, char** argv) {
 
 	canvas.beginPath();
 	canvas.arc(CX, CY, 0.48_cv, 0_cv, 2_cv * slughorn::PI_CV);
-	canvas.strokeGradient(0.010_cv, radarTrail, 1_cv, slughorn::Key("ghost_circle"));
+	canvas.strokeGradient({.width=0.010_cv}, radarTrail, 1_cv, slughorn::Key("ghost_circle"));
 
 	// Crosshair
 	canvas.beginPath()
 		.moveTo(0.06_cv, CY).lineTo(0.94_cv, CY)
 		.moveTo(CX, 0.06_cv).lineTo(CX, 0.94_cv);
-	canvas.stroke(0.0020_cv, C_GHOST, 1_cv, slughorn::Key("crosshair"));
+	canvas.stroke({.width=0.0020_cv}, C_GHOST, 1_cv, slughorn::Key("crosshair"));
 
 	// Minor tick marks (every 15°, between the major marks)
 	canvas.beginPath();
@@ -99,7 +99,7 @@ int main(int argc, char** argv) {
 		      .lineTo(CX + 0.456_cv * ca, CY + 0.456_cv * sa);
 	}
 
-	canvas.stroke(0.0025_cv, C_TICK_MN, 1_cv, slughorn::Key("ticks_minor"));
+	canvas.stroke({.width=0.0025_cv}, C_TICK_MN, 1_cv, slughorn::Key("ticks_minor"));
 
 	// Major tick marks (every 30°, 12 total)
 	canvas.beginPath();
@@ -112,7 +112,7 @@ int main(int argc, char** argv) {
 		      .lineTo(CX + 0.463_cv * ca, CY + 0.463_cv * sa);
 	}
 
-	canvas.stroke(0.003_cv, C_TICK_MJ, 1_cv, slughorn::Key("ticks_major"));
+	canvas.stroke({.width=0.003_cv}, C_TICK_MJ, 1_cv, slughorn::Key("ticks_major"));
 
 	// Corner brackets — 4 L-shapes as one multi-subpath stroke
 	const slug_t BM = 0.05_cv, BL = 0.07_cv;
@@ -123,12 +123,12 @@ int main(int argc, char** argv) {
 		.moveTo(1_cv - BM, 1_cv - BM - BL) .lineTo(1_cv - BM, 1_cv - BM) .lineTo(1_cv - BM - BL, 1_cv - BM)
 		.moveTo(BM, 1_cv - BM - BL)        .lineTo(BM, 1_cv - BM)        .lineTo(BM + BL, 1_cv - BM);
 
-	canvas.stroke(0.004_cv, C_STRUCT, 1_cv, slughorn::Key("brackets"));
+	canvas.stroke({.width=0.004_cv}, C_STRUCT, 1_cv, slughorn::Key("brackets"));
 
 	// Center accent ring — frames the dot
 	canvas.beginPath();
 	canvas.arc(CX, CY, 0.055_cv, 0_cv, 2_cv * slughorn::PI_CV);
-	canvas.stroke(0.003_cv, C_STRUCT, 1_cv, slughorn::Key("center_ring"));
+	canvas.stroke({.width=0.003_cv}, C_STRUCT, 1_cv, slughorn::Key("center_ring"));
 
 	// Rotating radar sweep needle — thin line from just outside the center ring to the ghost circle
 	const size_t SWEEP_IDX = canvas.layerCount();
@@ -136,8 +136,8 @@ int main(int argc, char** argv) {
 	canvas.beginPath()
 		.moveTo(CX + 0.07_cv, CY)
 		.lineTo(CX + 0.475_cv, CY);
-	canvas.stroke(0.0018_cv, {0.60_cv, 0.85_cv, 1.00_cv, 0.60_cv}, 1_cv,
-		slughorn::Key("sweep_needle"), Origin(CX, CY));
+	canvas.stroke({.width=0.0018_cv}, {0.60_cv, 0.85_cv, 1.00_cv, 0.60_cv}, 1_cv,
+		slughorn::Key("sweep_needle"), Origin({CX, CY}));
 
 	// Degree labels at the 12 major tick positions.
 	// Clockwise from north: i=3 (top in Y-up) → 0°, then decreasing i wraps CW.
@@ -169,7 +169,7 @@ int main(int argc, char** argv) {
 	for(size_t i = 0; i < NUM_RINGS; i++) {
 		canvas.beginPath();
 		canvas.arc(CX, CY, RINGS[i].radius, GAP / 2_cv, 2_cv * slughorn::PI_CV - GAP / 2_cv);
-		canvas.stroke(RINGS[i].width, C_RING, 1_cv, slughorn::Key("ring_" + std::to_string(i)), Origin(CX, CY));
+		canvas.stroke({.width=RINGS[i].width}, C_RING, 1_cv, slughorn::Key("ring_" + std::to_string(i)), Origin({CX, CY}));
 	}
 
 	// Pulsing center dot
@@ -177,7 +177,7 @@ int main(int argc, char** argv) {
 
 	canvas.beginPath();
 	canvas.circle(CX, CY, 0.022_cv);
-	canvas.fill(C_DOT, 1_cv, slughorn::Key("center_dot"), Origin(CX, CY));
+	canvas.fill(C_DOT, 1_cv, slughorn::Key("center_dot"), Origin({CX, CY}));
 
 	atlas->build();
 	atlas->packTextures();

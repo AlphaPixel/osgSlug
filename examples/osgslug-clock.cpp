@@ -160,22 +160,38 @@ int main(int argc, char** argv) {
 	canvas.beginPath();
 	canvas.moveTo(CX, CY);
 	canvas.lineTo(CX, CY + HOUR_LENGTH);
-	canvas.stroke(HOUR_WIDTH, {0.12_cv, 0.12_cv, 0.18_cv, 1_cv}, 1_cv,
-		"clock_hour_hand", slughorn::Atlas::ShapeInfo::Origin(CX, CY),
-		slughorn::canvas::LineJoin::Miter, slughorn::canvas::LineCap::Round);
+	canvas.stroke(
+		{
+			.width=HOUR_WIDTH,
+			.join=slughorn::canvas::LineJoin::Miter,
+			.cap=slughorn::canvas::LineCap::Round
+		},
+		{0.12_cv, 0.12_cv, 0.18_cv, 1_cv},
+		1_cv,
+		"clock_hour_hand",
+		slughorn::Atlas::ShapeInfo::Origin({CX, CY})
+	);
 
 	canvas.beginPath();
 	canvas.moveTo(CX, CY);
 	canvas.lineTo(CX, CY + MIN_LENGTH);
-	canvas.stroke(MIN_WIDTH, {0.12_cv, 0.12_cv, 0.18_cv, 1_cv}, 1_cv,
-		"clock_minute_hand", slughorn::Atlas::ShapeInfo::Origin(CX, CY),
-		slughorn::canvas::LineJoin::Miter, slughorn::canvas::LineCap::Round);
+	canvas.stroke(
+		{
+			.width=MIN_WIDTH,
+			.join=slughorn::canvas::LineJoin::Miter,
+			.cap=slughorn::canvas::LineCap::Round
+		},
+		{0.12_cv, 0.12_cv, 0.18_cv, 1_cv},
+		1_cv,
+		"clock_minute_hand",
+		slughorn::Atlas::ShapeInfo::Origin({CX, CY})
+	);
 
 	canvas.beginPath();
 	canvas.moveTo(CX, CY);
 	canvas.lineTo(CX, CY + SEC_LENGTH);
-	canvas.stroke(SEC_WIDTH, {0.85_cv, 0.15_cv, 0.10_cv, 1_cv}, 1_cv,
-		"clock_second_hand", slughorn::Atlas::ShapeInfo::Origin(CX, CY));
+	canvas.stroke({.width=SEC_WIDTH}, {0.85_cv, 0.15_cv, 0.10_cv, 1_cv}, 1_cv,
+		"clock_second_hand", slughorn::Atlas::ShapeInfo::Origin({CX, CY}));
 
 	// ============================================================================================
 	// Build, finalize the single CompositeShape, then patch effectIds by name.

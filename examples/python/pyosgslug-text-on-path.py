@@ -34,7 +34,7 @@ def build_scene(w, h):
 	path.quad_to(0.1, 0.9, 0.8, 0.9)
 
 	canvas.add_path(path)
-	canvas.stroke(0.001, slughorn.Color(1.0, 0.5, 0.0, 1.0))
+	canvas.stroke(slughorn.canvas.Stroke(width=0.001), slughorn.Color(1.0, 0.5, 0.0, 1.0))
 	canvas.text_on_path(
 		path,
 		TEXT,

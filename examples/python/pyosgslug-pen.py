@@ -67,7 +67,7 @@ def build_pen_shape(atlas_source):
 	is unused - PathDrawable.setColor() below, not the baked layer color, drives Stamp mode's
 	actual render color (see pyosgslug-particles.py's own setColor() usage)."""
 	canvas = slughorn.canvas.Canvas(atlas_source)
-	origin = slughorn.ShapeInfo.Origin(0.0, 0.0)
+	origin = slughorn.ShapeInfo.Origin((0.0, 0.0))
 	key = slughorn.Key("pen")
 
 	canvas.begin_path()

@@ -174,7 +174,7 @@ class PatternHandler(osgGA.GUIEventHandler):
 		if ea.type == osgGA.GUIEventAdapter.FRAME and self.scrolling:
 			dx = (time.time() - self.t0) * SCROLL_SPEED * PERIOD[0]
 
-			self.sd.layers[1].setPatternTransform(slughorn.Matrix.translate(dx, 0.0) * self.base)
+			self.sd.layers[1].setPatternTransform(slughorn.Matrix.translate((dx, 0.0)) * self.base)
 
 		return False
 

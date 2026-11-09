@@ -181,7 +181,7 @@ int main(int argc, char** argv) {
 
 		// The tile was drawn at the canvas origin; move the pattern so a whole cell starts at the
 		// area's corner.
-		handle.transform = slughorn::Matrix::translate(area.x, area.y);
+		handle.transform = slughorn::Matrix::translate({area.x, area.y});
 
 		// The area's background, then the same square filled with its pattern on top.
 		canvas.beginPath();

@@ -35,28 +35,6 @@ OSGSLUG_ENABLE_WARNINGS
 
 namespace example {
 
-#ifdef OSGX_IMGUI
-// The OSG camera manipulator is dispatched in a separate loop AFTER all event
-// handlers, so Widget::handle() returning true cannot block it. This wrapper
-// deflects mouse events when ImGui has an active context and wants capture.
-struct ImGuiAwareManipulator: public osgx::Ortho2DManipulator {
-	bool handle(const osgGA::GUIEventAdapter& ea, osgGA::GUIActionAdapter& aa) override {
-		if(ImGui::GetCurrentContext() && ImGui::GetIO().WantCaptureMouse) {
-			const auto t = ea.getEventType();
-
-			if(
-				t == osgGA::GUIEventAdapter::PUSH ||
-				t == osgGA::GUIEventAdapter::DRAG ||
-				t == osgGA::GUIEventAdapter::RELEASE||
-				t == osgGA::GUIEventAdapter::SCROLL
-			) return false;
-		}
-
-		return osgx::Ortho2DManipulator::handle(ea, aa);
-	}
-};
-#endif
-
 // A one-shot edit run on a context's graphics thread, between frames. Event handlers run on the
 // main thread while (under DrawThreadPerContext) the previous frame is still drawing, and the draw
 // iterates a StateSet's define and mode maps until it has popped every StateSet; editing those
@@ -414,8 +392,7 @@ struct ManipulatorToggleHandler: public osgGA::GUIEventHandler {
 // 'c', copy the printed values into osgslug-tmp.textzoom.cpp so the repro no longer needs manual
 // navigation. Re-fetches the manipulator at handle() time rather than
 // caching it at construction, since ManipulatorToggleHandler (F12) can swap it live for a
-// TrackballManipulator - dynamic_cast to the Ortho2DManipulator base also covers
-// ImGuiAwareManipulator, which derives from it.
+// TrackballManipulator.
 struct CameraDumpHandler: public osgGA::GUIEventHandler {
 	bool handle(const osgGA::GUIEventAdapter& ea, osgGA::GUIActionAdapter& aa) override {
 		if(ea.getEventType() != osgGA::GUIEventAdapter::KEYDOWN) return false;
@@ -668,12 +645,7 @@ inline auto run(
 	}
 
 	else {
-
-#ifdef OSGX_IMGUI
-		auto* m = new ImGuiAwareManipulator();
-#else
 		auto* m = new osgx::Ortho2DManipulator();
-#endif
 
 		viewer.setCameraManipulator(m);
 

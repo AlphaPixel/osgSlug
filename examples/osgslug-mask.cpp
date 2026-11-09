@@ -176,23 +176,23 @@ int main(int argc, char** argv) {
 	else {
 		switch(maskType) {
 		case slughorn::Mask::Type::Circle:
-			canvas.mask(slughorn::Mask::circle(MASK_CX, MASK_CY, 0.25f, invert));
+			canvas.mask(slughorn::Mask::circle({MASK_CX, MASK_CY}, 0.25f, invert));
 			break;
 
 		case slughorn::Mask::Type::Rect:
-			canvas.mask(slughorn::Mask::rect(0.25f, 0.25f, 0.5f, 0.5f, invert));
+			canvas.mask(slughorn::Mask::rect({0.25f, 0.25f}, 0.5f, 0.5f, invert));
 			break;
 
 		case slughorn::Mask::Type::Capsule:
-			canvas.mask(slughorn::Mask::capsule(0.2f, 0.5f, 0.8f, 0.5f, 0.15f, invert));
+			canvas.mask(slughorn::Mask::capsule({0.2f, 0.5f}, {0.8f, 0.5f}, 0.15f, invert));
 			break;
 
 		case slughorn::Mask::Type::Arc:
-			canvas.mask(slughorn::Mask::arc(MASK_CX, MASK_CY, 0.35f, -2.2f, 2.2f, invert));
+			canvas.mask(slughorn::Mask::arc({MASK_CX, MASK_CY}, 0.35f, -2.2f, 2.2f, invert));
 			break;
 
 		case slughorn::Mask::Type::ArcBand:
-			canvas.mask(slughorn::Mask::arcBand(MASK_CX, MASK_CY, 0.35f, -2.2f, 2.2f, 0.05f, invert));
+			canvas.mask(slughorn::Mask::arcBand({MASK_CX, MASK_CY}, 0.35f, -2.2f, 2.2f, 0.05f, invert));
 			break;
 
 		default:

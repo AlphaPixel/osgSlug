@@ -69,14 +69,14 @@ int main(int argc, char** argv) {
 	canvas
 		.beginPath()
 		.roundedRect(2_cv, 2_cv, 356_cv, 516_cv, 18_cv)
-		.stroke(8_cv, {0.85_cv, 0.66_cv, 0.26_cv, 0.7_cv})
+		.stroke({.width=8_cv}, {0.85_cv, 0.66_cv, 0.26_cv, 0.7_cv})
 	;
 
 	canvas
 		.beginPath()
 		.moveTo(20_cv,  250_cv)
 		.lineTo(340_cv, 250_cv)
-		.stroke(1.5_cv, {0.85_cv, 0.66_cv, 0.26_cv, 0.5_cv})
+		.stroke({.width=1.5_cv}, {0.85_cv, 0.66_cv, 0.26_cv, 0.5_cv})
 	;
 
 	canvas.finalize("cardShape");
@@ -122,7 +122,7 @@ int main(int argc, char** argv) {
 		.beginPath()
 		.moveTo(168_cv, 168_cv)
 		.bezierTo(174_cv, 174_cv, 186_cv, 174_cv, 192_cv, 168_cv)
-		.stroke(1.8_cv, face)
+		.stroke({.width=1.8_cv}, face)
 	;
 
 	// ── GILL PLUMES ────────────────────────────────────────────────────────────
@@ -134,72 +134,72 @@ int main(int argc, char** argv) {
 		.beginPath()
 		.moveTo(130_cv, 152_cv)
 		.bezierTo(116_cv, 142_cv, 101_cv, 122_cv, 90_cv, 96_cv)
-		.stroke(2.8_cv, gillMain, 1_cv, "gill_l0")
+		.stroke({.width=2.8_cv}, gillMain, 1_cv, "gill_l0")
 	;
 
-	canvas.beginPath().moveTo(115_cv, 133_cv).bezierTo(109_cv, 125_cv, 104_cv, 118_cv, 101_cv, 110_cv).stroke(1.4_cv, gillBranch, 1_cv, "gill_l0_b0");
-	canvas.beginPath().moveTo(107_cv, 120_cv).bezierTo(101_cv, 113_cv,  97_cv, 107_cv,  96_cv, 100_cv).stroke(1.4_cv, gillBranch, 1_cv, "gill_l0_b1");
-	canvas.beginPath().moveTo( 99_cv, 106_cv).bezierTo( 94_cv, 100_cv,  91_cv,  95_cv,  90_cv,  90_cv).stroke(1.4_cv, gillBranch, 1_cv, "gill_l0_b2");
+	canvas.beginPath().moveTo(115_cv, 133_cv).bezierTo(109_cv, 125_cv, 104_cv, 118_cv, 101_cv, 110_cv).stroke({.width=1.4_cv}, gillBranch, 1_cv, "gill_l0_b0");
+	canvas.beginPath().moveTo(107_cv, 120_cv).bezierTo(101_cv, 113_cv,  97_cv, 107_cv,  96_cv, 100_cv).stroke({.width=1.4_cv}, gillBranch, 1_cv, "gill_l0_b1");
+	canvas.beginPath().moveTo( 99_cv, 106_cv).bezierTo( 94_cv, 100_cv,  91_cv,  95_cv,  90_cv,  90_cv).stroke({.width=1.4_cv}, gillBranch, 1_cv, "gill_l0_b2");
 
 	// Left middle stalk + branches
 	canvas
 		.beginPath()
 		.moveTo(140_cv, 141_cv)
 		.bezierTo(132_cv, 127_cv, 127_cv, 106_cv, 124_cv, 78_cv)
-		.stroke(2.8_cv, gillMain, 1_cv, "gill_l1")
+		.stroke({.width=2.8_cv}, gillMain, 1_cv, "gill_l1")
 	;
 
-	canvas.beginPath().moveTo(135_cv, 124_cv).bezierTo(128_cv, 117_cv, 124_cv, 111_cv, 122_cv, 105_cv).stroke(1.4_cv, gillBranch, 1_cv, "gill_l1_b0");
-	canvas.beginPath().moveTo(130_cv, 109_cv).bezierTo(124_cv, 103_cv, 121_cv,  97_cv, 120_cv,  91_cv).stroke(1.4_cv, gillBranch, 1_cv, "gill_l1_b1");
-	canvas.beginPath().moveTo(125_cv,  93_cv).bezierTo(120_cv,  87_cv, 118_cv,  82_cv, 117_cv,  77_cv).stroke(1.4_cv, gillBranch, 1_cv, "gill_l1_b2");
+	canvas.beginPath().moveTo(135_cv, 124_cv).bezierTo(128_cv, 117_cv, 124_cv, 111_cv, 122_cv, 105_cv).stroke({.width=1.4_cv}, gillBranch, 1_cv, "gill_l1_b0");
+	canvas.beginPath().moveTo(130_cv, 109_cv).bezierTo(124_cv, 103_cv, 121_cv,  97_cv, 120_cv,  91_cv).stroke({.width=1.4_cv}, gillBranch, 1_cv, "gill_l1_b1");
+	canvas.beginPath().moveTo(125_cv,  93_cv).bezierTo(120_cv,  87_cv, 118_cv,  82_cv, 117_cv,  77_cv).stroke({.width=1.4_cv}, gillBranch, 1_cv, "gill_l1_b2");
 
 	// Left inner stalk + branches
 	canvas
 		.beginPath()
 		.moveTo(152_cv, 134_cv)
 		.bezierTo(149_cv, 119_cv, 148_cv, 101_cv, 151_cv, 74_cv)
-		.stroke(2.8_cv, gillMain, 1_cv, "gill_l2")
+		.stroke({.width=2.8_cv}, gillMain, 1_cv, "gill_l2")
 	;
 
-	canvas.beginPath().moveTo(151_cv, 117_cv).bezierTo(146_cv, 111_cv, 143_cv, 105_cv, 142_cv,  99_cv).stroke(1.4_cv, gillBranch, 1_cv, "gill_l2_b0");
-	canvas.beginPath().moveTo(150_cv, 101_cv).bezierTo(146_cv,  95_cv, 144_cv,  89_cv, 143_cv,  83_cv).stroke(1.4_cv, gillBranch, 1_cv, "gill_l2_b1");
-	canvas.beginPath().moveTo(151_cv,  85_cv).bezierTo(148_cv,  79_cv, 147_cv,  73_cv, 147_cv,  67_cv).stroke(1.4_cv, gillBranch, 1_cv, "gill_l2_b2");
+	canvas.beginPath().moveTo(151_cv, 117_cv).bezierTo(146_cv, 111_cv, 143_cv, 105_cv, 142_cv,  99_cv).stroke({.width=1.4_cv}, gillBranch, 1_cv, "gill_l2_b0");
+	canvas.beginPath().moveTo(150_cv, 101_cv).bezierTo(146_cv,  95_cv, 144_cv,  89_cv, 143_cv,  83_cv).stroke({.width=1.4_cv}, gillBranch, 1_cv, "gill_l2_b1");
+	canvas.beginPath().moveTo(151_cv,  85_cv).bezierTo(148_cv,  79_cv, 147_cv,  73_cv, 147_cv,  67_cv).stroke({.width=1.4_cv}, gillBranch, 1_cv, "gill_l2_b2");
 
 	// Right outer stalk + branches
 	canvas
 		.beginPath()
 		.moveTo(230_cv, 152_cv)
 		.bezierTo(244_cv, 142_cv, 259_cv, 122_cv, 270_cv, 96_cv)
-		.stroke(2.8_cv, gillMain, 1_cv, "gill_r0")
+		.stroke({.width=2.8_cv}, gillMain, 1_cv, "gill_r0")
 	;
 
-	canvas.beginPath().moveTo(245_cv, 133_cv).bezierTo(251_cv, 125_cv, 256_cv, 118_cv, 259_cv, 110_cv).stroke(1.4_cv, gillBranch, 1_cv, "gill_r0_b0");
-	canvas.beginPath().moveTo(253_cv, 120_cv).bezierTo(259_cv, 113_cv, 263_cv, 107_cv, 264_cv, 100_cv).stroke(1.4_cv, gillBranch, 1_cv, "gill_r0_b1");
-	canvas.beginPath().moveTo(261_cv, 106_cv).bezierTo(266_cv, 100_cv, 269_cv,  95_cv, 270_cv,  90_cv).stroke(1.4_cv, gillBranch, 1_cv, "gill_r0_b2");
+	canvas.beginPath().moveTo(245_cv, 133_cv).bezierTo(251_cv, 125_cv, 256_cv, 118_cv, 259_cv, 110_cv).stroke({.width=1.4_cv}, gillBranch, 1_cv, "gill_r0_b0");
+	canvas.beginPath().moveTo(253_cv, 120_cv).bezierTo(259_cv, 113_cv, 263_cv, 107_cv, 264_cv, 100_cv).stroke({.width=1.4_cv}, gillBranch, 1_cv, "gill_r0_b1");
+	canvas.beginPath().moveTo(261_cv, 106_cv).bezierTo(266_cv, 100_cv, 269_cv,  95_cv, 270_cv,  90_cv).stroke({.width=1.4_cv}, gillBranch, 1_cv, "gill_r0_b2");
 
 	// Right middle stalk + branches
 	canvas
 		.beginPath()
 		.moveTo(220_cv, 141_cv)
 		.bezierTo(228_cv, 127_cv, 233_cv, 106_cv, 236_cv, 78_cv)
-		.stroke(2.8_cv, gillMain, 1_cv, "gill_r1")
+		.stroke({.width=2.8_cv}, gillMain, 1_cv, "gill_r1")
 	;
 
-	canvas.beginPath().moveTo(225_cv, 124_cv).bezierTo(232_cv, 117_cv, 236_cv, 111_cv, 238_cv, 105_cv).stroke(1.4_cv, gillBranch, 1_cv, "gill_r1_b0");
-	canvas.beginPath().moveTo(230_cv, 109_cv).bezierTo(236_cv, 103_cv, 239_cv,  97_cv, 240_cv,  91_cv).stroke(1.4_cv, gillBranch, 1_cv, "gill_r1_b1");
-	canvas.beginPath().moveTo(235_cv,  93_cv).bezierTo(240_cv,  87_cv, 242_cv,  82_cv, 243_cv,  77_cv).stroke(1.4_cv, gillBranch, 1_cv, "gill_r1_b2");
+	canvas.beginPath().moveTo(225_cv, 124_cv).bezierTo(232_cv, 117_cv, 236_cv, 111_cv, 238_cv, 105_cv).stroke({.width=1.4_cv}, gillBranch, 1_cv, "gill_r1_b0");
+	canvas.beginPath().moveTo(230_cv, 109_cv).bezierTo(236_cv, 103_cv, 239_cv,  97_cv, 240_cv,  91_cv).stroke({.width=1.4_cv}, gillBranch, 1_cv, "gill_r1_b1");
+	canvas.beginPath().moveTo(235_cv,  93_cv).bezierTo(240_cv,  87_cv, 242_cv,  82_cv, 243_cv,  77_cv).stroke({.width=1.4_cv}, gillBranch, 1_cv, "gill_r1_b2");
 
 	// Right inner stalk + branches
 	canvas
 		.beginPath()
 		.moveTo(208_cv, 134_cv)
 		.bezierTo(211_cv, 119_cv, 212_cv, 101_cv, 209_cv, 74_cv)
-		.stroke(2.8_cv, gillMain, 1_cv, "gill_r2")
+		.stroke({.width=2.8_cv}, gillMain, 1_cv, "gill_r2")
 	;
 
-	canvas.beginPath().moveTo(209_cv, 117_cv).bezierTo(214_cv, 111_cv, 217_cv, 105_cv, 218_cv,  99_cv).stroke(1.4_cv, gillBranch, 1_cv, "gill_r2_b0");
-	canvas.beginPath().moveTo(210_cv, 101_cv).bezierTo(214_cv,  95_cv, 216_cv,  89_cv, 217_cv,  83_cv).stroke(1.4_cv, gillBranch, 1_cv, "gill_r2_b1");
-	canvas.beginPath().moveTo(209_cv,  85_cv).bezierTo(212_cv,  79_cv, 213_cv,  73_cv, 213_cv,  67_cv).stroke(1.4_cv, gillBranch, 1_cv, "gill_r2_b2");
+	canvas.beginPath().moveTo(209_cv, 117_cv).bezierTo(214_cv, 111_cv, 217_cv, 105_cv, 218_cv,  99_cv).stroke({.width=1.4_cv}, gillBranch, 1_cv, "gill_r2_b0");
+	canvas.beginPath().moveTo(210_cv, 101_cv).bezierTo(214_cv,  95_cv, 216_cv,  89_cv, 217_cv,  83_cv).stroke({.width=1.4_cv}, gillBranch, 1_cv, "gill_r2_b1");
+	canvas.beginPath().moveTo(209_cv,  85_cv).bezierTo(212_cv,  79_cv, 213_cv,  73_cv, 213_cv,  67_cv).stroke({.width=1.4_cv}, gillBranch, 1_cv, "gill_r2_b2");
 
 	// ── ARMS & LEGS ────────────────────────────────────────────────────────────
 	const slughorn::Color limb = {0.93_cv, 0.88_cv, 0.81_cv, 1.0_cv};
@@ -209,37 +209,37 @@ int main(int argc, char** argv) {
 		.moveTo(122_cv, 174_cv)
 		.bezierTo(106_cv, 178_cv,  90_cv, 182_cv,  76_cv, 192_cv)
 		.bezierTo( 68_cv, 198_cv,  64_cv, 206_cv,  66_cv, 212_cv)
-		.stroke(9_cv, limb)
+		.stroke({.width=9_cv}, limb)
 	;
 
-	canvas.beginPath().moveTo(66_cv, 212_cv).bezierTo(60_cv, 219_cv, 55_cv, 224_cv, 51_cv, 227_cv).stroke(4_cv, limb);
-	canvas.beginPath().moveTo(66_cv, 212_cv).bezierTo(64_cv, 220_cv, 63_cv, 226_cv, 62_cv, 231_cv).stroke(4_cv, limb);
-	canvas.beginPath().moveTo(66_cv, 212_cv).bezierTo(70_cv, 219_cv, 72_cv, 225_cv, 73_cv, 230_cv).stroke(4_cv, limb);
+	canvas.beginPath().moveTo(66_cv, 212_cv).bezierTo(60_cv, 219_cv, 55_cv, 224_cv, 51_cv, 227_cv).stroke({.width=4_cv}, limb);
+	canvas.beginPath().moveTo(66_cv, 212_cv).bezierTo(64_cv, 220_cv, 63_cv, 226_cv, 62_cv, 231_cv).stroke({.width=4_cv}, limb);
+	canvas.beginPath().moveTo(66_cv, 212_cv).bezierTo(70_cv, 219_cv, 72_cv, 225_cv, 73_cv, 230_cv).stroke({.width=4_cv}, limb);
 
 	canvas
 		.beginPath()
 		.moveTo(238_cv, 174_cv)
 		.bezierTo(254_cv, 178_cv, 270_cv, 182_cv, 284_cv, 192_cv)
 		.bezierTo(292_cv, 198_cv, 296_cv, 206_cv, 294_cv, 212_cv)
-		.stroke(9_cv, limb)
+		.stroke({.width=9_cv}, limb)
 	;
 
-	canvas.beginPath().moveTo(294_cv, 212_cv).bezierTo(300_cv, 219_cv, 305_cv, 224_cv, 309_cv, 227_cv).stroke(4_cv, limb);
-	canvas.beginPath().moveTo(294_cv, 212_cv).bezierTo(296_cv, 220_cv, 297_cv, 226_cv, 298_cv, 231_cv).stroke(4_cv, limb);
-	canvas.beginPath().moveTo(294_cv, 212_cv).bezierTo(290_cv, 219_cv, 288_cv, 225_cv, 287_cv, 230_cv).stroke(4_cv, limb);
+	canvas.beginPath().moveTo(294_cv, 212_cv).bezierTo(300_cv, 219_cv, 305_cv, 224_cv, 309_cv, 227_cv).stroke({.width=4_cv}, limb);
+	canvas.beginPath().moveTo(294_cv, 212_cv).bezierTo(296_cv, 220_cv, 297_cv, 226_cv, 298_cv, 231_cv).stroke({.width=4_cv}, limb);
+	canvas.beginPath().moveTo(294_cv, 212_cv).bezierTo(290_cv, 219_cv, 288_cv, 225_cv, 287_cv, 230_cv).stroke({.width=4_cv}, limb);
 
 	canvas
 		.beginPath()
 		.moveTo(138_cv, 203_cv)
 		.bezierTo(125_cv, 213_cv, 114_cv, 222_cv, 108_cv, 233_cv)
-		.stroke(7_cv, limb)
+		.stroke({.width=7_cv}, limb)
 	;
 
 	canvas
 		.beginPath()
 		.moveTo(222_cv, 203_cv)
 		.bezierTo(235_cv, 213_cv, 246_cv, 222_cv, 252_cv, 233_cv)
-		.stroke(7_cv, limb)
+		.stroke({.width=7_cv}, limb)
 	;
 
 	auto axo = canvas.finalize();
@@ -283,7 +283,7 @@ int main(int argc, char** argv) {
 	canvas
 		.beginPath()
 		.roundedRect(22_cv, 330_cv, 316_cv, 145_cv, 8_cv)
-		.stroke(1.5_cv, {0.85_cv, 0.66_cv, 0.26_cv, 0.5_cv})
+		.stroke({.width=1.5_cv}, {0.85_cv, 0.66_cv, 0.26_cv, 0.5_cv})
 	;
 
 	auto flavorBox = canvas.finalize();

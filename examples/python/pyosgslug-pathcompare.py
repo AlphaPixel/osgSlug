@@ -344,12 +344,14 @@ def build_atlas():
 
 				try:
 					layers[(name, join, cap)] = cvs.stroke(
-						WIDTH / LENGTH,
+						slughorn.canvas.Stroke(
+							width=WIDTH / LENGTH,
+							join=join,
+							cap=cap,
+							miter_limit=MITER_LIMIT
+						),
 						SHAPE_COLOR,
-						scale=LENGTH,
-						join=join,
-						cap=cap,
-						miter_limit=MITER_LIMIT
+						scale=LENGTH
 					)
 
 				except Exception as e:

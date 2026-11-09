@@ -43,7 +43,7 @@
 // so multiple GridDrawables can share the same Atlas without conflict.
 //
 // The unit square is a 1x1 filled rect at the origin, producing:
-//   bearingX=0, bearingY=1, width=1, height=1 (via autoMetrics)
+//   bearing=(0, 1), width=1, height=1 (via autoMetrics)
 // ================================================================================================
 
 namespace osgSlug {
@@ -102,13 +102,13 @@ public:
 		if(!shape) return;
 
 		// Pre-compute the em-space corners (same for every quad).
-		// Unit square with autoMetrics: bearingX=0, bearingY=1, width=1, height=1.
+		// Unit square with autoMetrics: bearing=(0, 1), width=1, height=1.
 		static constexpr slug_t EXPAND = 0.01_cv;
 
-		const slug_t emX0 = shape->bearingX - EXPAND;
-		const slug_t emY0 = (shape->bearingY - shape->height) - EXPAND;
-		const slug_t emX1 = (shape->bearingX + shape->width) + EXPAND;
-		const slug_t emY1 = shape->bearingY + EXPAND;
+		const slug_t emX0 = shape->bearing.x - EXPAND;
+		const slug_t emY0 = (shape->bearing.y - shape->height) - EXPAND;
+		const slug_t emX1 = (shape->bearing.x + shape->width) + EXPAND;
+		const slug_t emY1 = shape->bearing.y + EXPAND;
 
 		const slug_t shapeIdx = cv(_atlas->getShapeIndex(UNIT_SQUARE_KEY));
 
@@ -454,7 +454,7 @@ int main(int argc, char** argv) {
 	if(shape) {
 		std::cout
 			<< "Shape metrics:" << std::endl
-			<< " bearing : (" << shape->bearingX << ", " << shape->bearingY << ")" << std::endl
+			<< " bearing : (" << shape->bearing.x << ", " << shape->bearing.y << ")" << std::endl
 			<< " size : " << shape->width << " x " << shape->height << std::endl
 			<< " advance : " << shape->advance << std::endl
 			<< " bandTex : (" << shape->bandTexX << ", " << shape->bandTexY << ")" << std::endl

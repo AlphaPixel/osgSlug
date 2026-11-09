@@ -56,7 +56,7 @@ int main(int argc, char** argv) {
 	canvas.lineTo(0.9_cv, 0.1_cv);
 	// canvas.strokePath(0.3_cv);
 
-	auto key = canvas.stroke(0.35_cv, {}); */
+	auto key = canvas.stroke({.width=0.35_cv}, {}); */
 
 	// First, we stroke a single, fat chevron using the default CCW winding.
 	canvas

@@ -115,7 +115,7 @@ int main(int argc, char** argv) {
 	canvas.lineTo(cx - rInner * seamCos, cy + rInner * seamSin);
 	canvas.arc(cx, cy, rInner, slughorn::PI_CV - seam, seam, true);
 	canvas.closePath();
-	canvas.stroke(0.005_cv, {1_cv, 1_cv, 1_cv, 1_cv});
+	canvas.stroke({.width=0.005_cv}, {1_cv, 1_cv, 1_cv, 1_cv});
 
 	const auto rMid = (rOuter + rInner) / 2_cv;
 	const auto bW = 0.03_cv;
@@ -201,8 +201,7 @@ int main(int argc, char** argv) {
 			{1_cv, 1_cv, 1_cv, 1_cv}, 1_cv,
 			slughorn::Atlas::ShapeInfo::Origin(
 				slughorn::Atlas::ShapeInfo::Origin::Type::Custom,
-				cv(std::cos(double(theta))) * ejectDist,
-				cv(std::sin(double(theta))) * ejectDist
+				{cv(std::cos(double(theta))) * ejectDist, cv(std::sin(double(theta))) * ejectDist}
 			)
 		);
 		canvas.restore();

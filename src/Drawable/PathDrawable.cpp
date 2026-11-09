@@ -420,6 +420,7 @@ static const std::string PATH_SLUGGIT_MAIN = R"GLSL(
 	uniform vec4 u_emCorners; // x=emX0, y=emY0, z=emX1, w=emY1
 	uniform vec4 u_bandTransform; // x=bandScaleX, y=bandScaleY, z=bandOffsetX, w=bandOffsetY
 	uniform vec4 u_shapeData; // x=bandTexX, y=bandTexY, z=bandMaxX, w=bandMaxY
+	uniform float u_strokeRadius; // the shape's strokeRadius (> 0 = centerline stroke)
 
 	// The paint slot (geom.gradientMeta/gradientTransform) for setPatternId(); all zero for none.
 	uniform vec4 u_patternMeta;
@@ -590,6 +591,7 @@ static const std::string PATH_SLUGGIT_MAIN = R"GLSL(
 		geom.gradientTransform = u_patternTransform;
 		fx.bandTransform = u_bandTransform;
 		fx.shapeData = u_shapeData;
+		fx.strokeRadius = u_strokeRadius;
 		fx.effectId = u_effectId;
 		fx.gradientId = int(floor(u_patternMeta.x + 0.5));
 		fx.sdfTile = -1;
@@ -683,6 +685,7 @@ static const char* PATH_STAMP_VERT = R"GLSL(
 	uniform vec4 u_emCorners; // x=emX0, y=emY0, z=emX1, w=emY1
 	uniform vec4 u_bandTransform;
 	uniform vec4 u_shapeData;
+	uniform float u_strokeRadius;
 
 	const vec2 CORNERS[4] = vec2[4](
 		vec2(0.0, 0.0), vec2(1.0, 0.0), vec2(1.0, 1.0), vec2(0.0, 1.0)
@@ -723,6 +726,7 @@ static const char* PATH_STAMP_VERT = R"GLSL(
 		geom.gradientTransform = vec4(0.0);
 		fx.bandTransform = u_bandTransform;
 		fx.shapeData = u_shapeData;
+		fx.strokeRadius = u_strokeRadius;
 		fx.effectId = u_effectId;
 		fx.gradientId = 0;
 		fx.sdfTile = -1;
@@ -747,7 +751,7 @@ static const char* PATH_STAMP_TABLE_VERT = R"GLSL(
 	struct osgSlug_ShapeTableData {
 		vec4 bandTransform;
 		vec4 shapeData;
-		vec4 originData;
+		vec4 originData; // xy = origin, z = strokeRadius
 		vec4 emCorners; // x=emX0, y=emY0, z=emX1, w=emY1
 	};
 
@@ -806,6 +810,7 @@ static const char* PATH_STAMP_TABLE_VERT = R"GLSL(
 		geom.gradientTransform = vec4(0.0);
 		fx.bandTransform = sd.bandTransform;
 		fx.shapeData = sd.shapeData;
+		fx.strokeRadius = sd.originData.z;
 		fx.effectId = u_effectId;
 		fx.gradientId = 0;
 		fx.sdfTile = -1;
@@ -990,7 +995,7 @@ void PathDrawable::_updatePatternUniforms() {
 			auto info = patterns[_patternId - 1];
 
 			const slug_t scale = info.cellHeight / shape->height;
-			const slug_t emY0 = shape->bearingY - shape->height;
+			const slug_t emY0 = shape->bearing.y - shape->height;
 			const slughorn::Matrix fit = {
 				.xx = scale,
 				.yy = scale,
@@ -1081,7 +1086,7 @@ void PathDrawable::setPaths(const std::vector<std::vector<Vec4>>& subpaths, cons
 
 			for(const auto& p : sub) extent = std::max({extent, std::abs(p.x()), std::abs(p.y())});
 
-			if(slughorn::coincident(last.x(), last.y(), first.x(), first.y(), extent)) {
+			if(slughorn::coincident({last.x(), last.y()}, {first.x(), first.y()}, extent)) {
 				sub.back().x() = first.x();
 				sub.back().y() = first.y();
 			}
@@ -1124,7 +1129,7 @@ void PathDrawable::setPaths(const std::vector<slughorn::canvas::Path::Polyline>&
 
 		sub.reserve(line.points.size());
 
-		for(const auto& s : line.points) sub.emplace_back(s.x, s.y, s.arcLength, 0_cv);
+		for(const auto& s : line.points) sub.emplace_back(s.point.x, s.point.y, s.arcLength, 0_cv);
 
 		closed.push_back(line.closed);
 	}
@@ -1151,13 +1156,11 @@ void PathDrawable::setPaths(const slughorn::Atlas& atlas, const slughorn::Layer&
 	auto polylines = slughorn::canvas::Path(*shape).polylines(step / layer.scale);
 
 	// Shape::computeQuad()'s placement: em point e lands at (transform - origin + e) * scale.
-	const slug_t dx = layer.transform.x - shape->originX;
-	const slug_t dy = layer.transform.y - shape->originY;
+	const slughorn::Point d = {layer.transform.x - shape->origin.point.x, layer.transform.y - shape->origin.point.y};
 
 	for(auto& line : polylines) {
 		for(auto& s : line.points) {
-			s.x = (dx + s.x) * layer.scale;
-			s.y = (dy + s.y) * layer.scale;
+			s.point = (d + s.point) * layer.scale;
 			s.arcLength *= layer.scale;
 		}
 	}
@@ -1321,17 +1324,17 @@ void PathDrawable::compile() {
 
 				table.emplace_back(shape->bandScaleX, shape->bandScaleY, shape->bandOffsetX, shape->bandOffsetY);
 				table.emplace_back(cv(shape->bandTexX), cv(shape->bandTexY), cv(shape->bandMaxX), cv(shape->bandMaxY));
-				table.emplace_back(shape->originX, shape->originY, 0_cv, 0_cv);
+				table.emplace_back(shape->origin.point.x, shape->origin.point.y, shape->strokeRadius, 0_cv);
 
 				// PATH_EXPAND pushes every edge OUTWARD by the same amount on both axes. X is a
 				// real rendered extent for Stamp, so pushing it inward would shave PATH_EXPAND off
 				// the shape's own left/right edges (clipped corners on wide/flat glyphs, e.g. the
 				// feet of a capital A).
 				table.emplace_back(
-					shape->bearingX - PATH_EXPAND,
-					(shape->bearingY - shape->height) - PATH_EXPAND,
-					(shape->bearingX + shape->width) + PATH_EXPAND,
-					shape->bearingY + PATH_EXPAND
+					shape->bearing.x - PATH_EXPAND,
+					(shape->bearing.y - shape->height) - PATH_EXPAND,
+					(shape->bearing.x + shape->width) + PATH_EXPAND,
+					shape->bearing.y + PATH_EXPAND
 				);
 			}
 
@@ -1353,6 +1356,7 @@ void PathDrawable::compile() {
 			ss->addUniform(new osg::Uniform("u_emCorners", Vec4(0_cv, 0_cv, 1_cv, 1_cv)));
 			ss->addUniform(new osg::Uniform("u_bandTransform", Vec4(0_cv, 0_cv, 0_cv, 0_cv)));
 			ss->addUniform(new osg::Uniform("u_shapeData", Vec4(0_cv, 0_cv, 0_cv, 0_cv)));
+			ss->addUniform(new osg::Uniform("u_strokeRadius", 0.0f));
 			ss->setDefine("OSGSLUG_UNIT_SQUARE");
 		}
 
@@ -1368,16 +1372,16 @@ void PathDrawable::compile() {
 			// Stamp: see the multiShape branch above for why this is a symmetric outward push on
 			// both axes.
 			const slug_t expand = _mode == PathMode::Stamp ? PATH_EXPAND : 0_cv;
-			const slug_t emX0 = shape->bearingX - expand;
-			const slug_t emY0 = (shape->bearingY - shape->height) - expand;
-			const slug_t emX1 = (shape->bearingX + shape->width) + expand;
-			const slug_t emY1 = shape->bearingY + expand;
+			const slug_t emX0 = shape->bearing.x - expand;
+			const slug_t emY0 = (shape->bearing.y - shape->height) - expand;
+			const slug_t emX1 = (shape->bearing.x + shape->width) + expand;
+			const slug_t emY1 = shape->bearing.y + expand;
 
 			// The hook contract's data.origin. Uploaded per-shape in the multiShape branch above
 			// (osgSlug_ShapeTableData.originData), which is why that branch doesn't set this.
 			ss->addUniform(new osg::Uniform("u_origin", osg::Vec2(
-				static_cast<float>(shape->originX),
-				static_cast<float>(shape->originY)
+				static_cast<float>(shape->origin.point.x),
+				static_cast<float>(shape->origin.point.y)
 			)));
 			ss->addUniform(new osg::Uniform("u_emCorners", Vec4(emX0, emY0, emX1, emY1)));
 			ss->addUniform(new osg::Uniform("u_bandTransform", Vec4(
@@ -1388,6 +1392,7 @@ void PathDrawable::compile() {
 				cv(shape->bandTexX), cv(shape->bandTexY),
 				cv(shape->bandMaxX), cv(shape->bandMaxY)
 			)));
+			ss->addUniform(new osg::Uniform("u_strokeRadius", static_cast<float>(shape->strokeRadius)));
 		}
 
 		// Sluggit patterns: the Atlas's pattern table and its coverage_lib gate, bound here for the

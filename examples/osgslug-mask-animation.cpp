@@ -320,12 +320,12 @@ int main(int argc, char** argv) {
 	};
 
 	addEmojiQuad(0, slughorn::Mask::hexagon(
-		QUAD_CENTERS[0].first, QUAD_CENTERS[0].second, 0.3f, 0.3f, invert));
+		{QUAD_CENTERS[0].first, QUAD_CENTERS[0].second}, 0.3f, 0.3f, invert));
 	addEmojiQuad(1, slughorn::Mask::octagon(
-		QUAD_CENTERS[1].first, QUAD_CENTERS[1].second, 0.4f, 0.0f, invert));
+		{QUAD_CENTERS[1].first, QUAD_CENTERS[1].second}, 0.4f, 0.0f, invert));
 	addEmojiQuad(2, heartMask);
 	addEmojiQuad(3, slughorn::Mask::star(
-		QUAD_CENTERS[3].first, QUAD_CENTERS[3].second, 0.4f, 5.0f, 0.5f, 0.0f, invert));
+		{QUAD_CENTERS[3].first, QUAD_CENTERS[3].second}, 0.4f, 5.0f, 0.5f, 0.0f, invert));
 
 	auto sd = example::makeShapeDrawable();
 

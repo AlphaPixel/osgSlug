@@ -441,8 +441,8 @@ static osg::ref_ptr<osg::Geometry> makeQuad(float x0, float y0, float x1, float 
 // The tile's quad in world space: em-space tile corners scaled by EM, so it lands exactly where
 // the other techniques place the same glyph.
 static osg::ref_ptr<osg::Geometry> makeFieldQuad(const slughorn::Atlas::SDF::Tile& tile) {
-	const float x0 = static_cast<float>(tile.emOriginX) * EM;
-	const float y0 = static_cast<float>(tile.emOriginY) * EM;
+	const float x0 = static_cast<float>(tile.emOrigin.x) * EM;
+	const float y0 = static_cast<float>(tile.emOrigin.y) * EM;
 
 	return makeQuad(
 		x0,
@@ -582,14 +582,14 @@ static RivePanel makeRiveTexturePanel(
 	const int h = static_cast<int>(std::ceil(static_cast<float>(shape.height) * res)) + RIVE_MARGIN * 2;
 
 	// Rive target pixels are y-down: put the ink box's top-left corner at (margin, margin), which
-	// puts the baseline origin at (margin - bearingX, margin + bearingY) in pixels.
+	// puts the baseline origin at (margin - bearing.x, margin + bearing.y) in pixels.
 	auto scene = osgx::make_ref<osgRive::Scene>(
 		osgRive::makeTextDraw(
 			fontPath,
 			glyph,
 			res,
-			margin - static_cast<float>(shape.bearingX) * res,
-			margin + static_cast<float>(shape.bearingY) * res,
+			margin - static_cast<float>(shape.bearing.x) * res,
+			margin + static_cast<float>(shape.bearing.y) * res,
 			toARGB(FOREGROUND)
 		),
 		static_cast<unsigned int>(w),
@@ -602,8 +602,8 @@ static RivePanel makeRiveTexturePanel(
 	program->addShader(new osg::Shader(osg::Shader::FRAGMENT, RIVE_FRAG));
 
 	// The texture's em-space rect, scaled by EM.
-	const float x0 = (static_cast<float>(shape.bearingX) - margin / res) * EM;
-	const float y1 = (static_cast<float>(shape.bearingY) + margin / res) * EM;
+	const float x0 = (static_cast<float>(shape.bearing.x) - margin / res) * EM;
+	const float y1 = (static_cast<float>(shape.bearing.y) + margin / res) * EM;
 
 	auto node = osgx::make_ref<osg::Geode>();
 
@@ -749,8 +749,8 @@ static RivePanel makeRiveScreenPanel(
 
 	// Ink-box center in Rive em coordinates (y down).
 	const osg::Vec2d center(
-		static_cast<double>(shape.bearingX + shape.width * 0.5_cv),
-		-static_cast<double>(shape.bearingY - shape.height * 0.5_cv)
+		static_cast<double>(shape.bearing.x + shape.width * 0.5_cv),
+		-static_cast<double>(shape.bearing.y - shape.height * 0.5_cv)
 	);
 
 	auto producer = osgx::make_ref<osg::Group>();

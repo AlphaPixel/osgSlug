@@ -39,7 +39,7 @@ const std::string Atlas::SHADER_ATLAS_TYPES = R"(
 struct osgSlug_AtlasShapeData {
 	vec4 bandTransform; // xy = bandScaleX/Y, zw = bandOffsetX/Y
 	vec4 shapeData; // xy = glyphLoc (ivec2), zw = bandMax (ivec2)
-	vec4 originData; // xy = originX/Y, zw = unused
+	vec4 originData; // xy = origin, z = strokeRadius (em; > 0 = centerline stroke), w = unused
 };
 
 layout(std430, binding = @osgSlug::atlas.shapes@) readonly buffer AtlasShapeBuffer {
@@ -123,6 +123,7 @@ out osgSlug_FxBlock {
 	flat float effectParam;
 	flat vec4 bandTransform;
 	flat vec4 shapeData;
+	flat float strokeRadius; // > 0: the shape's curves are a centerline (slug_RenderStroke())
 } fx;
 )";
 
@@ -187,6 +188,7 @@ in osgSlug_FxBlock {
 	flat float effectParam;
 	flat vec4 bandTransform;
 	flat vec4 shapeData;
+	flat float strokeRadius;
 } fx;
 
 // Context structs for hook functions
@@ -674,6 +676,148 @@ float slug_Render(
 }
 
 // ------------------------------------------------------------------------------------------------
+// Centerline strokes; mirror slughorn::render::distanceToCurve() and Sampler::_renderStroke()
+// (render.hpp).
+// ------------------------------------------------------------------------------------------------
+
+// Distance from the origin to B(t) = p1 + 2t * a + t^2 * c.
+float slug_DistanceAt(vec2 p1, vec2 a, vec2 c, float t) {
+	return length(p1 + t * (2.0 * a + t * c));
+}
+
+// Distance from the origin to the quadratic p1, p2, p3 (points already relative to the pixel).
+// The nearest point solves B(t) . B'(t) = 0:
+//
+//     (c . c) t^3 + 3 (a . c) t^2 + (2 (a . a) + p1 . c) t + p1 . a = 0
+//
+// with a = p2 - p1 and c = p1 - 2 * p2 + p3. Its real roots clamped to [0, 1], plus both
+// endpoints (round caps), are the candidates.
+float slug_DistanceToCurve(vec2 p1, vec2 p2, vec2 p3) {
+	vec2 a = p2 - p1;
+	vec2 c = p1 - 2.0 * p2 + p3;
+	float cc = dot(c, c);
+	float aa = dot(a, a);
+
+	// Degenerate: a segment p1 -> p1 + 2a (or a single point when a is also zero).
+	if(cc <= 1e-12 * aa || cc == 0.0) {
+		vec2 d = 2.0 * a;
+		float len2 = dot(d, d);
+		float t = len2 > 0.0 ? clamp(-dot(p1, d) / len2, 0.0, 1.0) : 0.0;
+
+		return length(p1 + t * d);
+	}
+
+	// Monic cubic t^3 + ma t^2 + mb t + mk, then depressed with t = u - ma / 3: u^3 + p u + q = 0.
+	float ma = 3.0 * dot(a, c) / cc;
+	float mb = (2.0 * aa + dot(p1, c)) / cc;
+	float mk = dot(p1, a) / cc;
+	float p = mb - ma * ma / 3.0;
+	float q = 2.0 * ma * ma * ma / 27.0 - ma * mb / 3.0 + mk;
+	float shift = -ma / 3.0;
+	float disc = q * q / 4.0 + p * p * p / 27.0;
+	float best = min(slug_DistanceAt(p1, a, c, 0.0), slug_DistanceAt(p1, a, c, 1.0));
+
+	if(disc > 0.0) {
+		// One real root. The cube root takes the sign that adds like signs (no cancellation); the
+		// other term is -p / (3 * w).
+		float s = sqrt(disc);
+		float h = q >= 0.0 ? -q / 2.0 - s : -q / 2.0 + s;
+		float w = sign(h) * pow(abs(h), 1.0 / 3.0);
+		float u = w != 0.0 ? w - p / (3.0 * w) : 0.0;
+
+		best = min(best, slug_DistanceAt(p1, a, c, clamp(u + shift, 0.0, 1.0)));
+	}
+
+	else {
+		// Three real roots (p <= 0): the trigonometric form.
+		float m = 2.0 * sqrt(max(-p / 3.0, 0.0));
+		float arg = m > 0.0 ? clamp(3.0 * q / (p * m), -1.0, 1.0) : 0.0;
+		float theta = acos(arg) / 3.0;
+		const float third = 2.0943951; // 2 * pi / 3
+
+		for(int i = 0; i < 3; i++) {
+			float u = m * cos(theta - float(i) * third);
+
+			best = min(best, slug_DistanceAt(p1, a, c, clamp(u + shift, 0.0, 1.0)));
+		}
+	}
+
+	return best;
+}
+
+// A stroke shape's curves are a centerline; a point is covered within radius em of the nearest
+// one. Coverage ramps linearly over one pixel centered on that boundary, the pixel's em size taken
+// as the mean of its two axes.
+//
+// The builder files each curve in every band within radius of it, so the pixel's h-band and its
+// v-band each hold every curve that can reach it, and the shorter list is walked. Lists are sorted
+// by descending max x (h-bands) / max y (v-bands), so once a curve's max is farther behind the
+// pixel than the radius plus a pixel, no later curve can reach it either.
+//
+// The ramp reaches half a pixel past radius but the band padding is only radius, so every band of
+// the walked axis within half a pixel of the point is walked; a curve seen twice cannot change
+// the minimum.
+float slug_RenderStroke(
+	vec2 renderCoord,
+	mat2 emJacobian,
+	vec4 bandTransform,
+	ivec2 glyphLoc,
+	ivec2 bandMax,
+	float radius,
+	out int totalIterations
+) {
+	vec2 emsPerPixel = abs(emJacobian[0]) + abs(emJacobian[1]);
+	float emPerPixel = max(0.5 * (emsPerPixel.x + emsPerPixel.y), 1e-12);
+
+	int bandY = slug_BandY(glyphLoc, bandTransform, renderCoord);
+	int bandX = slug_BandX(glyphLoc, bandTransform, renderCoord);
+	int hHeaders = glyphLoc.x + 2 * SLUG_INDIRECTION_SIZE;
+	int vHeaders = hHeaders + bandMax.y + 1;
+	uint hcount = texelFetch(osgSlug_bandTexture, ivec2(hHeaders + bandY, glyphLoc.y), 0).x;
+	uint vcount = texelFetch(osgSlug_bandTexture, ivec2(vHeaders + bandX, glyphLoc.y), 0).x;
+	bool horizontal = hcount <= vcount;
+
+	// The band axis is perpendicular to the sort axis: h-bands slice y, v-bands slice x.
+	float coord = horizontal ? renderCoord.y : renderCoord.x;
+	float bandScale = horizontal ? bandTransform.y : bandTransform.x;
+	float bandOffset = horizontal ? bandTransform.w : bandTransform.z;
+	int indir = glyphLoc.x + (horizontal ? 0 : SLUG_INDIRECTION_SIZE);
+	int headers = horizontal ? hHeaders : vHeaders;
+	float fringe = 0.5 * emPerPixel;
+	int qFirst = clamp(int((coord - fringe) * bandScale + bandOffset), 0, SLUG_INDIRECTION_SIZE - 1);
+	int qLast = clamp(int((coord + fringe) * bandScale + bandOffset), 0, SLUG_INDIRECTION_SIZE - 1);
+	int first = int(texelFetch(osgSlug_bandTexture, ivec2(indir + qFirst, glyphLoc.y), 0).r);
+	int last = int(texelFetch(osgSlug_bandTexture, ivec2(indir + qLast, glyphLoc.y), 0).r);
+
+	// Curve points are taken relative to the pixel, so the cutoff is relative too.
+	float cutoff = -radius - emPerPixel;
+	float d = 1e30;
+	int iters = 0;
+
+	for(int band = first; band <= last; band++) {
+		uvec2 bandData = texelFetch(osgSlug_bandTexture, ivec2(headers + band, glyphLoc.y), 0).xy;
+
+		for(int ci = 0; ci < int(bandData.x); ci++) {
+			ivec2 bandLoc = slug_CalcBandLoc(glyphLoc, bandData.y + uint(ci));
+			ivec2 curveLoc = ivec2(texelFetch(osgSlug_bandTexture, bandLoc, 0).xy);
+			vec4 p12 = texelFetch(osgSlug_curveTexture, curveLoc, 0) - vec4(renderCoord, renderCoord);
+			vec2 p3 = texelFetch(osgSlug_curveTexture, slug_CalcCurveLoc(curveLoc, 1), 0).xy - renderCoord;
+			float maxCoord = horizontal ? max(max(p12.x, p12.z), p3.x) : max(max(p12.y, p12.w), p3.y);
+
+			if(maxCoord < cutoff) break;
+
+			iters++;
+
+			d = min(d, slug_DistanceToCurve(p12.xy, p12.zw, p3));
+		}
+	}
+
+	totalIterations = iters;
+
+	return clamp((radius - d) / emPerPixel + 0.5, 0.0, 1.0);
+}
+
+// ------------------------------------------------------------------------------------------------
 // slug_RenderText
 //
 // Below 16 ppem, blends toward the mean of 4 extra slug_Render() samples (fully by 8 ppem);
@@ -848,9 +992,12 @@ float osgSlug_CoverageFill(out float maskFill, out int iterations) {
 #ifdef OSGSLUG_UNIT_SQUARE
 	float fill = slug_RenderUnitSquare(renderCoord, pixelsPerEm, iterations);
 #else
-	float fill = osgSlug_textMode
-		? slug_RenderText(renderCoord, emJacobian, fx.bandTransform, glyphLoc, bandMax, iterations)
-		: slug_Render(renderCoord, emJacobian, fx.bandTransform, glyphLoc, bandMax, iterations)
+	// The shape's kind picks the method: a stroke radius means its curves are a centerline.
+	float fill = fx.strokeRadius > 0.0
+		? slug_RenderStroke(renderCoord, emJacobian, fx.bandTransform, glyphLoc, bandMax, fx.strokeRadius, iterations)
+		: osgSlug_textMode
+			? slug_RenderText(renderCoord, emJacobian, fx.bandTransform, glyphLoc, bandMax, iterations)
+			: slug_Render(renderCoord, emJacobian, fx.bandTransform, glyphLoc, bandMax, iterations)
 	;
 #endif
 
@@ -980,6 +1127,7 @@ void main() {
 
 	fx.bandTransform = sd.bandTransform;
 	fx.shapeData = sd.shapeData;
+	fx.strokeRadius = sd.originData.z;
 	fx.effectId = effectId;
 	fx.sdfTile = ld.effectData.z < 0.0 ? -1 : int(ld.effectData.z + 0.5);
 	fx.effectParam = ld.effectData.w;
@@ -1075,6 +1223,7 @@ void main() {
 
 	fx.bandTransform = sd.bandTransform;
 	fx.shapeData = sd.shapeData;
+	fx.strokeRadius = sd.originData.z;
 	fx.effectId = effectId;
 	fx.gradientId = int(floor(ld.gradientMeta.x + 0.5)); // floor, not int(): pattern ids are negative
 	fx.sdfTile = ld.effectData.z < 0.0 ? -1 : int(ld.effectData.z + 0.5);
@@ -1113,7 +1262,7 @@ uniform int osgSlug_sdfType; // 0 = SDF (read .r), 1 = MSDF (median of .rgb)
 // The SDF-only tile table (osgSlug::atlas.sdfTiles), one entry per baked tile; a layer's effectData.z holds its
 // index, which reaches here as fx.sdfTile. Deliberately its own buffer - the shape record
 // (osgSlug_AtlasShapeData) and layer record stay SDF-free. rect = (x, y, w, h) in texels; frame =
-// (emOriginX, emOriginY, texelsPerEm, range): texel = rect.xy + (em - frame.xy) * frame.z (see
+// (emOrigin.x, emOrigin.y, texelsPerEm, range): texel = rect.xy + (em - frame.xy) * frame.z (see
 // osgx_SDF_TileTexel, osgx/SDF.hpp, for the shared math this feeds).
 struct osgSlug_SDFTile {
 	vec4 rect;
@@ -2425,6 +2574,16 @@ osg::Program* Atlas::createProgram(const ProgramSpec& spec, const HookList& hook
 	}
 
 	auto* program = new osg::Program();
+
+	// SHADER_FRAG and SHADER_PICK_FRAG both declare osgSlug_MaskBlock at this named
+	// Library slot. GLSL's layout(binding=...) establishes the GL binding, while this
+	// also records it in OSG's Program bookkeeping after link.
+	if(!spec.fragMain.empty()) {
+		program->addBindUniformBlock(
+			"osgSlug_MaskBlock",
+			osgx::Library::instance().bindings().get("osgSlug::mask")
+		);
+	}
 
 	// The vertex hook unit gets the SAME `types` splice as the main unit: a hook is free to read
 	// whatever SSBO/struct vocabulary its host pipeline declares, and a hook that ignores it costs

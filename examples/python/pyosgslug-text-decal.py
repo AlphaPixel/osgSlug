@@ -409,8 +409,8 @@ def build_decal_atlas(args):
 		# for the (separate, already-fixed-by-blend-mode=normal) sibling-layer BlendMode bug.
 		# Forcing 0 here so --emoji renders can be judged on layering alone. Remove once
 		# survivalThreshold actually ramps smoothly from effectParam=0.
-		layer.effectParam = 0.0 if args.emoji else args.erosion
-		layer.blendMode = BLEND_MODES[args.blend_mode]
+		layer.effect_param = 0.0 if args.emoji else args.erosion
+		layer.blend_mode = BLEND_MODES[args.blend_mode]
 
 	# Captured before any panel-driven alpha edits: each layer's own AUTHORED rgb (identical
 	# across every layer for --text, since they all share args.ink, but genuinely distinct per

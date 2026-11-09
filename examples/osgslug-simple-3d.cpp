@@ -53,7 +53,7 @@ int main(int argc, char** argv) {
 		canvas.lineTo(1_cv, t);
 	}
 
-	auto gridLayer = canvas.stroke(0.01_cv, {1_cv, 0.5_cv, 0_cv, 1_cv});
+	auto gridLayer = canvas.stroke({.width=0.01_cv}, {1_cv, 0.5_cv, 0_cv, 1_cv});
 	auto key = gridLayer.key;
 
 	// Three disconnected rects sharing one left-to-right gradient - proves that a single

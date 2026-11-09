@@ -157,7 +157,7 @@ def build_scene(text, font_path, effect, effect_param, dump_sdf_dir=None):
 
 	for layer in comp.layers:
 		layer.bleed = MSDF_RANGE
-		layer.effectParam = effect_param
+		layer.effect_param = effect_param
 
 	a.set_sdf(slughorn.SDF.Config(tile_size=256))
 	a.build()

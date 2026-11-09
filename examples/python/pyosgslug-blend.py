@@ -71,7 +71,7 @@ def build_content(state):
 
 	for layer, circle in zip(comp.layers, state):
 		layer.color = slughorn.Color(*circle["color"])
-		layer.blendMode = BLEND_MODES[circle["blend_mode"]]
+		layer.blend_mode = BLEND_MODES[circle["blend_mode"]]
 
 	source_atlas.build()
 

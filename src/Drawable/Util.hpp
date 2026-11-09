@@ -128,10 +128,10 @@ struct EmBounds { slug_t x0, y0, x1, y1; };
 
 inline EmBounds computeEmBounds(const slughorn::Atlas::Shape& shape) {
 	return {
-		shape.bearingX,
-		shape.bearingY - shape.height,
-		shape.bearingX + shape.width,
-		shape.bearingY
+		shape.bearing.x,
+		shape.bearing.y - shape.height,
+		shape.bearing.x + shape.width,
+		shape.bearing.y
 	};
 }
 

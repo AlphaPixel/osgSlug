@@ -75,8 +75,8 @@ void RenderMask::pack(const Atlas* atlas) {
 			d.sdfRect[1] = cv(t.y);
 			d.sdfRect[2] = cv(t.w);
 			d.sdfRect[3] = cv(t.h);
-			d.sdfFrame[0] = t.emOriginX;
-			d.sdfFrame[1] = t.emOriginY;
+			d.sdfFrame[0] = t.emOrigin.x;
+			d.sdfFrame[1] = t.emOrigin.y;
 			d.sdfFrame[2] = t.texelsPerEm;
 			d.sdfFrame[3] = t.range;
 		}

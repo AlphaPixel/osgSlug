@@ -456,7 +456,7 @@ def create_shield_hud():
     metrics    = slughorn.freetype.load_font_metrics(FONT_PATH)
     slughorn.freetype.load_font_glyphs(FONT_PATH, codepoints, slug_atlas)
 
-    pivot = slughorn.ShapeInfo.Origin(CX, CY)
+    pivot = slughorn.ShapeInfo.Origin((CX, CY))
 
     # ── Sector arcs + labels ──────────────────────────────────────────────────
     for sec in SECTORS:
@@ -476,7 +476,7 @@ def create_shield_hud():
         # Outer arc stroke (drawn on top of fill).
         canvas.begin_path()
         canvas.arc(CX, CY, ARC_RADIUS, start, end)
-        canvas.stroke(ARC_WIDTH, BASE_COLOR, 1.0,
+        canvas.stroke(slughorn.canvas.Stroke(width=ARC_WIDTH), BASE_COLOR, 1.0,
                       slughorn.Key(sec["name"]), pivot)
 
         # Text label on a larger-radius arc, centered.
@@ -496,7 +496,7 @@ def create_shield_hud():
         canvas.begin_path()
         canvas.move_to(CX + TICK_INNER * cos_a, CY + TICK_INNER * sin_a)
         canvas.line_to(CX + TICK_OUTER * cos_a, CY + TICK_OUTER * sin_a)
-        canvas.stroke(TICK_WIDTH, BASE_COLOR, 1.0,
+        canvas.stroke(slughorn.canvas.Stroke(width=TICK_WIDTH), BASE_COLOR, 1.0,
                       slughorn.Key(f"tick_{angle:.3f}"), pivot)
 
     canvas.finalize(slughorn.Key("ticks_comp"))

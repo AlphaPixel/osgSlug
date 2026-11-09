@@ -189,7 +189,7 @@ void Atlas::packTextures() {
 				cv(shape.bandMaxY)
 			});
 
-			_shapeBuffer->push_back({cv(shape.originX), cv(shape.originY), 0_cv, 0_cv});
+			_shapeBuffer->push_back({cv(shape.origin.point.x), cv(shape.origin.point.y), shape.strokeRadius, 0_cv});
 		}
 
 		_shapeBuffer->setBufferObject(new osg::ShaderStorageBufferObject());
@@ -197,7 +197,7 @@ void Atlas::packTextures() {
 		// The SDF-only tile table (osgSlug::atlas.sdfTiles), kept OUT of the shape record above on
 		// purpose: only shapes with a baked tile get an entry, in shape order. Layers reach it through the index
 		// each drawable stores in effectData.z. Per tile: rect = (x, y, w, h) in texels;
-		// frame = (emOriginX, emOriginY, texelsPerEm, range), so texel = rect.xy + (em - frame.xy) *
+		// frame = (emOrigin.x, emOrigin.y, texelsPerEm, range), so texel = rect.xy + (em - frame.xy) *
 		// frame.z.
 		_sdfTileBuffer = nullptr;
 		_sdfTileIndex.clear();
@@ -212,7 +212,7 @@ void Atlas::packTextures() {
 			_sdfTileIndex[key] = static_cast<int>(_sdfTileBuffer->size() / 2);
 
 			_sdfTileBuffer->push_back({cv(t.x), cv(t.y), cv(t.w), cv(t.h)});
-			_sdfTileBuffer->push_back({t.emOriginX, t.emOriginY, t.texelsPerEm, t.range});
+			_sdfTileBuffer->push_back({t.emOrigin.x, t.emOrigin.y, t.texelsPerEm, t.range});
 		}
 
 		if(_sdfTileBuffer) _sdfTileBuffer->setBufferObject(new osg::ShaderStorageBufferObject());

@@ -186,7 +186,7 @@ int main(int argc, char** argv) {
 	if(shape) {
 		std::cout
 			<< "Shape metrics:" << std::endl
-			<< " bearing : (" << shape->bearingX << ", " << shape->bearingY << ")" << std::endl
+			<< " bearing : (" << shape->bearing.x << ", " << shape->bearing.y << ")" << std::endl
 			<< " size : " << shape->width << " x " << shape->height << std::endl
 			<< " advance : " << shape->advance << std::endl
 			<< " bandTex : (" << shape->bandTexX << ", " << shape->bandTexY << ")" << std::endl

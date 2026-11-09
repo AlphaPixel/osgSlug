@@ -225,15 +225,15 @@ int main(int argc, char** argv) {
 
 		/* canvas.beginPath();
 		canvas.roundedRect(0.1_cv, 0.1_cv, 0.9_cv, 0.9_cv, 0.1_cv);
-		canvas.stroke(0.018_cv, slughorn::Color{0.0_cv, 0.8_cv, 1.0_cv, 0.035_cv});
+		canvas.stroke({.width=0.018_cv}, slughorn::Color{0.0_cv, 0.8_cv, 1.0_cv, 0.035_cv});
 
 		canvas.beginPath();
 		canvas.roundedRect(0.1_cv, 0.1_cv, 0.9_cv, 0.9_cv, 0.1_cv);
-		canvas.stroke(0.009_cv, slughorn::Color{0.0_cv, 0.9_cv, 1.0_cv, 0.06_cv});
+		canvas.stroke({.width=0.009_cv}, slughorn::Color{0.0_cv, 0.9_cv, 1.0_cv, 0.06_cv});
 
 		canvas.beginPath();
 		canvas.roundedRect(0.1_cv, 0.1_cv, 0.9_cv, 0.9_cv, 0.1_cv);
-		canvas.stroke(0.003_cv, slughorn::Color{0.85_cv, 0.98_cv, 1.0_cv, 0.9_cv}); */
+		canvas.stroke({.width=0.003_cv}, slughorn::Color{0.85_cv, 0.98_cv, 1.0_cv, 0.9_cv}); */
 
 		auto grad = canvas.createLinearGradient(
 			0.1_cv, 0.1_cv, // bottom-left of the shape
@@ -244,7 +244,7 @@ int main(int argc, char** argv) {
 			}
 		);
 
-		canvas.strokeGradient(0.02_cv, grad);
+		canvas.strokeGradient({.width=0.02_cv}, grad);
 
 		compositeShape = canvas.finalize();
 	}

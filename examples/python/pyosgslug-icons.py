@@ -146,7 +146,7 @@ def build_wireframe(canvas, verts, faces, color):
 		canvas.move_to(verts[a].x, verts[a].y)
 		canvas.line_to(verts[b].x, verts[b].y)
 
-	canvas.stroke(WIREFRAME_STROKE_WIDTH, shade(color, 1.0))
+	canvas.stroke(slughorn.canvas.Stroke(width=WIREFRAME_STROKE_WIDTH), shade(color, 1.0))
 
 	return canvas.finalize()
 
